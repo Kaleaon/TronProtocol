@@ -61,8 +61,12 @@ public class MainActivity extends AppCompatActivity {
         
         // Register built-in plugins
         pluginManager.registerPlugin(new DeviceInfoPlugin());
+        pluginManager.registerPlugin(new WebSearchPlugin());
+        pluginManager.registerPlugin(new CalculatorPlugin());
+        pluginManager.registerPlugin(new DateTimePlugin());
+        pluginManager.registerPlugin(new TextAnalysisPlugin());
         
-        Toast.makeText(this, "Plugin system initialized", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Plugin system initialized with 5 plugins", Toast.LENGTH_SHORT).show();
     }
 
     private void requestPermissions() {
