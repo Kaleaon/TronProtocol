@@ -34,7 +34,9 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.READ_CONTACTS,
             Manifest.permission.WRITE_CONTACTS,
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
     };
 
     @Override
@@ -65,8 +67,9 @@ public class MainActivity extends AppCompatActivity {
         pluginManager.registerPlugin(new CalculatorPlugin());
         pluginManager.registerPlugin(new DateTimePlugin());
         pluginManager.registerPlugin(new TextAnalysisPlugin());
+        pluginManager.registerPlugin(new FileManagerPlugin());
         
-        Toast.makeText(this, "Plugin system initialized with 5 plugins", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Plugin system initialized with 6 plugins", Toast.LENGTH_SHORT).show();
     }
 
     private void requestPermissions() {
