@@ -1,0 +1,106 @@
+# TronProtocol Build Configuration (Clever Ferret Style)
+# Alternative YAML format for build automation
+
+project:
+  name: TronProtocol
+  id: com.tronprotocol.app
+  description: "A.I. heartbeat and cellular device access"
+
+versioning:
+  version_code: 1
+  version_name: 1.0.0
+  auto_increment: true
+
+android:
+  compileSdk: 34
+  minSdk: 24
+  targetSdk: 34
+  namespace: com.tronprotocol.app
+
+variants:
+  - name: debug
+    type: debug
+    config:
+      debuggable: true
+      minifyEnabled: false
+      shrinkResources: false
+      applicationIdSuffix: .debug
+      versionNameSuffix: -debug
+    output:
+      name: TronProtocol-debug-${version_name}
+      
+  - name: release
+    type: release
+    config:
+      debuggable: false
+      minifyEnabled: true
+      shrinkResources: true
+      proguardFiles:
+        - proguard-android-optimize.txt
+        - proguard-rules.pro
+    output:
+      name: TronProtocol-release-${version_name}
+
+keystore:
+  debug:
+    path: ~/.android/debug.keystore
+    storePassword: android
+    keyAlias: androiddebugkey
+    keyPassword: android
+    
+  # Production keystore configuration
+  # release:
+  #   path: ${KEYSTORE_FILE}
+  #   storePassword: ${KEYSTORE_PASSWORD}
+  #   keyAlias: ${KEY_ALIAS}
+  #   keyPassword: ${KEY_PASSWORD}
+
+libraries:
+  androidx:
+    - appcompat:1.6.1
+    - material:1.9.0
+    - constraintlayout:2.1.4
+    
+  google_services:
+    - play-services-mlkit-text-recognition:19.0.0
+    - play-services-base:18.2.0
+    
+  tensorflow:
+    - tensorflow-lite:2.13.0
+    - tensorflow-lite-gpu:2.13.0
+    - tensorflow-lite-support:0.4.4
+
+build_config:
+  java_version: 1.8
+  gradle_version: 8.1.0
+  kotlin_version: null  # Java project
+
+features:
+  compose: false
+  viewBinding: false
+  dataBinding: false
+  buildConfig: true
+
+tasks:
+  pre_build:
+    - name: "Clean"
+      command: "./gradlew clean"
+      
+  build:
+    - name: "Debug Build"
+      command: "./gradlew assembleDebug"
+      variant: debug
+      
+    - name: "Release Build"
+      command: "./gradlew assembleRelease"
+      variant: release
+      
+  post_build:
+    - name: "Copy APKs"
+      command: "mkdir -p dist && cp app/build/outputs/apk/**/*.apk dist/"
+
+artifacts:
+  outputs:
+    - app/build/outputs/apk/**/*.apk
+    - app/build/outputs/bundle/**/*.aab
+  destination: dist/
