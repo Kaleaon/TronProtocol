@@ -19,6 +19,19 @@ The app includes dependencies for Neural Processing Unit (NPU) and AI Core funct
 - ML Kit for text recognition
 - Support for neural network acceleration
 
+### Security Features (Inspired by ToolNeuron)
+- **Hardware-Backed Encryption**: AES-256-GCM encryption using Android KeyStore
+- **Secure Storage**: Encrypted storage for sensitive data with automatic key management
+- **Memory Vault**: Secure data persistence inspired by ToolNeuron's architecture
+- **Zero Trust**: All sensitive data encrypted at rest
+
+### Plugin System (Inspired by ToolNeuron)
+Extensible plugin architecture for adding functionality:
+- **Plugin Interface**: Standardized plugin API
+- **Plugin Manager**: Central management for all plugins
+- **Built-in Plugins**: Device info and system utilities
+- **Execution Metrics**: Performance tracking for plugin operations
+
 ### Permissions
 The app requests comprehensive permissions for full device access:
 - **Phone**: Read phone state, call phone, manage call logs
@@ -40,7 +53,17 @@ TronProtocol/
 │       ├── java/com/tronprotocol/app/
 │       │   ├── MainActivity.java         # Main activity with permission handling
 │       │   ├── TronProtocolService.java  # Background foreground service
-│       │   └── BootReceiver.java         # Boot broadcast receiver
+│       │   ├── BootReceiver.java         # Boot broadcast receiver
+│       │   ├── security/
+│       │   │   ├── EncryptionManager.java    # Hardware-backed encryption (from ToolNeuron)
+│       │   │   └── SecureStorage.java        # Encrypted storage system (from ToolNeuron)
+│       │   ├── models/
+│       │   │   └── AIModel.java              # AI model representation (from ToolNeuron)
+│       │   └── plugins/
+│       │       ├── Plugin.java               # Plugin interface (from ToolNeuron)
+│       │       ├── PluginResult.java         # Plugin execution results (from ToolNeuron)
+│       │       ├── PluginManager.java        # Plugin management system (from ToolNeuron)
+│       │       └── DeviceInfoPlugin.java     # Example plugin (from ToolNeuron)
 │       └── res/
 │           ├── layout/
 │           │   └── activity_main.xml     # Main activity layout
@@ -108,6 +131,58 @@ These libraries enable:
 - Battery optimization exemption
 
 Ensure these permissions are used responsibly and in compliance with applicable laws and regulations.
+
+## ToolNeuron Integration
+
+This project integrates several architectural concepts from [ToolNeuron](https://github.com/Siddhesh2377/ToolNeuron), a privacy-first AI assistant:
+
+### Integrated Features
+
+1. **Hardware-Backed Encryption**
+   - AES-256-GCM encryption using Android KeyStore
+   - Secure key generation and storage
+   - Based on ToolNeuron's Memory Vault encryption architecture
+
+2. **Secure Storage System**
+   - Encrypted file-based storage for sensitive data
+   - Automatic encryption/decryption on read/write
+   - Key-value store with secure persistence
+
+3. **Plugin Architecture**
+   - Extensible plugin system for adding functionality
+   - Plugin lifecycle management (initialize, execute, destroy)
+   - Execution metrics and error handling
+   - Similar to ToolNeuron's plugin system for web search, calculator, etc.
+
+4. **Model Management**
+   - AI model representation and metadata
+   - Model loading status tracking
+   - Category-based organization
+   - Inspired by ToolNeuron's model management system
+
+### Usage Examples
+
+**Secure Storage:**
+```java
+SecureStorage storage = new SecureStorage(context);
+storage.store("api_key", "sensitive_data");
+String data = storage.retrieve("api_key");
+```
+
+**Plugin System:**
+```java
+PluginManager manager = PluginManager.getInstance();
+manager.initialize(context);
+manager.registerPlugin(new DeviceInfoPlugin());
+PluginResult result = manager.executePlugin("device_info", "");
+```
+
+**Encryption:**
+```java
+EncryptionManager encryption = new EncryptionManager();
+byte[] encrypted = encryption.encryptString("secret message");
+String decrypted = encryption.decryptString(encrypted);
+```
 
 ## License
 

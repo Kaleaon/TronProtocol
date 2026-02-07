@@ -15,6 +15,9 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.tronprotocol.app.plugins.DeviceInfoPlugin;
+import com.tronprotocol.app.plugins.PluginManager;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final int PERMISSION_REQUEST_CODE = 1001;
@@ -39,6 +42,9 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // Initialize plugin system (inspired by ToolNeuron)
+        initializePlugins();
+        
         // Request permissions
         requestPermissions();
         
@@ -47,6 +53,16 @@ public class MainActivity extends AppCompatActivity {
         
         // Start the background service
         startTronProtocolService();
+    }
+    
+    private void initializePlugins() {
+        PluginManager pluginManager = PluginManager.getInstance();
+        pluginManager.initialize(this);
+        
+        // Register built-in plugins
+        pluginManager.registerPlugin(new DeviceInfoPlugin());
+        
+        Toast.makeText(this, "Plugin system initialized", Toast.LENGTH_SHORT).show();
     }
 
     private void requestPermissions() {

@@ -13,6 +13,8 @@ import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
+import com.tronprotocol.app.security.SecureStorage;
+
 public class TronProtocolService extends Service {
 
     private static final String CHANNEL_ID = "TronProtocolServiceChannel";
@@ -21,12 +23,21 @@ public class TronProtocolService extends Service {
     private PowerManager.WakeLock wakeLock;
     private Thread heartbeatThread;
     private volatile boolean isRunning = false;
+    private SecureStorage secureStorage;
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
         acquireWakeLock();
+        
+        // Initialize secure storage (inspired by ToolNeuron's Memory Vault)
+        try {
+            secureStorage = new SecureStorage(this);
+            android.util.Log.d("TronProtocol", "Secure storage initialized");
+        } catch (Exception e) {
+            android.util.Log.e("TronProtocol", "Failed to initialize secure storage", e);
+        }
     }
 
     @Override
@@ -112,14 +123,25 @@ public class TronProtocolService extends Service {
     }
 
     private void performHeartbeat() {
-        // Placeholder for AI/NPU processing
+        // AI/NPU processing with secure data storage
         // This method would:
         // 1. Check cellular device status
         // 2. Process AI models using NPU
         // 3. Monitor system health
         // 4. Send heartbeat signals
+        // 5. Store sensitive data securely (inspired by ToolNeuron)
         
-        android.util.Log.d("TronProtocol", "Heartbeat active - AI monitoring cellular device access");
+        try {
+            // Example: Store heartbeat timestamp securely
+            if (secureStorage != null) {
+                long timestamp = System.currentTimeMillis();
+                secureStorage.store("last_heartbeat", String.valueOf(timestamp));
+            }
+            
+            android.util.Log.d("TronProtocol", "Heartbeat active - AI monitoring cellular device access");
+        } catch (Exception e) {
+            android.util.Log.e("TronProtocol", "Error in heartbeat processing", e);
+        }
     }
 
     @Override
