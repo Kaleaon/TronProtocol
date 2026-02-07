@@ -40,6 +40,30 @@ The app includes dependencies for Neural Processing Unit (NPU) and AI Core funct
 - **Semantic Connections**: Links related concepts for better retrieval
 - **Performance Gain**: 10-20% faster retrieval after consolidation
 
+### Essential AI Tools (6 Built-in Plugins)
+- **WebSearchPlugin**: Privacy-focused web search (DuckDuckGo)
+- **CalculatorPlugin**: Math expressions, scientific functions, unit conversions
+- **DateTimePlugin**: Time operations, timezone conversion, date arithmetic
+- **TextAnalysisPlugin**: Text stats, URL/email extraction, transformations
+- **FileManagerPlugin**: Full filesystem access, document editing/creation
+- **DeviceInfoPlugin**: System and hardware information
+
+### Document & File Operations (New!)
+- **Full Filesystem Access**: Read, write, create, delete files and directories
+- **Document Editing**: Modify existing documents
+- **Document Creation**: Create new documents from scratch
+- **File Management**: List, move, copy, search files
+- **Batch Operations**: Multiple file operations
+- **Path Resolution**: Supports relative and absolute paths
+
+### AI Model Training (New!)
+- **Self-Training**: AI creates models from its own knowledge
+- **Knowledge Extraction**: Uses MemRL to extract best concepts
+- **Model Evolution**: Retrain models with new knowledge packs
+- **Training Metrics**: Track accuracy, iterations, loss
+- **Model Export**: Save trained models to files
+- **Quality-Based**: Training considers Q-values for quality
+
 ### Security Features (Inspired by ToolNeuron)
 - **Hardware-Backed Encryption**: AES-256-GCM encryption using Android KeyStore
 - **Secure Storage**: Encrypted storage for sensitive data with automatic key management
@@ -54,12 +78,13 @@ Extensible plugin architecture for adding functionality:
 - **Execution Metrics**: Performance tracking for plugin operations
 
 ### Permissions
-The app requests comprehensive permissions for full device access:
+The app requests comprehensive permissions for full device and filesystem access:
 - **Phone**: Read phone state, call phone, manage call logs
 - **SMS**: Send/receive SMS and MMS messages
 - **Contacts**: Read and write contacts, access accounts
 - **Location**: Fine and coarse location access
 - **Network**: Internet and network state access
+- **Storage**: Read/write external storage, full filesystem access
 - **System**: Foreground service, wake lock, battery optimization exemption
 
 ## Project Structure
