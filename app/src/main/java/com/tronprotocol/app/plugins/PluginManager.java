@@ -99,6 +99,15 @@ public class PluginManager {
         }
         
         long startTime = System.currentTimeMillis();
+
+        PolicyGuardrailPlugin guardrail = getGuardrailPlugin();
+        if (guardrail != null && !PolicyGuardrailPlugin.class.getName().equals(plugin.getClass().getName())) {
+            PluginResult policy = guardrail.evaluate(pluginId, input);
+            if (!policy.isSuccess()) {
+                return PluginResult.error(policy.getErrorMessage(), System.currentTimeMillis() - startTime);
+            }
+        }
+
         try {
             PluginResult result = plugin.execute(input);
             Log.d(TAG, "Executed plugin " + plugin.getName() + ": " + result);
@@ -110,6 +119,14 @@ public class PluginManager {
         }
     }
     
+    private PolicyGuardrailPlugin getGuardrailPlugin() {
+        Plugin plugin = plugins.get("policy_guardrail");
+        if (plugin instanceof PolicyGuardrailPlugin) {
+            return (PolicyGuardrailPlugin) plugin;
+        }
+        return null;
+    }
+
     /**
      * Clean up all plugins
      */
