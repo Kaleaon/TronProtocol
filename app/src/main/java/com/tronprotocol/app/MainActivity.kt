@@ -25,6 +25,7 @@ import com.tronprotocol.app.plugins.FileManagerPlugin
 import com.tronprotocol.app.plugins.GuidanceRouterPlugin
 import com.tronprotocol.app.plugins.NotesPlugin
 import com.tronprotocol.app.plugins.PersonalizationPlugin
+import com.tronprotocol.app.plugins.Plugin
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PolicyGuardrailPlugin
 import com.tronprotocol.app.plugins.SandboxedCodeExecutionPlugin
@@ -110,25 +111,43 @@ class MainActivity : AppCompatActivity() {
     private fun initializePlugins() {
         val pluginManager = PluginManager.getInstance()
         pluginManager.initialize(this)
+        val failedPlugins = mutableListOf<String>()
+
+        fun register(plugin: Plugin) {
+            val isRegistered = pluginManager.registerPlugin(plugin)
+            if (!isRegistered) {
+                failedPlugins.add(plugin.name)
+            }
+        }
 
         // Register guardrail first so policies apply to subsequent plugin invocations
-        pluginManager.registerPlugin(PolicyGuardrailPlugin())
+        register(PolicyGuardrailPlugin())
 
-        pluginManager.registerPlugin(DeviceInfoPlugin())
-        pluginManager.registerPlugin(WebSearchPlugin())
-        pluginManager.registerPlugin(CalculatorPlugin())
-        pluginManager.registerPlugin(DateTimePlugin())
-        pluginManager.registerPlugin(TextAnalysisPlugin())
-        pluginManager.registerPlugin(FileManagerPlugin())
-        pluginManager.registerPlugin(NotesPlugin())
-        pluginManager.registerPlugin(TelegramBridgePlugin())
-        pluginManager.registerPlugin(TaskAutomationPlugin())
-        pluginManager.registerPlugin(SandboxedCodeExecutionPlugin())
-        pluginManager.registerPlugin(PersonalizationPlugin())
-        pluginManager.registerPlugin(CommunicationHubPlugin())
-        pluginManager.registerPlugin(GuidanceRouterPlugin())
+        register(DeviceInfoPlugin())
+        register(WebSearchPlugin())
+        register(CalculatorPlugin())
+        register(DateTimePlugin())
+        register(TextAnalysisPlugin())
+        register(FileManagerPlugin())
+        register(NotesPlugin())
+        register(TelegramBridgePlugin())
+        register(TaskAutomationPlugin())
+        register(SandboxedCodeExecutionPlugin())
+        register(PersonalizationPlugin())
+        register(CommunicationHubPlugin())
+        register(GuidanceRouterPlugin())
 
-        pluginCountText.text = "Active plugins: ${pluginManager.getAllPlugins().size}"
+        val activePluginCount = pluginManager.getAllPlugins().size
+pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
+
+        if (failedPlugins.isNotEmpty()) {
+            val skippedPlugins = failedPlugins.joinToString()
+            Toast.makeText(
+                this,
+                getString(R.string.skipped_plugins_message, skippedPlugins),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun requestInitialAccess() {
