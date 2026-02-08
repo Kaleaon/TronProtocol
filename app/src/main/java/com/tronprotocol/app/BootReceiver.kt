@@ -15,6 +15,8 @@ class BootReceiver : BroadcastReceiver() {
             return
         }
 
+        StartupDiagnostics.recordMilestone(context, "boot_receiver_invoked")
+
         try {
             val request = OneTimeWorkRequestBuilder<BootStartWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
@@ -22,7 +24,9 @@ class BootReceiver : BroadcastReceiver() {
 
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(BOOT_START_WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+            StartupDiagnostics.recordMilestone(context, "service_scheduled", "BootStartWorker enqueued")
         } catch (t: Throwable) {
+            StartupDiagnostics.recordError(context, "boot_receiver_schedule_failed", t)
             Log.e(TAG, "Failed to schedule boot startup worker", t)
         }
     }

@@ -37,6 +37,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
+    private lateinit var diagnosticsText: TextView
     private lateinit var prefs: SharedPreferences
 
     private val runtimePermissions by lazy {
@@ -63,6 +64,7 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             updatePermissionUi()
+            refreshDiagnosticsPanel()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,24 +74,39 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
+        diagnosticsText = findViewById(R.id.diagnosticsText)
 
-        initializePlugins()
-        wireUiActions()
+        runStartupBlock("initialize_plugins") { initializePlugins() }
+        runStartupBlock("wire_ui_actions") { wireUiActions() }
 
         if (prefs.getBoolean(FIRST_LAUNCH_KEY, true)) {
-            requestInitialAccess()
-            prefs.edit().putBoolean(FIRST_LAUNCH_KEY, false).apply()
+            runStartupBlock("request_initial_access") {
+                requestInitialAccess()
+                prefs.edit().putBoolean(FIRST_LAUNCH_KEY, false).apply()
+            }
         } else {
-            updatePermissionUi()
+            runStartupBlock("update_permission_ui") { updatePermissionUi() }
         }
 
-        requestBatteryOptimizationExemption()
-        startTronProtocolService()
+        runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
+        runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
+        refreshDiagnosticsPanel()
     }
 
     override fun onStart() {
         super.onStart()
-        startServiceIfDeferredFromBoot()
+        runStartupBlock("start_service_if_deferred_from_boot") { startServiceIfDeferredFromBoot() }
+        refreshDiagnosticsPanel()
+    }
+
+    private fun runStartupBlock(name: String, block: () -> Unit) {
+        try {
+            block()
+            StartupDiagnostics.recordMilestone(this, "$name_success")
+        } catch (t: Throwable) {
+            StartupDiagnostics.recordError(this, name, t)
+            Log.e(TAG, "Startup block failed: $name", t)
+        }
     }
 
     private fun wireUiActions() {
@@ -99,11 +116,13 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnGrantAllFiles).setOnClickListener {
             requestAllFilesAccess()
+            refreshDiagnosticsPanel()
         }
 
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
-            startTronProtocolService()
+            runStartupBlock("start_service_from_button") { startTronProtocolService() }
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
+            refreshDiagnosticsPanel()
         }
     }
 
@@ -128,7 +147,9 @@ class MainActivity : AppCompatActivity() {
         pluginManager.registerPlugin(CommunicationHubPlugin())
         pluginManager.registerPlugin(GuidanceRouterPlugin())
 
-        pluginCountText.text = "Active plugins: ${pluginManager.getAllPlugins().size}"
+        val pluginCount = pluginManager.getAllPlugins().size
+        pluginCountText.text = "Active plugins: $pluginCount"
+        StartupDiagnostics.recordMilestone(this, "plugin_init_summary", "Registered plugins: $pluginCount")
     }
 
     private fun requestInitialAccess() {
@@ -182,7 +203,9 @@ class MainActivity : AppCompatActivity() {
         try {
             startTronProtocolService()
             prefs.edit().putBoolean(BootReceiver.DEFERRED_SERVICE_START_KEY, false).apply()
+            StartupDiagnostics.recordMilestone(this, "service_scheduled", "Deferred service launch requested")
         } catch (t: Throwable) {
+            StartupDiagnostics.recordError(this, "deferred_service_start_failed", t)
             Log.w(TAG, "Deferred service start failed", t)
         }
     }
@@ -194,6 +217,10 @@ class MainActivity : AppCompatActivity() {
         } else {
             startService(serviceIntent)
         }
+    }
+
+    private fun refreshDiagnosticsPanel() {
+        diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
     }
 
     companion object {
