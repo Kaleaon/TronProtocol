@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,18 +18,18 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.tronprotocol.app.plugins.CalculatorPlugin
-import com.tronprotocol.app.plugins.TaskAutomationPlugin
-import com.tronprotocol.app.plugins.SandboxedCodeExecutionPlugin
-import com.tronprotocol.app.plugins.PolicyGuardrailPlugin
-import com.tronprotocol.app.plugins.PersonalizationPlugin
 import com.tronprotocol.app.plugins.CommunicationHubPlugin
 import com.tronprotocol.app.plugins.DateTimePlugin
 import com.tronprotocol.app.plugins.DeviceInfoPlugin
 import com.tronprotocol.app.plugins.FileManagerPlugin
 import com.tronprotocol.app.plugins.GuidanceRouterPlugin
 import com.tronprotocol.app.plugins.NotesPlugin
+import com.tronprotocol.app.plugins.PersonalizationPlugin
 import com.tronprotocol.app.plugins.Plugin
 import com.tronprotocol.app.plugins.PluginManager
+import com.tronprotocol.app.plugins.PolicyGuardrailPlugin
+import com.tronprotocol.app.plugins.SandboxedCodeExecutionPlugin
+import com.tronprotocol.app.plugins.TaskAutomationPlugin
 import com.tronprotocol.app.plugins.TelegramBridgePlugin
 import com.tronprotocol.app.plugins.TextAnalysisPlugin
 import com.tronprotocol.app.plugins.WebSearchPlugin
@@ -69,7 +70,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        prefs = getSharedPreferences("tron_protocol_prefs", MODE_PRIVATE)
+        prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
 
@@ -85,6 +86,11 @@ class MainActivity : AppCompatActivity() {
 
         requestBatteryOptimizationExemption()
         startTronProtocolService()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        startServiceIfDeferredFromBoot()
     }
 
     private fun wireUiActions() {
@@ -187,6 +193,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startServiceIfDeferredFromBoot() {
+        if (!prefs.getBoolean(BootReceiver.DEFERRED_SERVICE_START_KEY, false)) {
+            return
+        }
+
+        try {
+            startTronProtocolService()
+            prefs.edit().putBoolean(BootReceiver.DEFERRED_SERVICE_START_KEY, false).apply()
+        } catch (t: Throwable) {
+            Log.w(TAG, "Deferred service start failed", t)
+        }
+    }
+
     private fun startTronProtocolService() {
         val serviceIntent = Intent(this, TronProtocolService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -198,5 +217,6 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
+        private const val TAG = "MainActivity"
     }
 }
