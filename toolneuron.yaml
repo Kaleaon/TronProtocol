@@ -1,0 +1,75 @@
+# TronProtocol Build Configuration (ToolNeuron Style)
+# This file defines the build configuration for automatic packaging and debug building
+
+app:
+  name: "TronProtocol"
+  package: "com.tronprotocol.app"
+  
+version:
+  code: 1
+  name: "1.0.0"
+  
+build:
+  compile_sdk: 34
+  min_sdk: 24
+  target_sdk: 34
+  
+build_types:
+  debug:
+    enabled: true
+    debuggable: true
+    minify_enabled: false
+    shrink_resources: false
+    output_name: "TronProtocol-debug"
+    
+  release:
+    enabled: true
+    debuggable: false
+    minify_enabled: true
+    shrink_resources: true
+    proguard_files:
+      - "proguard-rules.pro"
+    output_name: "TronProtocol-release"
+    
+# Signing configuration (optional - for release builds)
+signing:
+  debug:
+    store_file: "debug.keystore"
+    store_password: "android"
+    key_alias: "androiddebugkey"
+    key_password: "android"
+    
+  # Uncomment and configure for release signing
+  # release:
+  #   store_file: "release.keystore"
+  #   store_password: "${KEYSTORE_PASSWORD}"
+  #   key_alias: "release"
+  #   key_password: "${KEY_PASSWORD}"
+
+dependencies:
+  # Core Android
+  - "androidx.appcompat:appcompat:1.6.1"
+  - "com.google.android.material:material:1.9.0"
+  - "androidx.constraintlayout:constraintlayout:2.1.4"
+  
+  # NPU/AI Core
+  - "com.google.android.gms:play-services-mlkit-text-recognition:19.0.0"
+  - "org.tensorflow:tensorflow-lite:2.13.0"
+  - "org.tensorflow:tensorflow-lite-gpu:2.13.0"
+  - "org.tensorflow:tensorflow-lite-support:0.4.4"
+  - "com.google.android.gms:play-services-base:18.2.0"
+
+output:
+  directory: "build/outputs/apk"
+  artifacts:
+    - "**/*.apk"
+    - "**/*.aab"
+  
+build_features:
+  view_binding: false
+  data_binding: false
+  
+optimization:
+  use_r8: true
+  enable_code_shrinking: true
+  enable_resource_shrinking: true
