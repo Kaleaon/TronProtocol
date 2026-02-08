@@ -7,11 +7,15 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.tronprotocol.app.security.SecureStorage;
 import com.tronprotocol.app.rag.RAGStore;
@@ -31,6 +35,12 @@ public class TronProtocolService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final String AI_ID = "tronprotocol_ai";
     private static final int CONSOLIDATION_CHECK_INTERVAL = 3600000;  // Check every hour
+    public static final String SERVICE_STARTUP_STATE_KEY = "service_startup_state";
+    public static final String SERVICE_STARTUP_REASON_KEY = "service_startup_reason";
+    public static final String STATE_RUNNING = "running";
+    public static final String STATE_DEFERRED = "deferred";
+    public static final String STATE_BLOCKED_BY_PERMISSION = "blocked-by-permission";
+    public static final String STATE_DEGRADED = "degraded";
     
     private PowerManager.WakeLock wakeLock;
     private Thread heartbeatThread;
@@ -91,9 +101,38 @@ public class TronProtocolService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        // Start service in foreground to prevent it from being killed
-        startForeground(NOTIFICATION_ID, createNotification());
-        
+        StartupPreflightResult preflight = runStartupPreflight();
+
+        if (!preflight.canStartForeground) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        try {
+            // Start service in foreground to prevent it from being killed
+            startForeground(NOTIFICATION_ID, createNotification());
+        } catch (Throwable t) {
+            publishStartupDiagnostic(
+                    STATE_DEFERRED,
+                    "Foreground notification failed: " + t.getClass().getSimpleName(),
+                    true
+            );
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        if (!preflight.canStartLoops) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, true);
+            return START_STICKY;
+        }
+
+        if (STATE_DEGRADED.equals(preflight.state)) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, false);
+        } else {
+            publishStartupDiagnostic(STATE_RUNNING, "Foreground service and loops active", false);
+        }
+
         // Start the heartbeat thread
         startHeartbeat();
         
@@ -102,6 +141,62 @@ public class TronProtocolService extends Service {
         
         // Restart service if killed
         return START_STICKY;
+    }
+
+    @NonNull
+    private StartupPreflightResult runStartupPreflight() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            return StartupPreflightResult.blocked(
+                    STATE_BLOCKED_BY_PERMISSION,
+                    "POST_NOTIFICATIONS missing. Open app and grant notification permission."
+            );
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null) {
+                return StartupPreflightResult.blocked(
+                        STATE_DEFERRED,
+                        "NotificationManager unavailable. Retry service start once system services stabilize."
+                );
+            }
+
+            NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
+            if (channel == null) {
+                return StartupPreflightResult.blocked(
+                        STATE_DEFERRED,
+                        "Notification channel missing. Reopen app to recreate foreground channel."
+                );
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null && !manager.areNotificationsEnabled()) {
+                return StartupPreflightResult.degraded(
+                        "Notifications disabled at app level. Service loops are active but user alerts are suppressed."
+                );
+            }
+        }
+
+        return StartupPreflightResult.running();
+    }
+
+    private void publishStartupDiagnostic(String state, String reason, boolean warn) {
+        SharedPreferences prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE);
+        prefs.edit()
+                .putString(SERVICE_STARTUP_STATE_KEY, state)
+                .putString(SERVICE_STARTUP_REASON_KEY, reason)
+                .apply();
+
+        String message = "Startup state=" + state + " reason=" + reason;
+        if (warn) {
+            android.util.Log.w("TronProtocol", message);
+        } else {
+            android.util.Log.i("TronProtocol", message);
+        }
     }
 
     private void createNotificationChannel() {
@@ -115,6 +210,8 @@ public class TronProtocolService extends Service {
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(serviceChannel);
+            } else {
+                android.util.Log.w("TronProtocol", "Unable to create notification channel: manager unavailable");
             }
         }
     }
@@ -329,5 +426,31 @@ public class TronProtocolService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private static class StartupPreflightResult {
+        final boolean canStartForeground;
+        final boolean canStartLoops;
+        final String state;
+        final String reason;
+
+        StartupPreflightResult(boolean canStartForeground, boolean canStartLoops, String state, String reason) {
+            this.canStartForeground = canStartForeground;
+            this.canStartLoops = canStartLoops;
+            this.state = state;
+            this.reason = reason;
+        }
+
+        static StartupPreflightResult blocked(String state, String reason) {
+            return new StartupPreflightResult(false, false, state, reason);
+        }
+
+        static StartupPreflightResult degraded(String reason) {
+            return new StartupPreflightResult(true, true, STATE_DEGRADED, reason);
+        }
+
+        static StartupPreflightResult running() {
+            return new StartupPreflightResult(true, true, STATE_RUNNING, "All notification prerequisites satisfied.");
+        }
     }
 }

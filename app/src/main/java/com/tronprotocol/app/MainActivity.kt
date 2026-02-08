@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
+    private lateinit var startupStateBadgeText: TextView
     private lateinit var prefs: SharedPreferences
 
     private val runtimePermissions by lazy {
@@ -63,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             updatePermissionUi()
+            refreshStartupStateBadge()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -72,6 +75,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
+        startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
 
         initializePlugins()
         wireUiActions()
@@ -85,11 +89,13 @@ class MainActivity : AppCompatActivity() {
 
         requestBatteryOptimizationExemption()
         startTronProtocolService()
+        refreshStartupStateBadge()
     }
 
     override fun onStart() {
         super.onStart()
         startServiceIfDeferredFromBoot()
+        refreshStartupStateBadge()
     }
 
     private fun wireUiActions() {
@@ -103,6 +109,7 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
             startTronProtocolService()
+            refreshStartupStateBadge()
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
         }
     }
@@ -158,6 +165,27 @@ class MainActivity : AppCompatActivity() {
 
         permissionStatusText.text =
             "Runtime permissions: $granted/${runtimePermissions.size}\nAll files access: ${if (allFilesGranted) "Granted" else "Pending"}"
+    }
+
+    private fun refreshStartupStateBadge() {
+        val state = prefs.getString(
+            TronProtocolService.SERVICE_STARTUP_STATE_KEY,
+            TronProtocolService.STATE_DEFERRED
+        ) ?: TronProtocolService.STATE_DEFERRED
+        val reason = prefs.getString(
+            TronProtocolService.SERVICE_STARTUP_REASON_KEY,
+            "Waiting for service startup diagnostics"
+        ) ?: "Waiting for service startup diagnostics"
+
+        val (color, label) = when (state) {
+            TronProtocolService.STATE_RUNNING -> Color.parseColor("#2E7D32") to "RUNNING"
+            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> Color.parseColor("#C62828") to "BLOCKED-BY-PERMISSION"
+            TronProtocolService.STATE_DEGRADED -> Color.parseColor("#EF6C00") to "DEGRADED"
+            else -> Color.parseColor("#616161") to "DEFERRED"
+        }
+
+        startupStateBadgeText.setBackgroundColor(color)
+        startupStateBadgeText.text = "Service status: $label\n$reason"
     }
 
     private fun requestBatteryOptimizationExemption() {
