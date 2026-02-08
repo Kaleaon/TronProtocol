@@ -9,8 +9,8 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -325,11 +325,10 @@ public class FileManagerPlugin implements Plugin {
             throw new IOException("Destination already exists: " + to);
         }
         
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            Files.move(source.toPath(), dest.toPath(), StandardCopyOption.ATOMIC_MOVE);
-        } else {
-            if (!source.renameTo(dest)) {
-                throw new IOException("Failed to move file");
+        if (!source.renameTo(dest)) {
+            copyFileContents(source, dest);
+            if (!source.delete()) {
+                throw new IOException("Moved file data but could not delete source: " + from);
             }
         }
         
@@ -355,23 +354,29 @@ public class FileManagerPlugin implements Plugin {
             throw new IOException("Destination already exists: " + to);
         }
         
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            Files.copy(source.toPath(), dest.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
-        } else {
-            // Fallback for older Android versions
-            try (BufferedReader reader = new BufferedReader(new FileReader(source));
-                 BufferedWriter writer = new BufferedWriter(new FileWriter(dest))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    writer.write(line);
-                    writer.newLine();
-                }
-            }
-        }
+        copyFileContents(source, dest);
         
         return "Copied " + from + " to " + to;
     }
     
+
+    private void copyFileContents(File source, File dest) throws IOException {
+        File parent = dest.getParentFile();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
+
+        try (FileInputStream inputStream = new FileInputStream(source);
+             FileOutputStream outputStream = new FileOutputStream(dest)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = inputStream.read(buffer)) != -1) {
+                outputStream.write(buffer, 0, bytesRead);
+            }
+            outputStream.getFD().sync();
+        }
+    }
+
     /**
      * Check if file/directory exists
      */
