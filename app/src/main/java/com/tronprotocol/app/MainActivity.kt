@@ -247,29 +247,36 @@ class MainActivity : AppCompatActivity() {
         pluginManager.initialize(this)
         val failedPlugins = mutableListOf<String>()
 
-        fun register(plugin: Plugin) {
-            val isRegistered = pluginManager.registerPlugin(plugin)
-            if (!isRegistered) {
-                failedPlugins.add(plugin.name)
+        fun register(name: String, creator: () -> Plugin) {
+            try {
+                val plugin = creator()
+                val isRegistered = pluginManager.registerPlugin(plugin)
+                if (!isRegistered) {
+                    failedPlugins.add(name)
+                    Log.w(TAG, "Plugin registration failed: $name")
+                }
+            } catch (t: Throwable) {
+                failedPlugins.add(name)
+                Log.w(TAG, "Plugin initialization failed: $name", t)
             }
         }
 
         // Register guardrail first so policies apply to subsequent plugin invocations
-        register(PolicyGuardrailPlugin())
+        register("PolicyGuardrailPlugin") { PolicyGuardrailPlugin() }
 
-        register(DeviceInfoPlugin())
-        register(WebSearchPlugin())
-        register(CalculatorPlugin())
-        register(DateTimePlugin())
-        register(TextAnalysisPlugin())
-        register(FileManagerPlugin())
-        register(NotesPlugin())
-        register(TelegramBridgePlugin())
-        register(TaskAutomationPlugin())
-        register(SandboxedCodeExecutionPlugin())
-        register(PersonalizationPlugin())
-        register(CommunicationHubPlugin())
-        register(GuidanceRouterPlugin())
+        register("DeviceInfoPlugin") { DeviceInfoPlugin() }
+        register("WebSearchPlugin") { WebSearchPlugin() }
+        register("CalculatorPlugin") { CalculatorPlugin() }
+        register("DateTimePlugin") { DateTimePlugin() }
+        register("TextAnalysisPlugin") { TextAnalysisPlugin() }
+        register("FileManagerPlugin") { FileManagerPlugin() }
+        register("NotesPlugin") { NotesPlugin() }
+        register("TelegramBridgePlugin") { TelegramBridgePlugin() }
+        register("TaskAutomationPlugin") { TaskAutomationPlugin() }
+        register("SandboxedCodeExecutionPlugin") { SandboxedCodeExecutionPlugin() }
+        register("PersonalizationPlugin") { PersonalizationPlugin() }
+        register("CommunicationHubPlugin") { CommunicationHubPlugin() }
+        register("GuidanceRouterPlugin") { GuidanceRouterPlugin() }
 
         val activePluginCount = pluginManager.getAllPlugins().size
 pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
