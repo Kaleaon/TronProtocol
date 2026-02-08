@@ -138,7 +138,7 @@ class MainActivity : AppCompatActivity() {
         register(GuidanceRouterPlugin())
 
         val activePluginCount = pluginManager.getAllPlugins().size
-        pluginCountText.text = "Active plugins: $activePluginCount"
+pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
 
         if (failedPlugins.isNotEmpty()) {
             val skippedPlugins = failedPlugins.joinToString()
