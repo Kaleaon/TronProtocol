@@ -144,7 +144,7 @@ pluginCountText.text = getString(R.string.active_plugins_count, activePluginCoun
             val skippedPlugins = failedPlugins.joinToString()
             Toast.makeText(
                 this,
-                "Some plugins were skipped: $skippedPlugins",
+                getString(R.string.skipped_plugins_message, skippedPlugins),
                 Toast.LENGTH_LONG
             ).show()
         }
