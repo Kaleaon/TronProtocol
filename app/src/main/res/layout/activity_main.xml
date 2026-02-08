@@ -58,6 +58,12 @@
                 android:text="Service status: Unknown"
                 android:textColor="@android:color/white"
                 android:textStyle="bold" />
+                android:id="@+id/permissionRationaleText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Permission help appears here when a feature needs access."
+                android:textColor="#555555" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -79,10 +85,45 @@
             android:padding="16dp">
 
             <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnRequestPermissions"
+                android:id="@+id/btnTelephonyFeature"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Request runtime permissions" />
+                android:text="Use telephony feature" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSmsFeature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use SMS feature" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnContactsFeature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use contacts feature" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnLocationFeature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use location feature" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnStorageFeature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use storage feature" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnNotificationsFeature"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Use notifications feature" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnGrantAllFiles"
