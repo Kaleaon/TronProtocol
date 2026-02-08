@@ -15,26 +15,31 @@ class BootStartWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
+        StartupDiagnostics.recordMilestone(applicationContext, "boot_worker_started")
         val canStartImmediately = canStartServiceImmediately(applicationContext)
 
         return if (canStartImmediately) {
             try {
                 startTronProtocolService(applicationContext)
+                StartupDiagnostics.recordMilestone(applicationContext, "service_scheduled", "Started from BootStartWorker")
                 clearDeferredStartFlag(applicationContext)
                 Result.success()
             } catch (t: Throwable) {
                 if (isForegroundStartBlockedException(t)) {
                     persistDeferredStartFlag(applicationContext)
+                    StartupDiagnostics.recordError(applicationContext, "boot_worker_foreground_start_blocked", t)
                     Log.w(TAG, "Foreground start blocked at boot; deferring to next app launch", t)
                     Result.success()
                 } else {
                     persistDeferredStartFlag(applicationContext)
+                    StartupDiagnostics.recordError(applicationContext, "boot_worker_start_failed", t)
                     Log.e(TAG, "Failed to start TronProtocolService from worker", t)
                     Result.failure()
                 }
             }
         } else {
             persistDeferredStartFlag(applicationContext)
+            StartupDiagnostics.recordMilestone(applicationContext, "service_scheduled", "Deferred by device state")
             Log.i(TAG, "Device state does not allow immediate service start; deferred")
             Result.success()
         }

@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
+    private lateinit var diagnosticsText: TextView
     private lateinit var permissionRationaleText: TextView
     private lateinit var prefs: SharedPreferences
 
@@ -132,6 +133,7 @@ class MainActivity : AppCompatActivity() {
 
             activePermissionRequest = null
             updatePermissionUi()
+            refreshDiagnosticsPanel()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,23 +145,37 @@ class MainActivity : AppCompatActivity() {
         permissionStatusText = findViewById(R.id.permissionStatusText)
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
 
-        initializePlugins()
-        wireUiActions()
+        runStartupBlock("initialize_plugins") { initializePlugins() }
+        runStartupBlock("wire_ui_actions") { wireUiActions() }
 
         if (prefs.getBoolean(FIRST_LAUNCH_KEY, true)) {
-            requestInitialAccess()
-            prefs.edit().putBoolean(FIRST_LAUNCH_KEY, false).apply()
+            runStartupBlock("request_initial_access") {
+                requestInitialAccess()
+                prefs.edit().putBoolean(FIRST_LAUNCH_KEY, false).apply()
+            }
         } else {
-            updatePermissionUi()
+            runStartupBlock("update_permission_ui") { updatePermissionUi() }
         }
 
-        requestBatteryOptimizationExemption()
-        startTronProtocolService()
+        runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
+        runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
+        refreshDiagnosticsPanel()
     }
 
     override fun onStart() {
         super.onStart()
-        startServiceIfDeferredFromBoot()
+        runStartupBlock("start_service_if_deferred_from_boot") { startServiceIfDeferredFromBoot() }
+        refreshDiagnosticsPanel()
+    }
+
+    private fun runStartupBlock(name: String, block: () -> Unit) {
+        try {
+            block()
+            StartupDiagnostics.recordMilestone(this, "$name_success")
+        } catch (t: Throwable) {
+            StartupDiagnostics.recordError(this, name, t)
+            Log.e(TAG, "Startup block failed: $name", t)
+        }
     }
 
     private fun wireUiActions() {
@@ -206,11 +222,13 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnGrantAllFiles).setOnClickListener {
             requestAllFilesAccess()
+            refreshDiagnosticsPanel()
         }
 
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
-            startTronProtocolService()
+            runStartupBlock("start_service_from_button") { startTronProtocolService() }
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
+            refreshDiagnosticsPanel()
         }
     }
 
@@ -281,6 +299,9 @@ class MainActivity : AppCompatActivity() {
         val activePluginCount = pluginManager.getAllPlugins().size
 pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
 
+        val pluginCount = pluginManager.getAllPlugins().size
+        pluginCountText.text = "Active plugins: $pluginCount"
+        StartupDiagnostics.recordMilestone(this, "plugin_init_summary", "Registered plugins: $pluginCount")
         if (failedPlugins.isNotEmpty()) {
             val skippedPlugins = failedPlugins.joinToString()
             Toast.makeText(
@@ -389,7 +410,9 @@ pluginCountText.text = getString(R.string.active_plugins_count, activePluginCoun
         try {
             startTronProtocolService()
             prefs.edit().putBoolean(BootReceiver.DEFERRED_SERVICE_START_KEY, false).apply()
+            StartupDiagnostics.recordMilestone(this, "service_scheduled", "Deferred service launch requested")
         } catch (t: Throwable) {
+            StartupDiagnostics.recordError(this, "deferred_service_start_failed", t)
             Log.w(TAG, "Deferred service start failed", t)
         }
     }
@@ -401,6 +424,10 @@ pluginCountText.text = getString(R.string.active_plugins_count, activePluginCoun
         } else {
             startService(serviceIntent)
         }
+    }
+
+    private fun refreshDiagnosticsPanel() {
+        diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
     }
 
     companion object {
