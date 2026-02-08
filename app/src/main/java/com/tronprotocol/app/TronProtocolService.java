@@ -58,20 +58,24 @@ public class TronProtocolService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        StartupDiagnostics.recordMilestone(this, "service_oncreate_invoked");
         createNotificationChannel();
         acquireWakeLock();
         
         // Initialize secure storage (inspired by ToolNeuron's Memory Vault)
         try {
             secureStorage = new SecureStorage(this);
+            StartupDiagnostics.recordMilestone(this, "secure_storage_initialized");
             android.util.Log.d("TronProtocol", "Secure storage initialized");
         } catch (Exception e) {
+            StartupDiagnostics.recordError(this, "secure_storage_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize secure storage", e);
         }
         
         // Initialize RAG store with self-evolving memory (landseek MemRL)
         try {
             ragStore = new RAGStore(this, AI_ID);
+            StartupDiagnostics.recordMilestone(this, "rag_store_initialized");
             android.util.Log.d("TronProtocol", "RAG store initialized with MemRL");
             
             // Add initial knowledge
@@ -79,22 +83,27 @@ public class TronProtocolService extends Service {
             ragStore.addKnowledge("Background service runs continuously with battery optimization override", "system");
             
         } catch (Exception e) {
+            StartupDiagnostics.recordError(this, "rag_store_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize RAG store", e);
         }
         
         // Initialize code modification manager (landseek free_will)
         try {
             codeModManager = new CodeModificationManager(this);
+            StartupDiagnostics.recordMilestone(this, "code_mod_manager_initialized");
             android.util.Log.d("TronProtocol", "Code modification manager initialized");
         } catch (Exception e) {
+            StartupDiagnostics.recordError(this, "code_mod_manager_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize code modification manager", e);
         }
         
         // Initialize memory consolidation manager (sleep-like memory optimization)
         try {
             consolidationManager = new MemoryConsolidationManager(this);
+            StartupDiagnostics.recordMilestone(this, "consolidation_manager_initialized");
             android.util.Log.d("TronProtocol", "Memory consolidation manager initialized");
         } catch (Exception e) {
+            StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize consolidation manager", e);
         }
     }
@@ -133,6 +142,15 @@ public class TronProtocolService extends Service {
             publishStartupDiagnostic(STATE_RUNNING, "Foreground service and loops active", false);
         }
 
+        // Start service in foreground to prevent it from being killed
+        try {
+            startForeground(NOTIFICATION_ID, createNotification());
+            StartupDiagnostics.recordMilestone(this, "service_foregrounded", "Service moved to foreground");
+        } catch (Throwable t) {
+            StartupDiagnostics.recordError(this, "service_start_foreground_failed", t);
+            throw t;
+        }
+        
         // Start the heartbeat thread
         startHeartbeat();
         
