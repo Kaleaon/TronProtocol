@@ -15,8 +15,13 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.tronprotocol.app.plugins.CalculatorPlugin;
+import com.tronprotocol.app.plugins.DateTimePlugin;
 import com.tronprotocol.app.plugins.DeviceInfoPlugin;
+import com.tronprotocol.app.plugins.FileManagerPlugin;
 import com.tronprotocol.app.plugins.PluginManager;
+import com.tronprotocol.app.plugins.TextAnalysisPlugin;
+import com.tronprotocol.app.plugins.WebSearchPlugin;
 
 public class MainActivity extends AppCompatActivity {
 
