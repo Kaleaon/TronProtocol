@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.text.TextUtils;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.Map;
@@ -81,7 +82,7 @@ public class PersonalizationPlugin implements Plugin {
         }
     }
 
-    private String exportJson() {
+    private String exportJson() throws JSONException {
         JSONObject json = new JSONObject();
         Map<String, ?> all = preferences.getAll();
         for (Map.Entry<String, ?> entry : all.entrySet()) {
