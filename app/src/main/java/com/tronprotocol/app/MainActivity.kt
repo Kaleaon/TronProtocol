@@ -25,6 +25,7 @@ import com.tronprotocol.app.plugins.CommunicationHubPlugin
 import com.tronprotocol.app.plugins.DateTimePlugin
 import com.tronprotocol.app.plugins.DeviceInfoPlugin
 import com.tronprotocol.app.plugins.FileManagerPlugin
+import com.tronprotocol.app.plugins.GuidanceRouterPlugin
 import com.tronprotocol.app.plugins.NotesPlugin
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.TelegramBridgePlugin
@@ -119,6 +120,7 @@ class MainActivity : AppCompatActivity() {
         pluginManager.registerPlugin(SandboxedCodeExecutionPlugin())
         pluginManager.registerPlugin(PersonalizationPlugin())
         pluginManager.registerPlugin(CommunicationHubPlugin())
+        pluginManager.registerPlugin(GuidanceRouterPlugin())
 
         pluginCountText.text = "Active plugins: ${pluginManager.getAllPlugins().size}"
     }
