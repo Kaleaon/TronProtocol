@@ -50,20 +50,22 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:background="@android:color/darker_gray"
+                android:background="@color/service_status_deferred_background"
                 android:paddingStart="10dp"
                 android:paddingTop="4dp"
                 android:paddingEnd="10dp"
                 android:paddingBottom="4dp"
                 android:text="Service status: Unknown"
-                android:textColor="@android:color/white"
+                android:textColor="@color/service_status_badge_text"
                 android:textStyle="bold" />
+
+            <TextView
                 android:id="@+id/permissionRationaleText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:text="Permission help appears here when a feature needs access."
-                android:textColor="#555555" />
+                android:textColor="@color/permission_rationale_text" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 

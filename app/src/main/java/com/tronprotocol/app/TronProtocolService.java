@@ -31,6 +31,7 @@ import java.util.Map;
 
 public class TronProtocolService extends Service {
 
+    private static final String TAG = TronProtocolService.class.getSimpleName();
     private static final String CHANNEL_ID = "TronProtocolServiceChannel";
     private static final int NOTIFICATION_ID = 1;
     private static final String AI_ID = "tronprotocol_ai";
@@ -64,38 +65,38 @@ public class TronProtocolService extends Service {
         // Initialize secure storage (inspired by ToolNeuron's Memory Vault)
         try {
             secureStorage = new SecureStorage(this);
-            android.util.Log.d("TronProtocol", "Secure storage initialized");
+            android.util.Log.d(TAG, "Secure storage initialized");
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Failed to initialize secure storage", e);
+            android.util.Log.e(TAG, "Failed to initialize secure storage", e);
         }
         
         // Initialize RAG store with self-evolving memory (landseek MemRL)
         try {
             ragStore = new RAGStore(this, AI_ID);
-            android.util.Log.d("TronProtocol", "RAG store initialized with MemRL");
+            android.util.Log.d(TAG, "RAG store initialized with MemRL");
             
             // Add initial knowledge
             ragStore.addKnowledge("TronProtocol monitors cellular device access and AI heartbeat", "system");
             ragStore.addKnowledge("Background service runs continuously with battery optimization override", "system");
             
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Failed to initialize RAG store", e);
+            android.util.Log.e(TAG, "Failed to initialize RAG store", e);
         }
         
         // Initialize code modification manager (landseek free_will)
         try {
             codeModManager = new CodeModificationManager(this);
-            android.util.Log.d("TronProtocol", "Code modification manager initialized");
+            android.util.Log.d(TAG, "Code modification manager initialized");
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Failed to initialize code modification manager", e);
+            android.util.Log.e(TAG, "Failed to initialize code modification manager", e);
         }
         
         // Initialize memory consolidation manager (sleep-like memory optimization)
         try {
             consolidationManager = new MemoryConsolidationManager(this);
-            android.util.Log.d("TronProtocol", "Memory consolidation manager initialized");
+            android.util.Log.d(TAG, "Memory consolidation manager initialized");
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Failed to initialize consolidation manager", e);
+            android.util.Log.e(TAG, "Failed to initialize consolidation manager", e);
         }
     }
 
@@ -112,7 +113,7 @@ public class TronProtocolService extends Service {
         try {
             // Start service in foreground to prevent it from being killed
             startForeground(NOTIFICATION_ID, createNotification());
-        } catch (Throwable t) {
+        } catch (Exception t) {
             publishStartupDiagnostic(
                     STATE_DEFERRED,
                     "Foreground notification failed: " + t.getClass().getSimpleName(),
@@ -170,9 +171,13 @@ public class TronProtocolService extends Service {
                         "Notification channel missing. Reopen app to recreate foreground channel."
                 );
             }
-        }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            if (!manager.areNotificationsEnabled()) {
+                return StartupPreflightResult.degraded(
+                        "Notifications disabled at app level. Service loops are active but user alerts are suppressed."
+                );
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
             if (manager != null && !manager.areNotificationsEnabled()) {
                 return StartupPreflightResult.degraded(
@@ -184,6 +189,7 @@ public class TronProtocolService extends Service {
         return StartupPreflightResult.running();
     }
 
+
     private void publishStartupDiagnostic(String state, String reason, boolean warn) {
         SharedPreferences prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE);
         prefs.edit()
@@ -193,9 +199,9 @@ public class TronProtocolService extends Service {
 
         String message = "Startup state=" + state + " reason=" + reason;
         if (warn) {
-            android.util.Log.w("TronProtocol", message);
+            android.util.Log.w(TAG, message);
         } else {
-            android.util.Log.i("TronProtocol", message);
+            android.util.Log.i(TAG, message);
         }
     }
 
@@ -211,7 +217,7 @@ public class TronProtocolService extends Service {
             if (manager != null) {
                 manager.createNotificationChannel(serviceChannel);
             } else {
-                android.util.Log.w("TronProtocol", "Unable to create notification channel: manager unavailable");
+                android.util.Log.w(TAG, "Unable to create notification channel: manager unavailable");
             }
         }
     }
@@ -292,7 +298,7 @@ public class TronProtocolService extends Service {
                     5
                 );
                 
-                android.util.Log.d("TronProtocol", "Retrieved " + results.size() + 
+                android.util.Log.d(TAG, "Retrieved " + results.size() + 
                                  " relevant memories using MemRL");
                 
                 // Provide positive feedback for successful retrieval
@@ -315,7 +321,7 @@ public class TronProtocolService extends Service {
                 
                 ReflectionResult reflection = codeModManager.reflect(metrics);
                 if (reflection.hasInsights()) {
-                    android.util.Log.d("TronProtocol", "Self-reflection insights: " + 
+                    android.util.Log.d(TAG, "Self-reflection insights: " + 
                                      reflection.getInsights());
                 }
             }
@@ -330,23 +336,23 @@ public class TronProtocolService extends Service {
             // 5. Log MemRL statistics (every 100 heartbeats)
             if (ragStore != null && heartbeatCount % 100 == 0) {
                 Map<String, Object> memrlStats = ragStore.getMemRLStats();
-                android.util.Log.d("TronProtocol", "MemRL Stats: " + memrlStats);
+                android.util.Log.d(TAG, "MemRL Stats: " + memrlStats);
                 
                 // Log consolidation stats
                 if (consolidationManager != null) {
                     Map<String, Object> consolidationStats = consolidationManager.getStats();
-                    android.util.Log.d("TronProtocol", "Consolidation Stats: " + consolidationStats);
+                    android.util.Log.d(TAG, "Consolidation Stats: " + consolidationStats);
                 }
             }
             
             long processingTime = System.currentTimeMillis() - startTime;
             totalProcessingTime += processingTime;
             
-            android.util.Log.d("TronProtocol", "Heartbeat #" + heartbeatCount + 
+            android.util.Log.d(TAG, "Heartbeat #" + heartbeatCount + 
                              " complete (processing time: " + processingTime + "ms)");
                              
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Error in heartbeat processing", e);
+            android.util.Log.e(TAG, "Error in heartbeat processing", e);
         }
     }
     
@@ -369,14 +375,14 @@ public class TronProtocolService extends Service {
                         
                         // Check if it's a good time for consolidation
                         if (consolidationManager != null && consolidationManager.isConsolidationTime()) {
-                            android.util.Log.d("TronProtocol", "Starting memory consolidation (rest period)...");
+                            android.util.Log.d(TAG, "Starting memory consolidation (rest period)...");
                             
                             // Perform consolidation
                             if (ragStore != null) {
                                 MemoryConsolidationManager.ConsolidationResult result = 
                                     consolidationManager.consolidate(ragStore);
                                 
-                                android.util.Log.d("TronProtocol", "Consolidation result: " + result);
+                                android.util.Log.d(TAG, "Consolidation result: " + result);
                                 
                                 // Store consolidation event as memory
                                 if (result.success) {
@@ -393,13 +399,13 @@ public class TronProtocolService extends Service {
                         Thread.currentThread().interrupt();
                         break;
                     } catch (Exception e) {
-                        android.util.Log.e("TronProtocol", "Error in consolidation loop", e);
+                        android.util.Log.e(TAG, "Error in consolidation loop", e);
                     }
                 }
             }
         });
         consolidationThread.start();
-        android.util.Log.d("TronProtocol", "Memory consolidation loop started");
+        android.util.Log.d(TAG, "Memory consolidation loop started");
     }
 
     @Override
