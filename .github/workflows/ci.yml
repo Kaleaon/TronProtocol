@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile
+    uses: ./.github/workflows/android-common.yml
+    with:
+      gradle-task: compileDebugSources
+
+  test:
+    name: Unit Tests
+    needs: compile
+    uses: ./.github/workflows/android-common.yml
+    with:
+      gradle-task: testDebugUnitTest
+
+  lint:
+    name: Lint
+    needs: compile
+    uses: ./.github/workflows/android-common.yml
+    with:
+      gradle-task: lintDebug

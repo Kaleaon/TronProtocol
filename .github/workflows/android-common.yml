@@ -1,0 +1,98 @@
+name: Android Common Setup
+
+on:
+  workflow_call:
+    inputs:
+      gradle-task:
+        description: Gradle task(s) to execute.
+        required: true
+        type: string
+      artifact-name:
+        description: Optional artifact name to upload.
+        required: false
+        type: string
+        default: ''
+      artifact-path:
+        description: Optional artifact path(s) to upload.
+        required: false
+        type: string
+        default: ''
+      java-version:
+        description: Java version for the build.
+        required: false
+        type: string
+        default: '17'
+      java-distribution:
+        description: Java distribution for the build.
+        required: false
+        type: string
+        default: 'temurin'
+    outputs:
+      version-name:
+        description: App version name.
+        value: ${{ jobs.android.outputs.version-name }}
+      version-code:
+        description: App version code.
+        value: ${{ jobs.android.outputs.version-code }}
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    outputs:
+      version-name: ${{ steps.version.outputs.version-name }}
+      version-code: ${{ steps.version.outputs.version-code }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ inputs.java-version }}
+          distribution: ${{ inputs.java-distribution }}
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 11076708
+
+      - name: Install required Android SDK packages
+        run: |
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" \
+            "build-tools;33.0.2" \
+            "platform-tools"
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Extract version information
+        id: version
+        run: |
+          VERSION_NAME=$(./gradlew -q printVersionName 2>/dev/null | tail -n1 || echo "1.0")
+          VERSION_CODE=$(./gradlew -q printVersionCode 2>/dev/null | tail -n1 || echo "1")
+          echo "version-name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version-code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      - name: Run Gradle task
+        run: ./gradlew ${{ inputs.gradle-task }} --stacktrace --warning-mode all
+
+      - name: Upload artifact
+        if: inputs.artifact-name != '' && inputs.artifact-path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          if-no-files-found: error
