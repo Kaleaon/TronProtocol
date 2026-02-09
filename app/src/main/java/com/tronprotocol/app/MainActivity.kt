@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
+    private lateinit var startupStateBadgeText: TextView
     private lateinit var diagnosticsText: TextView
     private lateinit var permissionRationaleText: TextView
     private lateinit var prefs: SharedPreferences
@@ -133,6 +134,7 @@ class MainActivity : AppCompatActivity() {
 
             activePermissionRequest = null
             updatePermissionUi()
+            refreshStartupStateBadge()
             refreshDiagnosticsPanel()
         }
 
@@ -143,6 +145,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
+        startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
 
         runStartupBlock("initialize_plugins") { initializePlugins() }
@@ -157,6 +160,9 @@ class MainActivity : AppCompatActivity() {
             runStartupBlock("update_permission_ui") { updatePermissionUi() }
         }
 
+        requestBatteryOptimizationExemption()
+        startTronProtocolService()
+        refreshStartupStateBadge()
         runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
         runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
         refreshDiagnosticsPanel()
@@ -164,6 +170,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        startServiceIfDeferredFromBoot()
+        refreshStartupStateBadge()
         runStartupBlock("start_service_if_deferred_from_boot") { startServiceIfDeferredFromBoot() }
         refreshDiagnosticsPanel()
     }
@@ -226,6 +234,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
+            startTronProtocolService()
+            refreshStartupStateBadge()
             runStartupBlock("start_service_from_button") { startTronProtocolService() }
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
             refreshDiagnosticsPanel()
@@ -233,34 +243,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initializePlugins() {
-        pluginCountText.text = "Active plugins: 13"
-    }
-
-    private fun requestInitialAccess() {
-        showPermissionMessage("Permissions are requested on demand when you use telephony, SMS, contacts, location, storage, or notification features.")
-        updatePermissionUi()
-    }
-
-    private fun executeFeatureWithPermissions(feature: PermissionFeature, onGranted: () -> Unit) {
-        val missingPermissions = missingPermissionsFor(feature)
-        if (missingPermissions.isEmpty()) {
-            onGranted()
-            updatePermissionUi()
-            return
-        }
-
-        if (feature.permissions.isEmpty()) {
-            onGranted()
-            updatePermissionUi()
-            return
-        }
-
-        if (missingPermissions.any { shouldShowRequestPermissionRationale(it) }) {
-            showRationaleDialog(feature, missingPermissions.toTypedArray())
-        } else {
-            activePermissionRequest = feature
-            permissionLauncher.launch(missingPermissions.toTypedArray())
-            showPermissionMessage("Requesting ${feature.title.lowercase()} permissions...")
         val pluginManager = PluginManager.getInstance()
         pluginManager.initialize(this)
         val failedPlugins = mutableListOf<String>()
@@ -297,7 +279,7 @@ class MainActivity : AppCompatActivity() {
         register("GuidanceRouterPlugin") { GuidanceRouterPlugin() }
 
         val activePluginCount = pluginManager.getAllPlugins().size
-pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
+        pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
 
         val pluginCount = pluginManager.getAllPlugins().size
         pluginCountText.text = "Active plugins: $pluginCount"
@@ -309,6 +291,28 @@ pluginCountText.text = getString(R.string.active_plugins_count, activePluginCoun
                 getString(R.string.skipped_plugins_message, skippedPlugins),
                 Toast.LENGTH_LONG
             ).show()
+        }
+    }
+
+    private fun requestInitialAccess() {
+        showPermissionMessage("Permissions are requested on demand when you use telephony, SMS, contacts, location, storage, or notification features.")
+        updatePermissionUi()
+    }
+
+    private fun executeFeatureWithPermissions(feature: PermissionFeature, onGranted: () -> Unit) {
+        val missingPermissions = missingPermissionsFor(feature)
+        if (missingPermissions.isEmpty() || feature.permissions.isEmpty()) {
+            onGranted()
+            updatePermissionUi()
+            return
+        }
+
+        if (missingPermissions.any { shouldShowRequestPermissionRationale(it) }) {
+            showRationaleDialog(feature, missingPermissions.toTypedArray())
+        } else {
+            activePermissionRequest = feature
+            permissionLauncher.launch(missingPermissions.toTypedArray())
+            showPermissionMessage("Requesting ${feature.title.lowercase()} permissions...")
         }
     }
 
@@ -386,6 +390,27 @@ pluginCountText.text = getString(R.string.active_plugins_count, activePluginCoun
     private fun showPermissionMessage(message: String) {
         permissionRationaleText.text = message
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun refreshStartupStateBadge() {
+        val state = prefs.getString(
+            TronProtocolService.SERVICE_STARTUP_STATE_KEY,
+            TronProtocolService.STATE_DEFERRED
+        ) ?: TronProtocolService.STATE_DEFERRED
+        val reason = prefs.getString(
+            TronProtocolService.SERVICE_STARTUP_REASON_KEY,
+            getString(R.string.service_status_waiting_reason)
+        ) ?: getString(R.string.service_status_waiting_reason)
+
+        val (colorRes, label) = when (state) {
+            TronProtocolService.STATE_RUNNING -> R.color.service_status_running_background to "RUNNING"
+            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> R.color.service_status_blocked_background to "BLOCKED-BY-PERMISSION"
+            TronProtocolService.STATE_DEGRADED -> R.color.service_status_degraded_background to "DEGRADED"
+            else -> R.color.service_status_deferred_background to "DEFERRED"
+        }
+
+        startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, colorRes))
+        startupStateBadgeText.text = getString(R.string.service_status_format, label, reason)
     }
 
     private fun requestBatteryOptimizationExemption() {

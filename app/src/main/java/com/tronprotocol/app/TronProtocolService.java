@@ -7,11 +7,15 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.PowerManager;
 
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 
 import com.tronprotocol.app.security.SecureStorage;
 import com.tronprotocol.app.rag.RAGStore;
@@ -27,10 +31,17 @@ import java.util.Map;
 
 public class TronProtocolService extends Service {
 
+    private static final String TAG = TronProtocolService.class.getSimpleName();
     private static final String CHANNEL_ID = "TronProtocolServiceChannel";
     private static final int NOTIFICATION_ID = 1;
     private static final String AI_ID = "tronprotocol_ai";
     private static final int CONSOLIDATION_CHECK_INTERVAL = 3600000;  // Check every hour
+    public static final String SERVICE_STARTUP_STATE_KEY = "service_startup_state";
+    public static final String SERVICE_STARTUP_REASON_KEY = "service_startup_reason";
+    public static final String STATE_RUNNING = "running";
+    public static final String STATE_DEFERRED = "deferred";
+    public static final String STATE_BLOCKED_BY_PERMISSION = "blocked-by-permission";
+    public static final String STATE_DEGRADED = "degraded";
     
     private PowerManager.WakeLock wakeLock;
     private Thread heartbeatThread;
@@ -55,6 +66,9 @@ public class TronProtocolService extends Service {
         // Initialize secure storage (inspired by ToolNeuron's Memory Vault)
         try {
             secureStorage = new SecureStorage(this);
+            android.util.Log.d(TAG, "Secure storage initialized");
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to initialize secure storage", e);
             StartupDiagnostics.recordMilestone(this, "secure_storage_initialized");
             android.util.Log.d("TronProtocol", "Secure storage initialized");
         } catch (Exception e) {
@@ -65,6 +79,7 @@ public class TronProtocolService extends Service {
         // Initialize RAG store with self-evolving memory (landseek MemRL)
         try {
             ragStore = new RAGStore(this, AI_ID);
+            android.util.Log.d(TAG, "RAG store initialized with MemRL");
             StartupDiagnostics.recordMilestone(this, "rag_store_initialized");
             android.util.Log.d("TronProtocol", "RAG store initialized with MemRL");
             
@@ -73,6 +88,7 @@ public class TronProtocolService extends Service {
             ragStore.addKnowledge("Background service runs continuously with battery optimization override", "system");
             
         } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to initialize RAG store", e);
             StartupDiagnostics.recordError(this, "rag_store_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize RAG store", e);
         }
@@ -90,6 +106,9 @@ public class TronProtocolService extends Service {
         // Initialize memory consolidation manager (sleep-like memory optimization)
         try {
             consolidationManager = new MemoryConsolidationManager(this);
+            android.util.Log.d(TAG, "Memory consolidation manager initialized");
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Failed to initialize consolidation manager", e);
             StartupDiagnostics.recordMilestone(this, "consolidation_manager_initialized");
             android.util.Log.d("TronProtocol", "Memory consolidation manager initialized");
         } catch (Exception e) {
@@ -100,6 +119,38 @@ public class TronProtocolService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        StartupPreflightResult preflight = runStartupPreflight();
+
+        if (!preflight.canStartForeground) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, true);
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        try {
+            // Start service in foreground to prevent it from being killed
+            startForeground(NOTIFICATION_ID, createNotification());
+        } catch (Exception t) {
+            publishStartupDiagnostic(
+                    STATE_DEFERRED,
+                    "Foreground notification failed: " + t.getClass().getSimpleName(),
+                    true
+            );
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
+        if (!preflight.canStartLoops) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, true);
+            return START_STICKY;
+        }
+
+        if (STATE_DEGRADED.equals(preflight.state)) {
+            publishStartupDiagnostic(preflight.state, preflight.reason, false);
+        } else {
+            publishStartupDiagnostic(STATE_RUNNING, "Foreground service and loops active", false);
+        }
+
         // Start service in foreground to prevent it from being killed
         try {
             startForeground(NOTIFICATION_ID, createNotification());
@@ -119,6 +170,67 @@ public class TronProtocolService extends Service {
         return START_STICKY;
     }
 
+    @NonNull
+    private StartupPreflightResult runStartupPreflight() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this, android.Manifest.permission.POST_NOTIFICATIONS)
+                        != PackageManager.PERMISSION_GRANTED) {
+            return StartupPreflightResult.blocked(
+                    STATE_BLOCKED_BY_PERMISSION,
+                    "POST_NOTIFICATIONS missing. Open app and grant notification permission."
+            );
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager == null) {
+                return StartupPreflightResult.blocked(
+                        STATE_DEFERRED,
+                        "NotificationManager unavailable. Retry service start once system services stabilize."
+                );
+            }
+
+            NotificationChannel channel = manager.getNotificationChannel(CHANNEL_ID);
+            if (channel == null) {
+                return StartupPreflightResult.blocked(
+                        STATE_DEFERRED,
+                        "Notification channel missing. Reopen app to recreate foreground channel."
+                );
+            }
+
+            if (!manager.areNotificationsEnabled()) {
+                return StartupPreflightResult.degraded(
+                        "Notifications disabled at app level. Service loops are active but user alerts are suppressed."
+                );
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            if (manager != null && !manager.areNotificationsEnabled()) {
+                return StartupPreflightResult.degraded(
+                        "Notifications disabled at app level. Service loops are active but user alerts are suppressed."
+                );
+            }
+        }
+
+        return StartupPreflightResult.running();
+    }
+
+
+    private void publishStartupDiagnostic(String state, String reason, boolean warn) {
+        SharedPreferences prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE);
+        prefs.edit()
+                .putString(SERVICE_STARTUP_STATE_KEY, state)
+                .putString(SERVICE_STARTUP_REASON_KEY, reason)
+                .apply();
+
+        String message = "Startup state=" + state + " reason=" + reason;
+        if (warn) {
+            android.util.Log.w(TAG, message);
+        } else {
+            android.util.Log.i(TAG, message);
+        }
+    }
+
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel serviceChannel = new NotificationChannel(
@@ -130,6 +242,8 @@ public class TronProtocolService extends Service {
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(serviceChannel);
+            } else {
+                android.util.Log.w(TAG, "Unable to create notification channel: manager unavailable");
             }
         }
     }
@@ -210,7 +324,7 @@ public class TronProtocolService extends Service {
                     5
                 );
                 
-                android.util.Log.d("TronProtocol", "Retrieved " + results.size() + 
+                android.util.Log.d(TAG, "Retrieved " + results.size() + 
                                  " relevant memories using MemRL");
                 
                 // Provide positive feedback for successful retrieval
@@ -233,7 +347,7 @@ public class TronProtocolService extends Service {
                 
                 ReflectionResult reflection = codeModManager.reflect(metrics);
                 if (reflection.hasInsights()) {
-                    android.util.Log.d("TronProtocol", "Self-reflection insights: " + 
+                    android.util.Log.d(TAG, "Self-reflection insights: " + 
                                      reflection.getInsights());
                 }
             }
@@ -248,23 +362,23 @@ public class TronProtocolService extends Service {
             // 5. Log MemRL statistics (every 100 heartbeats)
             if (ragStore != null && heartbeatCount % 100 == 0) {
                 Map<String, Object> memrlStats = ragStore.getMemRLStats();
-                android.util.Log.d("TronProtocol", "MemRL Stats: " + memrlStats);
+                android.util.Log.d(TAG, "MemRL Stats: " + memrlStats);
                 
                 // Log consolidation stats
                 if (consolidationManager != null) {
                     Map<String, Object> consolidationStats = consolidationManager.getStats();
-                    android.util.Log.d("TronProtocol", "Consolidation Stats: " + consolidationStats);
+                    android.util.Log.d(TAG, "Consolidation Stats: " + consolidationStats);
                 }
             }
             
             long processingTime = System.currentTimeMillis() - startTime;
             totalProcessingTime += processingTime;
             
-            android.util.Log.d("TronProtocol", "Heartbeat #" + heartbeatCount + 
+            android.util.Log.d(TAG, "Heartbeat #" + heartbeatCount + 
                              " complete (processing time: " + processingTime + "ms)");
                              
         } catch (Exception e) {
-            android.util.Log.e("TronProtocol", "Error in heartbeat processing", e);
+            android.util.Log.e(TAG, "Error in heartbeat processing", e);
         }
     }
     
@@ -287,14 +401,14 @@ public class TronProtocolService extends Service {
                         
                         // Check if it's a good time for consolidation
                         if (consolidationManager != null && consolidationManager.isConsolidationTime()) {
-                            android.util.Log.d("TronProtocol", "Starting memory consolidation (rest period)...");
+                            android.util.Log.d(TAG, "Starting memory consolidation (rest period)...");
                             
                             // Perform consolidation
                             if (ragStore != null) {
                                 MemoryConsolidationManager.ConsolidationResult result = 
                                     consolidationManager.consolidate(ragStore);
                                 
-                                android.util.Log.d("TronProtocol", "Consolidation result: " + result);
+                                android.util.Log.d(TAG, "Consolidation result: " + result);
                                 
                                 // Store consolidation event as memory
                                 if (result.success) {
@@ -311,13 +425,13 @@ public class TronProtocolService extends Service {
                         Thread.currentThread().interrupt();
                         break;
                     } catch (Exception e) {
-                        android.util.Log.e("TronProtocol", "Error in consolidation loop", e);
+                        android.util.Log.e(TAG, "Error in consolidation loop", e);
                     }
                 }
             }
         });
         consolidationThread.start();
-        android.util.Log.d("TronProtocol", "Memory consolidation loop started");
+        android.util.Log.d(TAG, "Memory consolidation loop started");
     }
 
     @Override
@@ -344,5 +458,31 @@ public class TronProtocolService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    private static class StartupPreflightResult {
+        final boolean canStartForeground;
+        final boolean canStartLoops;
+        final String state;
+        final String reason;
+
+        StartupPreflightResult(boolean canStartForeground, boolean canStartLoops, String state, String reason) {
+            this.canStartForeground = canStartForeground;
+            this.canStartLoops = canStartLoops;
+            this.state = state;
+            this.reason = reason;
+        }
+
+        static StartupPreflightResult blocked(String state, String reason) {
+            return new StartupPreflightResult(false, false, state, reason);
+        }
+
+        static StartupPreflightResult degraded(String reason) {
+            return new StartupPreflightResult(true, true, STATE_DEGRADED, reason);
+        }
+
+        static StartupPreflightResult running() {
+            return new StartupPreflightResult(true, true, STATE_RUNNING, "All notification prerequisites satisfied.");
+        }
     }
 }

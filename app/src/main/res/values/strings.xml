@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TronProtocol</string>
+    <string name="active_plugins_count">Active plugins: %1$d</string>
+    <string name="skipped_plugins_message">Some plugins could not be initialized: %1$s</string>
+    <string name="service_status_waiting_reason">Waiting for service startup diagnostics</string>
+    <string name="service_status_format">Service status: %1$s\n%2$s</string>
 </resources>
