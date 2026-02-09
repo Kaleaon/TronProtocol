@@ -28,6 +28,11 @@ import com.tronprotocol.app.selfmod.ReflectionResult;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TronProtocolService extends Service {
 
@@ -36,6 +41,8 @@ public class TronProtocolService extends Service {
     private static final int NOTIFICATION_ID = 1;
     private static final String AI_ID = "tronprotocol_ai";
     private static final int CONSOLIDATION_CHECK_INTERVAL = 3600000;  // Check every hour
+    private static final int INIT_BASE_RETRY_SECONDS = 5;
+    private static final int INIT_MAX_RETRY_SECONDS = 300;
     public static final String SERVICE_STARTUP_STATE_KEY = "service_startup_state";
     public static final String SERVICE_STARTUP_REASON_KEY = "service_startup_reason";
     public static final String STATE_RUNNING = "running";
@@ -51,6 +58,13 @@ public class TronProtocolService extends Service {
     private RAGStore ragStore;  // Self-evolving memory (landseek MemRL)
     private CodeModificationManager codeModManager;  // Self-modification (landseek free_will)
     private MemoryConsolidationManager consolidationManager;  // Sleep-like memory consolidation
+    private final AtomicBoolean dependenciesReady = new AtomicBoolean(false);
+    private final AtomicBoolean initializationInProgress = new AtomicBoolean(false);
+    private final AtomicBoolean heartbeatStarted = new AtomicBoolean(false);
+    private final AtomicBoolean consolidationStarted = new AtomicBoolean(false);
+    private ExecutorService initExecutor;
+    private ScheduledExecutorService initRetryScheduler;
+    private int initAttempt = 0;
     
     private int heartbeatCount = 0;
     private long totalProcessingTime = 0;
@@ -62,9 +76,50 @@ public class TronProtocolService extends Service {
         StartupDiagnostics.recordMilestone(this, "service_oncreate_invoked");
         createNotificationChannel();
         acquireWakeLock();
+
+        initExecutor = Executors.newSingleThreadExecutor();
+        initRetryScheduler = Executors.newSingleThreadScheduledExecutor();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        // Foreground promotion should happen as early as possible.
+        createNotificationChannel();
+        startForeground(NOTIFICATION_ID, createNotification());
+
+        // Heavy components are initialized asynchronously after foreground promotion.
+        initializeDependenciesAsync();
         
-        // Initialize secure storage (inspired by ToolNeuron's Memory Vault)
-        try {
+        // Restart service if killed
+        return START_STICKY;
+    }
+
+    private void initializeDependenciesAsync() {
+        if (dependenciesReady.get() || !initializationInProgress.compareAndSet(false, true)) {
+            return;
+        }
+
+        initExecutor.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    initializeDependencies();
+                    dependenciesReady.set(true);
+                    initAttempt = 0;
+                    android.util.Log.d("TronProtocol", "All heavy dependencies initialized");
+                    ensureLoopsStartedIfReady();
+                } catch (Exception e) {
+                    dependenciesReady.set(false);
+                    scheduleInitializationRetry(e);
+                } finally {
+                    initializationInProgress.set(false);
+                }
+            }
+        });
+    }
+
+    private void initializeDependencies() {
+        if (secureStorage == null) {
             secureStorage = new SecureStorage(this);
             android.util.Log.d(TAG, "Secure storage initialized");
         } catch (Exception e) {
@@ -75,15 +130,12 @@ public class TronProtocolService extends Service {
             StartupDiagnostics.recordError(this, "secure_storage_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize secure storage", e);
         }
-        
-        // Initialize RAG store with self-evolving memory (landseek MemRL)
-        try {
+
+        if (ragStore == null) {
             ragStore = new RAGStore(this, AI_ID);
             android.util.Log.d(TAG, "RAG store initialized with MemRL");
             StartupDiagnostics.recordMilestone(this, "rag_store_initialized");
             android.util.Log.d("TronProtocol", "RAG store initialized with MemRL");
-            
-            // Add initial knowledge
             ragStore.addKnowledge("TronProtocol monitors cellular device access and AI heartbeat", "system");
             ragStore.addKnowledge("Background service runs continuously with battery optimization override", "system");
             
@@ -92,9 +144,8 @@ public class TronProtocolService extends Service {
             StartupDiagnostics.recordError(this, "rag_store_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize RAG store", e);
         }
-        
-        // Initialize code modification manager (landseek free_will)
-        try {
+
+        if (codeModManager == null) {
             codeModManager = new CodeModificationManager(this);
             StartupDiagnostics.recordMilestone(this, "code_mod_manager_initialized");
             android.util.Log.d("TronProtocol", "Code modification manager initialized");
@@ -102,15 +153,38 @@ public class TronProtocolService extends Service {
             StartupDiagnostics.recordError(this, "code_mod_manager_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize code modification manager", e);
         }
-        
-        // Initialize memory consolidation manager (sleep-like memory optimization)
-        try {
+
+        if (consolidationManager == null) {
             consolidationManager = new MemoryConsolidationManager(this);
             android.util.Log.d(TAG, "Memory consolidation manager initialized");
         } catch (Exception e) {
             android.util.Log.e(TAG, "Failed to initialize consolidation manager", e);
             StartupDiagnostics.recordMilestone(this, "consolidation_manager_initialized");
             android.util.Log.d("TronProtocol", "Memory consolidation manager initialized");
+        }
+    }
+
+    private void scheduleInitializationRetry(Exception cause) {
+        initAttempt++;
+        int delaySeconds = Math.min(INIT_BASE_RETRY_SECONDS * (1 << Math.min(initAttempt - 1, 10)),
+                                    INIT_MAX_RETRY_SECONDS);
+        android.util.Log.e("TronProtocol",
+                "Dependency initialization failed; service continuing in degraded mode. " +
+                "Retrying in " + delaySeconds + "s (attempt " + initAttempt + ")", cause);
+
+        initRetryScheduler.schedule(new Runnable() {
+            @Override
+            public void run() {
+                initializeDependenciesAsync();
+            }
+        }, delaySeconds, TimeUnit.SECONDS);
+    }
+
+    private void ensureLoopsStartedIfReady() {
+        if (!dependenciesReady.get()) {
+            android.util.Log.d("TronProtocol", "Dependencies not ready yet; loops will start later");
+            return;
+        }
         } catch (Exception e) {
             StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e);
             android.util.Log.e("TronProtocol", "Failed to initialize consolidation manager", e);
@@ -162,12 +236,7 @@ public class TronProtocolService extends Service {
         
         // Start the heartbeat thread
         startHeartbeat();
-        
-        // Start the consolidation thread (runs during idle/rest periods)
         startConsolidationLoop();
-        
-        // Restart service if killed
-        return START_STICKY;
     }
 
     @NonNull
@@ -277,7 +346,12 @@ public class TronProtocolService extends Service {
     }
 
     private void startHeartbeat() {
-        if (isRunning) {
+        if (!dependenciesReady.get()) {
+            android.util.Log.d("TronProtocol", "Heartbeat loop waiting for dependency readiness");
+            return;
+        }
+
+        if (!heartbeatStarted.compareAndSet(false, true)) {
             return;
         }
         
@@ -387,7 +461,12 @@ public class TronProtocolService extends Service {
      * Runs during idle/rest periods to optimize memories (similar to sleep)
      */
     private void startConsolidationLoop() {
-        if (consolidationThread != null && consolidationThread.isAlive()) {
+        if (!dependenciesReady.get()) {
+            android.util.Log.d("TronProtocol", "Consolidation loop waiting for dependency readiness");
+            return;
+        }
+
+        if (!consolidationStarted.compareAndSet(false, true)) {
             return;
         }
         
@@ -447,6 +526,14 @@ public class TronProtocolService extends Service {
         // Stop the consolidation thread
         if (consolidationThread != null) {
             consolidationThread.interrupt();
+        }
+
+        if (initExecutor != null) {
+            initExecutor.shutdownNow();
+        }
+
+        if (initRetryScheduler != null) {
+            initRetryScheduler.shutdownNow();
         }
         
         // Release wake lock
