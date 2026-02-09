@@ -8,6 +8,7 @@ import os
 import sys
 import yaml
 import argparse
+import difflib
 from pathlib import Path
 
 
@@ -150,6 +151,21 @@ class BuildConfigurator:
             return f"{special_cases[artifact]}:{version}"
         return f"androidx.{artifact}:{artifact}:{version}"
 
+    def should_include_kotlin_plugin(self):
+        """Include Kotlin Android plugin when Kotlin sources are present."""
+        app_dir = self.project_root / 'app'
+        kotlin_files = list(app_dir.glob('src/**/*.kt'))
+        if kotlin_files:
+            return True
+
+        existing_build_gradle = app_dir / 'build.gradle'
+        if existing_build_gradle.exists():
+            content = existing_build_gradle.read_text()
+            if "id 'org.jetbrains.kotlin.android'" in content:
+                return True
+
+        return False
+
     def generate_gradle_config(self, output_file=None):
         """Generate Gradle build configuration"""
         if output_file is None:
@@ -158,13 +174,19 @@ class BuildConfigurator:
         app_config = self.get_app_config()
         build_types = self.get_build_types()
         dependencies = self.get_dependencies()
+        include_kotlin_plugin = self.should_include_kotlin_plugin()
 
         gradle_content = f"""// Auto-generated from {self.config_file.name}
 // Do not edit manually - changes will be overwritten
 
 plugins {{
     id 'com.android.application'
-}}
+"""
+
+        if include_kotlin_plugin:
+            gradle_content += "    id 'org.jetbrains.kotlin.android'\n"
+
+        gradle_content += f"""}}
 
 android {{
     namespace '{app_config['package']}'
@@ -180,6 +202,9 @@ android {{
 
     buildTypes {{
 """
+
+        if not build_types:
+            build_types = {'release': {'enabled': True, 'minify_enabled': False}}
 
         # Add build types
         for build_type, config in build_types.items():
@@ -198,6 +223,11 @@ android {{
                         for pf in files:
                             gradle_content += f", '{pf}'"
                         gradle_content += "\n"
+                elif build_type == 'release':
+                    gradle_content += (
+                        "            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), "
+                        "'proguard-rules.pro'\n"
+                    )
 
                 gradle_content += "        }\n"
 
@@ -207,7 +237,16 @@ android {{
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-}
+"""
+
+        if include_kotlin_plugin:
+            gradle_content += """
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+"""
+
+        gradle_content += """
 
 dependencies {
 """
@@ -225,12 +264,30 @@ dependencies {
         print(f"[SUCCESS] Generated Gradle configuration: {output_file}")
         return output_file
 
-    def update_build_gradle(self):
+    def update_build_gradle(self, safe_update=False, force=False):
         """Update the actual app/build.gradle file"""
         build_gradle = self.project_root / 'app' / 'build.gradle'
 
         # Generate to temporary file first
         temp_file = self.generate_gradle_config()
+
+        if safe_update and build_gradle.exists():
+            current_content = build_gradle.read_text().splitlines(keepends=True)
+            generated_content = temp_file.read_text().splitlines(keepends=True)
+            diff = list(difflib.unified_diff(
+                current_content,
+                generated_content,
+                fromfile=str(build_gradle),
+                tofile=str(temp_file),
+            ))
+
+            if diff:
+                print("[WARN] Safe update mode detected changes to app/build.gradle:")
+                print(''.join(diff))
+                if not force:
+                    print("[WARN] Destructive replacement prevented. Re-run with --force to apply.")
+                    temp_file.unlink()
+                    return
 
         # Backup original
         backup_file = build_gradle.with_suffix('.gradle.backup')
@@ -330,6 +387,10 @@ Examples:
                         help='Update actual build.gradle')
     parser.add_argument('-s', '--summary', action='store_true',
                         help='Print configuration summary')
+    parser.add_argument('--safe-update', action='store_true',
+                        help='Show diff and prevent destructive replacement unless --force is set')
+    parser.add_argument('--force', action='store_true',
+                        help='Apply destructive replacement (used with --safe-update)')
     parser.add_argument('--self-check', action='store_true',
                         help='Run dependency coordinate self-checks')
 
@@ -353,7 +414,7 @@ Examples:
             configurator.generate_gradle_config()
 
         if args.update:
-            configurator.update_build_gradle()
+            configurator.update_build_gradle(safe_update=args.safe_update, force=args.force)
 
         if not (args.summary or args.generate or args.update):
             configurator.print_summary()
