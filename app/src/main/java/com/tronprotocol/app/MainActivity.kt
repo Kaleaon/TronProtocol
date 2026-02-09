@@ -21,15 +21,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.switchmaterial.SwitchMaterial
-import com.tronprotocol.app.plugins.CalculatorPlugin
-import com.tronprotocol.app.plugins.CommunicationHubPlugin
-import com.tronprotocol.app.plugins.DateTimePlugin
-import com.tronprotocol.app.plugins.DeviceInfoPlugin
-import com.tronprotocol.app.plugins.FileManagerPlugin
-import com.tronprotocol.app.plugins.GuidanceRouterPlugin
-import com.tronprotocol.app.plugins.NotesPlugin
-import com.tronprotocol.app.plugins.PersonalizationPlugin
-import com.tronprotocol.app.plugins.Plugin
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
 
@@ -147,14 +138,12 @@ class MainActivity : AppCompatActivity() {
         permissionStatusText = findViewById(R.id.permissionStatusText)
         pluginStatusText = findViewById(R.id.pluginStatusText)
         pluginToggleContainer = findViewById(R.id.pluginToggleContainer)
-
-        initializePlugins()
-        renderPluginManagementUi()
-        wireUiActions()
         startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
+        diagnosticsText = findViewById(R.id.diagnosticsText)
 
         runStartupBlock("initialize_plugins") { initializePlugins() }
+        renderPluginManagementUi()
         runStartupBlock("wire_ui_actions") { wireUiActions() }
 
         if (prefs.getBoolean(FIRST_LAUNCH_KEY, true)) {
@@ -166,26 +155,23 @@ class MainActivity : AppCompatActivity() {
             runStartupBlock("update_permission_ui") { updatePermissionUi() }
         }
 
-        requestBatteryOptimizationExemption()
-        startTronProtocolService()
-        refreshStartupStateBadge()
         runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
         runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
+        refreshStartupStateBadge()
         refreshDiagnosticsPanel()
     }
 
     override fun onStart() {
         super.onStart()
-        startServiceIfDeferredFromBoot()
-        refreshStartupStateBadge()
         runStartupBlock("start_service_if_deferred_from_boot") { startServiceIfDeferredFromBoot() }
+        refreshStartupStateBadge()
         refreshDiagnosticsPanel()
     }
 
     private fun runStartupBlock(name: String, block: () -> Unit) {
         try {
             block()
-            StartupDiagnostics.recordMilestone(this, "$name_success")
+            StartupDiagnostics.recordMilestone(this, "${name}_success")
         } catch (t: Throwable) {
             StartupDiagnostics.recordError(this, name, t)
             Log.e(TAG, "Startup block failed: $name", t)
@@ -240,9 +226,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
-            startTronProtocolService()
-            refreshStartupStateBadge()
             runStartupBlock("start_service_from_button") { startTronProtocolService() }
+            refreshStartupStateBadge()
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
             refreshDiagnosticsPanel()
         }
@@ -251,15 +236,13 @@ class MainActivity : AppCompatActivity() {
     private fun initializePlugins() {
         val pluginManager = PluginManager.getInstance()
         pluginManager.initialize(this)
-        pluginManager.destroy()
-        pluginManager.initialize(this)
 
         for (config in PluginRegistry.sortedConfigs) {
             if (!isPluginEnabled(config.id, config.defaultEnabled)) {
                 continue
             }
             val plugin = config.factory.invoke()
-            plugin.setEnabled(true)
+            plugin.isEnabled = true
             pluginManager.registerPlugin(plugin)
         }
 
@@ -286,7 +269,7 @@ class MainActivity : AppCompatActivity() {
 
                 if (isChecked) {
                     val plugin = config.factory.invoke()
-                    plugin.setEnabled(true)
+                    plugin.isEnabled = true
                     pluginManager.registerPlugin(plugin)
                 } else {
                     pluginManager.unregisterPlugin(config.id)
@@ -317,52 +300,6 @@ class MainActivity : AppCompatActivity() {
                 append("• ${config.id} -> ${if (configuredEnabled) "enabled" else "disabled"}")
                 append(", loaded=${if (loaded) "yes" else "no"}\n")
             }
-        val failedPlugins = mutableListOf<String>()
-
-        fun register(name: String, creator: () -> Plugin) {
-            try {
-                val plugin = creator()
-                val isRegistered = pluginManager.registerPlugin(plugin)
-                if (!isRegistered) {
-                    failedPlugins.add(name)
-                    Log.w(TAG, "Plugin registration failed: $name")
-                }
-            } catch (t: Throwable) {
-                failedPlugins.add(name)
-                Log.w(TAG, "Plugin initialization failed: $name", t)
-            }
-        }
-
-        // Register guardrail first so policies apply to subsequent plugin invocations
-        register("PolicyGuardrailPlugin") { PolicyGuardrailPlugin() }
-
-        register("DeviceInfoPlugin") { DeviceInfoPlugin() }
-        register("WebSearchPlugin") { WebSearchPlugin() }
-        register("CalculatorPlugin") { CalculatorPlugin() }
-        register("DateTimePlugin") { DateTimePlugin() }
-        register("TextAnalysisPlugin") { TextAnalysisPlugin() }
-        register("FileManagerPlugin") { FileManagerPlugin() }
-        register("NotesPlugin") { NotesPlugin() }
-        register("TelegramBridgePlugin") { TelegramBridgePlugin() }
-        register("TaskAutomationPlugin") { TaskAutomationPlugin() }
-        register("SandboxedCodeExecutionPlugin") { SandboxedCodeExecutionPlugin() }
-        register("PersonalizationPlugin") { PersonalizationPlugin() }
-        register("CommunicationHubPlugin") { CommunicationHubPlugin() }
-        register("GuidanceRouterPlugin") { GuidanceRouterPlugin() }
-
-        val activePluginCount = pluginManager.getAllPlugins().size
-        pluginCountText.text = getString(R.string.active_plugins_count, activePluginCount)
-
-        val pluginCount = pluginManager.getAllPlugins().size
-        pluginCountText.text = "Active plugins: $pluginCount"
-        StartupDiagnostics.recordMilestone(this, "plugin_init_summary", "Registered plugins: $pluginCount")
-        if (failedPlugins.isNotEmpty()) {
-            val skippedPlugins = failedPlugins.joinToString()
-            Toast.makeText(
-                this,
-                getString(R.string.skipped_plugins_message, skippedPlugins),
-                Toast.LENGTH_LONG
-            ).show()
         }
     }
 
