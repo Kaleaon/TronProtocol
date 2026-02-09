@@ -162,6 +162,28 @@ TronProtocol/
 - Foreground notification prevents the service from being killed
 - Boot receiver restarts the service after device reboot
 
+## Startup Compatibility Matrix (Notification Prerequisites)
+
+`TronProtocolService` now performs a startup preflight before entering long-running loops. If notification prerequisites are missing, the service publishes a startup diagnostic and does **not** start heartbeat/consolidation loops.
+
+- **API 33+ (Android 13+)**
+  - Requires `POST_NOTIFICATIONS` runtime permission for startup.
+  - If missing, startup state is `blocked-by-permission`, loops are skipped, and logs direct the user to grant notification permission.
+- **API 26+ (Android 8–12L)**
+  - Foreground notification channel must exist and `NotificationManager` must be available.
+  - If channel/manager is unavailable, startup state is `deferred`, loops are skipped, and logs direct user to reopen the app.
+- **API 24+ notification app-toggle edge case**
+  - If app-level notifications are disabled, startup state is `degraded`.
+  - Service may still run loops, but user-visible alerts are suppressed.
+- **Below API 24**
+  - Notification app-toggle check is not available; startup proceeds if foreground start succeeds.
+
+MainActivity displays a startup badge sourced from diagnostics persisted by the service:
+- `running`
+- `deferred`
+- `blocked-by-permission`
+- `degraded`
+
 ## NPU/AI Dependencies
 
 The following dependencies are included for AI/NPU functionality:

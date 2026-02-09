@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="service_status_running_background">#2E7D32</color>
+    <color name="service_status_blocked_background">#C62828</color>
+    <color name="service_status_degraded_background">#EF6C00</color>
+    <color name="service_status_deferred_background">#616161</color>
+    <color name="service_status_badge_text">#FFFFFFFF</color>
+    <color name="permission_rationale_text">#555555</color>
+</resources>

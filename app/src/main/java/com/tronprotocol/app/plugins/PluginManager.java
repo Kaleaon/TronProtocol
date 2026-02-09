@@ -39,11 +39,36 @@ public class PluginManager {
     /**
      * Register a plugin
      */
-    public void registerPlugin(Plugin plugin) {
-        if (plugin != null && context != null) {
+    public boolean registerPlugin(Plugin plugin) {
+        if (plugin == null) {
+            Log.w(TAG, "Skipping plugin registration: plugin is null");
+            return false;
+        }
+
+        if (context == null) {
+            Log.w(TAG, "Skipping plugin registration for " + plugin.getClass().getName() + ": context is null");
+            return false;
+        }
+
+        try {
             plugin.initialize(context);
             plugins.put(plugin.getId(), plugin);
             Log.d(TAG, "Registered plugin: " + plugin.getName());
+            return true;
+        } catch (Exception e) {
+            String pluginId;
+            try {
+                pluginId = plugin.getId();
+            } catch (Exception idException) {
+                pluginId = "<unavailable>";
+            }
+
+            Log.e(
+                TAG,
+                "Failed to initialize plugin. id=" + pluginId + ", class=" + plugin.getClass().getName(),
+                e
+            );
+            return false;
         }
     }
     
