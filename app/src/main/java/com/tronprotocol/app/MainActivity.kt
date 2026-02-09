@@ -11,32 +11,24 @@ import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
-import com.tronprotocol.app.plugins.CalculatorPlugin
-import com.tronprotocol.app.plugins.CommunicationHubPlugin
-import com.tronprotocol.app.plugins.DateTimePlugin
-import com.tronprotocol.app.plugins.DeviceInfoPlugin
-import com.tronprotocol.app.plugins.FileManagerPlugin
-import com.tronprotocol.app.plugins.GuidanceRouterPlugin
-import com.tronprotocol.app.plugins.NotesPlugin
-import com.tronprotocol.app.plugins.PersonalizationPlugin
+import com.google.android.material.switchmaterial.SwitchMaterial
 import com.tronprotocol.app.plugins.PluginManager
-import com.tronprotocol.app.plugins.PolicyGuardrailPlugin
-import com.tronprotocol.app.plugins.SandboxedCodeExecutionPlugin
-import com.tronprotocol.app.plugins.TaskAutomationPlugin
-import com.tronprotocol.app.plugins.TelegramBridgePlugin
-import com.tronprotocol.app.plugins.TextAnalysisPlugin
-import com.tronprotocol.app.plugins.WebSearchPlugin
+import com.tronprotocol.app.plugins.PluginRegistry
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
+    private lateinit var pluginStatusText: TextView
+    private lateinit var pluginToggleContainer: LinearLayout
     private lateinit var prefs: SharedPreferences
 
     private val runtimePermissions by lazy {
@@ -72,8 +64,11 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
+        pluginStatusText = findViewById(R.id.pluginStatusText)
+        pluginToggleContainer = findViewById(R.id.pluginToggleContainer)
 
         initializePlugins()
+        renderPluginManagementUi()
         wireUiActions()
 
         if (prefs.getBoolean(FIRST_LAUNCH_KEY, true)) {
@@ -110,26 +105,80 @@ class MainActivity : AppCompatActivity() {
     private fun initializePlugins() {
         val pluginManager = PluginManager.getInstance()
         pluginManager.initialize(this)
+        pluginManager.destroy()
+        pluginManager.initialize(this)
 
-        // Register guardrail first so policies apply to subsequent plugin invocations
-        pluginManager.registerPlugin(PolicyGuardrailPlugin())
+        for (config in PluginRegistry.sortedConfigs) {
+            if (!isPluginEnabled(config.id, config.defaultEnabled)) {
+                continue
+            }
+            val plugin = config.factory.invoke()
+            plugin.setEnabled(true)
+            pluginManager.registerPlugin(plugin)
+        }
 
-        pluginManager.registerPlugin(DeviceInfoPlugin())
-        pluginManager.registerPlugin(WebSearchPlugin())
-        pluginManager.registerPlugin(CalculatorPlugin())
-        pluginManager.registerPlugin(DateTimePlugin())
-        pluginManager.registerPlugin(TextAnalysisPlugin())
-        pluginManager.registerPlugin(FileManagerPlugin())
-        pluginManager.registerPlugin(NotesPlugin())
-        pluginManager.registerPlugin(TelegramBridgePlugin())
-        pluginManager.registerPlugin(TaskAutomationPlugin())
-        pluginManager.registerPlugin(SandboxedCodeExecutionPlugin())
-        pluginManager.registerPlugin(PersonalizationPlugin())
-        pluginManager.registerPlugin(CommunicationHubPlugin())
-        pluginManager.registerPlugin(GuidanceRouterPlugin())
+        updatePluginUiState()
+    }
+
+    private fun renderPluginManagementUi() {
+        pluginToggleContainer.removeAllViews()
+        val pluginManager = PluginManager.getInstance()
+
+        for (config in PluginRegistry.sortedConfigs) {
+            val toggle = SwitchMaterial(this).apply {
+                val enabled = isPluginEnabled(config.id, config.defaultEnabled)
+                isChecked = enabled
+                text = "${config.id} · ${config.pluginClass.simpleName} (P${config.startupPriority})"
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+            }
+
+            toggle.setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit().putBoolean(pluginPreferenceKey(config.id), isChecked).apply()
+
+                if (isChecked) {
+                    val plugin = config.factory.invoke()
+                    plugin.setEnabled(true)
+                    pluginManager.registerPlugin(plugin)
+                } else {
+                    pluginManager.unregisterPlugin(config.id)
+                }
+
+                updatePluginUiState()
+            }
+
+            pluginToggleContainer.addView(toggle)
+        }
+
+        updatePluginUiState()
+    }
+
+    private fun updatePluginUiState() {
+        val pluginManager = PluginManager.getInstance()
+        val enabledConfigs = PluginRegistry.sortedConfigs.filter { isPluginEnabled(it.id, it.defaultEnabled) }
+        val loadedPluginIds = pluginManager.getAllPlugins().map { it.id }.toSet()
 
         pluginCountText.text = "Active plugins: ${pluginManager.getAllPlugins().size}"
+        pluginStatusText.text = buildString {
+            append("Configured enabled: ${enabledConfigs.size}/${PluginRegistry.sortedConfigs.size}\n")
+            append("Loaded: ${pluginManager.getAllPlugins().size}\n")
+            append("Status:\n")
+            PluginRegistry.sortedConfigs.forEach { config ->
+                val configuredEnabled = enabledConfigs.any { it.id == config.id }
+                val loaded = loadedPluginIds.contains(config.id)
+                append("• ${config.id} -> ${if (configuredEnabled) "enabled" else "disabled"}")
+                append(", loaded=${if (loaded) "yes" else "no"}\n")
+            }
+        }
     }
+
+    private fun isPluginEnabled(pluginId: String, defaultEnabled: Boolean): Boolean {
+        return prefs.getBoolean(pluginPreferenceKey(pluginId), defaultEnabled)
+    }
+
+    private fun pluginPreferenceKey(pluginId: String): String = "plugin_enabled_$pluginId"
 
     private fun requestInitialAccess() {
         permissionLauncher.launch(runtimePermissions)
