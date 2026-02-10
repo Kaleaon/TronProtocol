@@ -145,7 +145,7 @@ Plugin startup priority order:
 
 ## CI/CD Pipeline
 
-All workflows use a shared **android-common.yml** reusable workflow that sets up JDK 17 (Temurin), Android SDK 34, build-tools 33.0.2, and Gradle caching.
+All workflows use a shared **android-common.yml** reusable workflow that sets up JDK 17 (Temurin), Android SDK 34, build-tools 34.0.0, and Gradle caching.
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
