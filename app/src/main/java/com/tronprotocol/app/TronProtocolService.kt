@@ -14,9 +14,18 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.tronprotocol.app.plugins.LaneQueueExecutor
+import com.tronprotocol.app.plugins.PluginManager
+import com.tronprotocol.app.plugins.PluginSafetyScanner
+import com.tronprotocol.app.plugins.SubAgentManager
+import com.tronprotocol.app.plugins.ToolPolicyEngine
+import com.tronprotocol.app.rag.AutoCompactionManager
 import com.tronprotocol.app.rag.MemoryConsolidationManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalStrategy
+import com.tronprotocol.app.rag.SessionKeyManager
+import com.tronprotocol.app.security.AuditLogger
+import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.SecureStorage
 import com.tronprotocol.app.selfmod.CodeModificationManager
 import java.util.Date
@@ -43,6 +52,17 @@ class TronProtocolService : Service() {
     private var ragStore: RAGStore? = null
     private var codeModManager: CodeModificationManager? = null
     private var consolidationManager: MemoryConsolidationManager? = null
+
+    // -- OpenClaw-inspired subsystems (initialised with dependencies) --------
+
+    private var constitutionalMemory: ConstitutionalMemory? = null
+    private var auditLogger: AuditLogger? = null
+    private var laneQueueExecutor: LaneQueueExecutor? = null
+    private var toolPolicyEngine: ToolPolicyEngine? = null
+    private var safetyScanner: PluginSafetyScanner? = null
+    private var subAgentManager: SubAgentManager? = null
+    private var autoCompactionManager: AutoCompactionManager? = null
+    private var sessionKeyManager: SessionKeyManager? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -134,6 +154,11 @@ class TronProtocolService : Service() {
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
 
+        // Shut down OpenClaw-inspired subsystems
+        laneQueueExecutor?.shutdown()
+        subAgentManager?.shutdown()
+        auditLogger?.shutdown()
+
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
@@ -177,6 +202,36 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "secure_storage_init_failed", e)
             Log.e(TAG, "Failed to initialize secure storage", e)
+        }
+
+        // --- AuditLogger (OpenClaw audit system) ----------------------------
+        try {
+            if (auditLogger == null) {
+                auditLogger = AuditLogger(this)
+                auditLogger?.setSessionId("service_${System.currentTimeMillis()}")
+                auditLogger?.logAsync(
+                    AuditLogger.Severity.INFO,
+                    AuditLogger.AuditCategory.SYSTEM_LIFECYCLE,
+                    "service", "initialize", outcome = "started"
+                )
+            }
+            StartupDiagnostics.recordMilestone(this, "audit_logger_initialized")
+            Log.d(TAG, "Audit logger initialized (OpenClaw audit system)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "audit_logger_init_failed", e)
+            Log.e(TAG, "Failed to initialize audit logger", e)
+        }
+
+        // --- ConstitutionalMemory (OpenClaw constitutional memory) ----------
+        try {
+            if (constitutionalMemory == null) {
+                constitutionalMemory = ConstitutionalMemory(this)
+            }
+            StartupDiagnostics.recordMilestone(this, "constitutional_memory_initialized")
+            Log.d(TAG, "Constitutional memory initialized with ${constitutionalMemory?.getDirectives()?.size} directives")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "constitutional_memory_init_failed", e)
+            Log.e(TAG, "Failed to initialize constitutional memory", e)
         }
 
         // --- RAGStore -------------------------------------------------------
@@ -223,6 +278,106 @@ class TronProtocolService : Service() {
             StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize consolidation manager", e)
         }
+
+        // --- SessionKeyManager (OpenClaw session key architecture) ----------
+        try {
+            if (sessionKeyManager == null) {
+                sessionKeyManager = SessionKeyManager(this).also { mgr ->
+                    mgr.createHeartbeatSession(AI_ID, "session_${System.currentTimeMillis()}")
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "session_key_manager_initialized")
+            Log.d(TAG, "Session key manager initialized (OpenClaw session architecture)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "session_key_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize session key manager", e)
+        }
+
+        // --- AutoCompactionManager (OpenClaw auto-compaction) ---------------
+        try {
+            if (autoCompactionManager == null) {
+                autoCompactionManager = AutoCompactionManager()
+            }
+            StartupDiagnostics.recordMilestone(this, "auto_compaction_manager_initialized")
+            Log.d(TAG, "Auto-compaction manager initialized (OpenClaw auto-compaction)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "auto_compaction_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize auto-compaction manager", e)
+        }
+
+        // --- ToolPolicyEngine (OpenClaw 6-level tool policy) ----------------
+        try {
+            if (toolPolicyEngine == null) {
+                toolPolicyEngine = ToolPolicyEngine().also { it.initialize(this) }
+            }
+            StartupDiagnostics.recordMilestone(this, "tool_policy_engine_initialized")
+            Log.d(TAG, "Tool policy engine initialized (OpenClaw 6-level policy)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "tool_policy_engine_init_failed", e)
+            Log.e(TAG, "Failed to initialize tool policy engine", e)
+        }
+
+        // --- PluginSafetyScanner (OpenClaw skill scanner) -------------------
+        try {
+            if (safetyScanner == null) {
+                safetyScanner = PluginSafetyScanner(constitutionalMemory)
+            }
+            StartupDiagnostics.recordMilestone(this, "safety_scanner_initialized")
+            Log.d(TAG, "Plugin safety scanner initialized (OpenClaw skill scanner)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "safety_scanner_init_failed", e)
+            Log.e(TAG, "Failed to initialize plugin safety scanner", e)
+        }
+
+        // --- LaneQueueExecutor (OpenClaw lane queue system) -----------------
+        try {
+            if (laneQueueExecutor == null) {
+                laneQueueExecutor = LaneQueueExecutor().also {
+                    it.setPluginManager(PluginManager.getInstance())
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "lane_queue_executor_initialized")
+            Log.d(TAG, "Lane queue executor initialized (OpenClaw lane queue system)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "lane_queue_executor_init_failed", e)
+            Log.e(TAG, "Failed to initialize lane queue executor", e)
+        }
+
+        // --- SubAgentManager (OpenClaw sub-agent system) --------------------
+        try {
+            if (subAgentManager == null) {
+                subAgentManager = SubAgentManager(PluginManager.getInstance())
+            }
+            StartupDiagnostics.recordMilestone(this, "sub_agent_manager_initialized")
+            Log.d(TAG, "Sub-agent manager initialized (OpenClaw sub-agent system)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "sub_agent_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize sub-agent manager", e)
+        }
+
+        // --- Wire OpenClaw subsystems into PluginManager --------------------
+        try {
+            val pluginManager = PluginManager.getInstance()
+            safetyScanner?.let { pluginManager.attachSafetyScanner(it) }
+            toolPolicyEngine?.let { pluginManager.attachToolPolicyEngine(it) }
+            auditLogger?.let { pluginManager.attachAuditLogger(it) }
+            StartupDiagnostics.recordMilestone(this, "openclaw_subsystems_wired")
+            Log.d(TAG, "OpenClaw subsystems wired into PluginManager")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to wire OpenClaw subsystems", e)
+        }
+
+        // Log successful initialization
+        auditLogger?.logAsync(
+            AuditLogger.Severity.INFO,
+            AuditLogger.AuditCategory.SYSTEM_LIFECYCLE,
+            "service", "dependencies_initialized",
+            outcome = "success",
+            details = mapOf(
+                "constitutional_directives" to (constitutionalMemory?.getDirectives()?.size ?: 0),
+                "session_count" to (sessionKeyManager?.getStats()?.get("total_sessions") ?: 0)
+            )
+        )
     }
 
     private fun scheduleInitializationRetry(cause: Exception) {
@@ -412,7 +567,33 @@ class TronProtocolService : Service() {
                 }
             }
 
-            // 3. Self-reflection and improvement every 50 heartbeats
+            // 3. Auto-compaction check every 25 heartbeats (OpenClaw-inspired)
+            if (heartbeatCount % 25 == 0) {
+                ragStore?.let { store ->
+                    autoCompactionManager?.let { compactor ->
+                        val usage = compactor.checkUsage(store)
+                        if (usage.needsCompaction) {
+                            Log.d(TAG, "Auto-compaction triggered: ${usage.utilizationPercent}% utilization")
+                            val result = compactor.compact(store)
+                            if (result.success) {
+                                auditLogger?.logAsync(
+                                    AuditLogger.Severity.INFO,
+                                    AuditLogger.AuditCategory.MEMORY_OPERATION,
+                                    "auto_compaction", "compact",
+                                    outcome = "success",
+                                    details = mapOf(
+                                        "tokens_recovered" to result.tokensRecovered,
+                                        "summaries_created" to result.summariesCreated,
+                                        "compression_ratio" to result.compressionRatio
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 4. Self-reflection and improvement every 50 heartbeats
             if (heartbeatCount % 50 == 0) {
                 codeModManager?.let { manager ->
                     val metrics = mapOf<String, Any>(
@@ -428,20 +609,38 @@ class TronProtocolService : Service() {
                 }
             }
 
-            // 4. Store secure heartbeat timestamp
+            // 5. Store secure heartbeat timestamp
             secureStorage?.let { storage ->
                 val timestamp = System.currentTimeMillis()
                 storage.store("last_heartbeat", timestamp.toString())
                 storage.store("heartbeat_count", heartbeatCount.toString())
             }
 
-            // 5. Log MemRL and consolidation statistics every 100 heartbeats
+            // 6. Log MemRL, consolidation, and OpenClaw subsystem stats every 100 heartbeats
             if (heartbeatCount % 100 == 0) {
                 ragStore?.let { store ->
                     Log.d(TAG, "MemRL Stats: ${store.getMemRLStats()}")
 
                     consolidationManager?.let { manager ->
                         Log.d(TAG, "Consolidation Stats: ${manager.getStats()}")
+                    }
+                }
+
+                // OpenClaw subsystem stats
+                laneQueueExecutor?.let { Log.d(TAG, "LaneQueue Stats: ${it.getStats()}") }
+                autoCompactionManager?.let { Log.d(TAG, "AutoCompaction Stats: ${it.getStats()}") }
+                sessionKeyManager?.let { Log.d(TAG, "Session Stats: ${it.getStats()}") }
+                subAgentManager?.let { Log.d(TAG, "SubAgent Stats: ${it.getStats()}") }
+                safetyScanner?.let { Log.d(TAG, "SafetyScanner Stats: ${it.getStats()}") }
+                auditLogger?.let { Log.d(TAG, "Audit Stats: ${it.getStats()}") }
+            }
+
+            // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
+            if (heartbeatCount % 200 == 0) {
+                sessionKeyManager?.let { mgr ->
+                    val archived = mgr.archiveExpiredSessions()
+                    if (archived > 0) {
+                        Log.d(TAG, "Archived $archived expired sessions")
                     }
                 }
             }
@@ -488,6 +687,13 @@ class TronProtocolService : Service() {
                                     0.8f
                                 )
                                 lastConsolidation = System.currentTimeMillis()
+
+                                auditLogger?.logAsync(
+                                    AuditLogger.Severity.INFO,
+                                    AuditLogger.AuditCategory.MEMORY_OPERATION,
+                                    "consolidation_manager", "consolidate",
+                                    outcome = "success"
+                                )
                             }
                         }
                     }

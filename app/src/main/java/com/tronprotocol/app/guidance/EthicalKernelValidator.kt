@@ -1,15 +1,22 @@
 package com.tronprotocol.app.guidance
 
 import android.text.TextUtils
+import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.selfmod.CodeModification
 import com.tronprotocol.app.selfmod.CodeModificationManager
 import java.util.Locale
 
 /**
  * Ethical kernel validation that gates both local and cloud guidance layers.
+ *
+ * Enhanced with OpenClaw-inspired ConstitutionalMemory integration:
+ * - Falls through to ConstitutionalMemory for structured directive evaluation
+ * - Maintains backward compatibility with legacy pattern matching
+ * - Provides richer validation outcomes with constitutional check details
  */
 class EthicalKernelValidator(
-    private val codeModificationManager: CodeModificationManager?
+    private val codeModificationManager: CodeModificationManager?,
+    private val constitutionalMemory: ConstitutionalMemory? = null
 ) {
 
     fun validatePrompt(prompt: String?): ValidationOutcome {
@@ -17,6 +24,18 @@ class EthicalKernelValidator(
             return ValidationOutcome.rejected("Prompt is empty")
         }
 
+        // Layer 1: Constitutional Memory evaluation (OpenClaw-inspired, structured directives)
+        constitutionalMemory?.let { cm ->
+            val check = cm.evaluatePrompt(prompt!!)
+            if (!check.allowed) {
+                val violations = check.violatedDirectives.joinToString(", ") { it.id }
+                return ValidationOutcome.rejected(
+                    "Blocked by constitutional directive(s): $violations"
+                )
+            }
+        }
+
+        // Layer 2: Legacy pattern matching (backward compatibility)
         val lowered = prompt!!.lowercase(Locale.US)
         for (blocked in BLOCKED_PATTERNS) {
             if (lowered.contains(blocked)) {
@@ -32,6 +51,18 @@ class EthicalKernelValidator(
             return ValidationOutcome.rejected("Response is empty")
         }
 
+        // Layer 1: Constitutional Memory evaluation
+        constitutionalMemory?.let { cm ->
+            val check = cm.evaluate(response!!, ConstitutionalMemory.Category.SAFETY)
+            if (!check.allowed) {
+                val violations = check.violatedDirectives.joinToString(", ") { it.id }
+                return ValidationOutcome.rejected(
+                    "Response blocked by constitutional directive(s): $violations"
+                )
+            }
+        }
+
+        // Layer 2: Legacy pattern matching
         val lowered = response!!.lowercase(Locale.US)
         for (blocked in BLOCKED_PATTERNS) {
             if (lowered.contains(blocked)) {
@@ -43,6 +74,18 @@ class EthicalKernelValidator(
     }
 
     fun validateSelfModification(modification: CodeModification): ValidationOutcome {
+        // Layer 1: Constitutional Memory self-mod evaluation
+        constitutionalMemory?.let { cm ->
+            val check = cm.evaluateSelfMod(modification.modifiedCode)
+            if (!check.allowed) {
+                val violations = check.violatedDirectives.joinToString(", ") { it.id }
+                return ValidationOutcome.rejected(
+                    "Self-mod blocked by constitutional directive(s): $violations"
+                )
+            }
+        }
+
+        // Layer 2: CodeModificationManager validation
         if (codeModificationManager == null) {
             return ValidationOutcome.rejected("Self-mod validation unavailable")
         }
