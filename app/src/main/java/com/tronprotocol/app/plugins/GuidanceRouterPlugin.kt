@@ -20,8 +20,8 @@ class GuidanceRouterPlugin : Plugin {
         private const val AI_ID = "tronprotocol_ai"
     }
 
-    private lateinit var secureStorage: SecureStorage
-    private lateinit var orchestrator: GuidanceOrchestrator
+    private var secureStorage: SecureStorage? = null
+    private var orchestrator: GuidanceOrchestrator? = null
 
     override val id: String = ID
 
@@ -48,15 +48,21 @@ class GuidanceRouterPlugin : Plugin {
                     if (parts.size < 2 || parts[1].trim().isEmpty()) {
                         return PluginResult.error("Usage: set_api_key|<anthropic_api_key>", elapsed(start))
                     }
-                    secureStorage.store(API_KEY, parts[1].trim())
+                    val storage = secureStorage
+                        ?: return PluginResult.error("Plugin not initialized", elapsed(start))
+                    storage.store(API_KEY, parts[1].trim())
                     PluginResult.success("Anthropic API key saved", elapsed(start))
                 }
                 "guide" -> {
                     if (parts.size < 2 || parts[1].trim().isEmpty()) {
                         return PluginResult.error("Usage: guide|<question>", elapsed(start))
                     }
-                    val key = secureStorage.retrieve(API_KEY)
-                    val response = orchestrator.guide(key, parts[1].trim())
+                    val storage = secureStorage
+                        ?: return PluginResult.error("Plugin not initialized", elapsed(start))
+                    val orch = orchestrator
+                        ?: return PluginResult.error("Plugin not initialized", elapsed(start))
+                    val key = storage.retrieve(API_KEY)
+                    val response = orch.guide(key, parts[1].trim())
                     if (!response.success) {
                         return PluginResult.error("Guidance failed: ${response.error}", elapsed(start))
                     }
@@ -94,7 +100,8 @@ class GuidanceRouterPlugin : Plugin {
     }
 
     override fun destroy() {
-        // No-op
+        orchestrator = null
+        secureStorage = null
     }
 
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start

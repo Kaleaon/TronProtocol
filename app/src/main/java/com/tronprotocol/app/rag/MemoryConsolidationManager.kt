@@ -87,65 +87,72 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
 
     /**
      * Phase 1: Strengthen memories with high Q-values (successful retrievals)
-     * Similar to memory replay during sleep
+     * Similar to memory replay during sleep — gives positive feedback to high-performing chunks.
      */
     private fun strengthenImportantMemories(ragStore: RAGStore): Int {
-        // In a full implementation, this would:
-        // 1. Find chunks with high Q-values (> 0.7)
-        // 2. Increase their importance score
-        // 3. Create additional connections
-        // 4. Update retrieval priority
-
         Log.d(TAG, "Strengthening important memories...")
 
-        // Simulate strengthening (in real implementation, would modify chunks)
-        val stats = ragStore.getMemRLStats()
-        val avgQValue = stats.getOrDefault("avg_q_value", 0.0f) as Float
+        val chunks = ragStore.getChunks()
+        val highPerformers = chunks.filter { it.qValue > STRENGTHEN_THRESHOLD }
 
-        // Estimate strengthened memories (those above average)
-        val totalChunks = stats.getOrDefault("total_chunks", 0) as Int
-        val strengthened = (totalChunks * 0.3).toInt()  // ~30% above average
+        if (highPerformers.isNotEmpty()) {
+            ragStore.provideFeedback(
+                highPerformers.map { it.chunkId },
+                true
+            )
+        }
 
-        Log.d(TAG, "Strengthened $strengthened memories")
-        return strengthened
+        Log.d(TAG, "Strengthened ${highPerformers.size} memories")
+        return highPerformers.size
     }
 
     /**
      * Phase 2: Weaken memories with low retrieval success
-     * Similar to synaptic scaling during sleep
+     * Similar to synaptic scaling during sleep — gives negative feedback to underperforming chunks.
      */
     private fun weakenUnusedMemories(ragStore: RAGStore): Int {
-        // In a full implementation, this would:
-        // 1. Find chunks with low retrieval counts
-        // 2. Reduce their Q-values slightly
-        // 3. Lower their retrieval priority
-
         Log.d(TAG, "Weakening unused memories...")
 
-        val stats = ragStore.getMemRLStats()
-        val totalChunks = stats.getOrDefault("total_chunks", 0) as Int
-        val weakened = (totalChunks * 0.2).toInt()  // ~20% low usage
+        val chunks = ragStore.getChunks()
+        val lowPerformers = chunks.filter {
+            it.retrievalCount > 0 && it.qValue < CONSOLIDATION_THRESHOLD
+        }
 
-        Log.d(TAG, "Weakened $weakened memories")
-        return weakened
+        if (lowPerformers.isNotEmpty()) {
+            ragStore.provideFeedback(
+                lowPerformers.map { it.chunkId },
+                false
+            )
+        }
+
+        Log.d(TAG, "Weakened ${lowPerformers.size} memories")
+        return lowPerformers.size
     }
 
     /**
      * Phase 3: Remove very low-value memories (active forgetting)
-     * Similar to how the brain selectively forgets unimportant information
+     * Similar to how the brain selectively forgets unimportant information.
+     * Removes chunks with very low Q-values that have had enough retrievals to be judged.
      */
     private fun forgetLowValueMemories(ragStore: RAGStore): Int {
-        // In a full implementation, this would:
-        // 1. Find chunks with Q-values < threshold
-        // 2. Remove chunks with no retrievals in long time
-        // 3. Clear very old, low-value memories
-
         Log.d(TAG, "Forgetting low-value memories...")
 
-        // Estimate forgotten memories (very low performers)
-        val stats = ragStore.getMemRLStats()
-        val totalChunks = stats.getOrDefault("total_chunks", 0) as Int
-        val forgotten = minOf(totalChunks / 20, 5)  // Max 5% or 5 chunks
+        val chunks = ragStore.getChunks()
+        val forgettable = chunks.filter {
+            it.retrievalCount >= MIN_RETRIEVALS_FOR_FORGET && it.qValue < FORGET_THRESHOLD
+        }.sortedBy { it.qValue }
+            .take(MAX_FORGET_PER_CYCLE)
+
+        var forgotten = 0
+        for (chunk in forgettable) {
+            try {
+                if (ragStore.removeChunk(chunk.chunkId)) {
+                    forgotten++
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to remove chunk ${chunk.chunkId}", e)
+            }
+        }
 
         Log.d(TAG, "Forgot $forgotten low-value memories")
         return forgotten
@@ -153,20 +160,35 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
 
     /**
      * Phase 4: Create connections between semantically related memories
-     * Similar to how sleep strengthens associations
+     * Similar to how sleep strengthens associations.
+     * Uses semantic retrieval to find related chunks and stores connection metadata.
      */
     private fun createMemoryConnections(ragStore: RAGStore): Int {
-        // In a full implementation, this would:
-        // 1. Find semantically similar chunks
-        // 2. Create explicit connections/links
-        // 3. Enable graph-based traversal
-        // 4. Improve related concept retrieval
-
         Log.d(TAG, "Creating memory connections...")
 
-        val stats = ragStore.getMemRLStats()
-        val totalChunks = stats.getOrDefault("total_chunks", 0) as Int
-        val connections = totalChunks * 2  // Average 2 connections per chunk
+        val chunks = ragStore.getChunks()
+        var connections = 0
+
+        for (chunk in chunks) {
+            try {
+                val related = ragStore.retrieve(
+                    chunk.content,
+                    RetrievalStrategy.SEMANTIC,
+                    CONNECTION_CANDIDATES + 1
+                )
+                val relatedIds = related
+                    .filter { it.chunk.chunkId != chunk.chunkId && it.score > CONNECTION_SIMILARITY_THRESHOLD }
+                    .take(MAX_CONNECTIONS_PER_CHUNK)
+                    .map { it.chunk.chunkId }
+
+                if (relatedIds.isNotEmpty()) {
+                    chunk.addMetadata("connected_chunks", relatedIds.joinToString(","))
+                    connections += relatedIds.size
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to create connections for chunk ${chunk.chunkId}", e)
+            }
+        }
 
         Log.d(TAG, "Created $connections memory connections")
         return connections
@@ -174,22 +196,37 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
 
     /**
      * Phase 5: Optimize chunk organization for faster retrieval
-     * Similar to memory reorganization during sleep
+     * Similar to memory reorganization during sleep.
+     * Tags chunks with a consolidation timestamp and updates importance metadata
+     * based on current Q-value standings.
      */
     private fun optimizeChunkOrganization(ragStore: RAGStore): Int {
-        // In a full implementation, this would:
-        // 1. Reindex chunks by importance
-        // 2. Update embeddings if needed
-        // 3. Reorganize storage for efficiency
-        // 4. Defragment memory structures
-
         Log.d(TAG, "Optimizing chunk organization...")
 
-        val stats = ragStore.getMemRLStats()
-        val totalChunks = stats.getOrDefault("total_chunks", 0) as Int
+        val chunks = ragStore.getChunks()
+        val now = System.currentTimeMillis().toString()
+        var optimized = 0
 
-        Log.d(TAG, "Optimized $totalChunks chunks")
-        return totalChunks
+        for (chunk in chunks) {
+            chunk.addMetadata("last_consolidated", now)
+            val tier = when {
+                chunk.qValue >= STRENGTHEN_THRESHOLD -> "high"
+                chunk.qValue >= CONSOLIDATION_THRESHOLD -> "medium"
+                else -> "low"
+            }
+            chunk.addMetadata("importance_tier", tier)
+            optimized++
+        }
+
+        // Persist the updated metadata
+        try {
+            ragStore.provideFeedback(emptyList(), false)
+        } catch (_: Exception) {
+            // provideFeedback with empty list just triggers a save
+        }
+
+        Log.d(TAG, "Optimized $optimized chunks")
+        return optimized
     }
 
     /**
@@ -280,7 +317,14 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
 
     companion object {
         private const val TAG = "MemoryConsolidation"
-        private const val CONSOLIDATION_THRESHOLD = 0.3f  // Min Q-value to keep
+        private const val CONSOLIDATION_THRESHOLD = 0.3f  // Q-value below which chunks are weakened
+        private const val STRENGTHEN_THRESHOLD = 0.7f     // Q-value above which chunks are strengthened
+        private const val FORGET_THRESHOLD = 0.15f        // Q-value below which chunks may be removed
+        private const val MIN_RETRIEVALS_FOR_FORGET = 3   // Minimum retrievals before a chunk can be forgotten
+        private const val MAX_FORGET_PER_CYCLE = 5        // Max chunks to forget per consolidation cycle
+        private const val CONNECTION_CANDIDATES = 3       // Candidates to consider for connections
+        private const val MAX_CONNECTIONS_PER_CHUNK = 3   // Max connections per chunk
+        private const val CONNECTION_SIMILARITY_THRESHOLD = 0.3f // Min similarity for a connection
         private const val MAX_CONSOLIDATION_ROUNDS = 5
         private const val STATS_KEY = "consolidation_stats"
     }
