@@ -14,10 +14,18 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.tronprotocol.app.agent.ReActLoop
+import com.tronprotocol.app.aimodel.MicroTrainer
+import com.tronprotocol.app.bus.MessageBus
+import com.tronprotocol.app.npu.NPUInferenceManager
+import com.tronprotocol.app.planning.TaskPlanningEngine
 import com.tronprotocol.app.plugins.LaneQueueExecutor
 import com.tronprotocol.app.plugins.PluginManager
+import com.tronprotocol.app.plugins.PluginRegistry
 import com.tronprotocol.app.plugins.PluginSafetyScanner
+import com.tronprotocol.app.plugins.ProgressivePluginLoader
 import com.tronprotocol.app.plugins.SubAgentManager
+import com.tronprotocol.app.plugins.TaskAutomationPlugin
 import com.tronprotocol.app.plugins.ToolPolicyEngine
 import com.tronprotocol.app.rag.AutoCompactionManager
 import com.tronprotocol.app.rag.MemoryConsolidationManager
@@ -28,6 +36,7 @@ import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.SecureStorage
 import com.tronprotocol.app.selfmod.CodeModificationManager
+import com.tronprotocol.app.selfmod.SelfImprovementEngine
 import java.util.Date
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -63,6 +72,19 @@ class TronProtocolService : Service() {
     private var subAgentManager: SubAgentManager? = null
     private var autoCompactionManager: AutoCompactionManager? = null
     private var sessionKeyManager: SessionKeyManager? = null
+
+    // -- NanoBot-inspired subsystems ----------------------------------------
+
+    private var messageBus: MessageBus? = null
+    private var progressivePluginLoader: ProgressivePluginLoader? = null
+    private var reActLoop: ReActLoop? = null
+    private var taskPlanningEngine: TaskPlanningEngine? = null
+
+    // -- NPU / Training / Self-Improvement ----------------------------------
+
+    private var npuInferenceManager: NPUInferenceManager? = null
+    private var microTrainer: MicroTrainer? = null
+    private var selfImprovementEngine: SelfImprovementEngine? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -159,6 +181,14 @@ class TronProtocolService : Service() {
         subAgentManager?.shutdown()
         auditLogger?.shutdown()
 
+        // Shut down NanoBot-inspired subsystems
+        messageBus?.shutdown()
+        taskPlanningEngine?.shutdown()
+        progressivePluginLoader?.destroy()
+
+        // Shut down NPU / training
+        npuInferenceManager?.destroy()
+
         if (wakeLock?.isHeld == true) {
             wakeLock?.release()
         }
@@ -192,6 +222,18 @@ class TronProtocolService : Service() {
     }
 
     private fun initializeDependencies() {
+        // --- MessageBus (NanoBot-inspired, must be early) --------------------
+        try {
+            if (messageBus == null) {
+                messageBus = MessageBus()
+            }
+            StartupDiagnostics.recordMilestone(this, "message_bus_initialized")
+            Log.d(TAG, "MessageBus initialized (NanoBot async pub-sub)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "message_bus_init_failed", e)
+            Log.e(TAG, "Failed to initialize message bus", e)
+        }
+
         // --- SecureStorage --------------------------------------------------
         try {
             if (secureStorage == null) {
@@ -367,6 +409,119 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to wire OpenClaw subsystems", e)
         }
 
+        // --- ProgressivePluginLoader (NanoBot-inspired lazy loading) ---------
+        try {
+            if (progressivePluginLoader == null) {
+                progressivePluginLoader = ProgressivePluginLoader(this).also { loader ->
+                    loader.registerSummaries(PluginRegistry.configs)
+                    val warmed = loader.warmPriorityPlugins()
+                    loader.loadAll()
+                    loader.registerWithPluginManager(PluginManager.getInstance())
+                    Log.d(TAG, "Progressive loader: warmed $warmed priority plugins, loaded all")
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "progressive_plugin_loader_initialized")
+            Log.d(TAG, "Progressive plugin loader initialized (NanoBot lazy loading)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "progressive_plugin_loader_init_failed", e)
+            Log.e(TAG, "Failed to initialize progressive plugin loader", e)
+        }
+
+        // --- NPUInferenceManager (on-device NPU acceleration) ---------------
+        try {
+            if (npuInferenceManager == null) {
+                npuInferenceManager = NPUInferenceManager(this).also { npu ->
+                    val capabilities = npu.detectCapabilities()
+                    Log.d(TAG, "NPU capabilities: $capabilities")
+
+                    // Benchmark delegates to find the fastest
+                    val benchmarks = npu.benchmarkDelegates()
+                    for (bm in benchmarks) {
+                        Log.d(TAG, "NPU benchmark: ${bm.delegate} = ${bm.avgInferenceMs}ms (supported=${bm.supported})")
+                    }
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "npu_inference_manager_initialized")
+            Log.d(TAG, "NPU inference manager initialized (preferred: ${npuInferenceManager?.getPreferredDelegate()})")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "npu_inference_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize NPU inference manager", e)
+        }
+
+        // --- MicroTrainer (real on-device model training) -------------------
+        try {
+            if (microTrainer == null && npuInferenceManager != null) {
+                microTrainer = MicroTrainer(this, npuInferenceManager!!, messageBus)
+            }
+            StartupDiagnostics.recordMilestone(this, "micro_trainer_initialized")
+            Log.d(TAG, "MicroTrainer initialized (real on-device gradient-based training)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "micro_trainer_init_failed", e)
+            Log.e(TAG, "Failed to initialize micro trainer", e)
+        }
+
+        // --- ReActLoop (NanoBot-inspired agent loop) ------------------------
+        try {
+            if (reActLoop == null) {
+                reActLoop = ReActLoop(
+                    pluginManager = PluginManager.getInstance(),
+                    ragStore = ragStore,
+                    messageBus = messageBus
+                )
+            }
+            StartupDiagnostics.recordMilestone(this, "react_loop_initialized")
+            Log.d(TAG, "ReAct loop initialized (NanoBot reason-act-observe agent)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "react_loop_init_failed", e)
+            Log.e(TAG, "Failed to initialize ReAct loop", e)
+        }
+
+        // --- TaskPlanningEngine (real task decomposition + DAG) --------------
+        try {
+            if (taskPlanningEngine == null) {
+                taskPlanningEngine = TaskPlanningEngine(
+                    pluginManager = PluginManager.getInstance(),
+                    reActLoop = reActLoop,
+                    messageBus = messageBus
+                )
+            }
+            StartupDiagnostics.recordMilestone(this, "task_planning_engine_initialized")
+            Log.d(TAG, "Task planning engine initialized (DAG-based parallel execution)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "task_planning_engine_init_failed", e)
+            Log.e(TAG, "Failed to initialize task planning engine", e)
+        }
+
+        // --- Wire TaskPlanningEngine into TaskAutomationPlugin ---------------
+        try {
+            val taskPlugin = PluginManager.getInstance().getPlugin("task_automation")
+            if (taskPlugin is TaskAutomationPlugin && taskPlanningEngine != null) {
+                taskPlugin.planningEngine = taskPlanningEngine
+                Log.d(TAG, "TaskPlanningEngine wired into TaskAutomationPlugin")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to wire TaskPlanningEngine into TaskAutomationPlugin", e)
+        }
+
+        // --- SelfImprovementEngine (closed-loop improvement) ----------------
+        try {
+            if (selfImprovementEngine == null && microTrainer != null && npuInferenceManager != null) {
+                selfImprovementEngine = SelfImprovementEngine(
+                    context = this,
+                    microTrainer = microTrainer!!,
+                    npuManager = npuInferenceManager!!,
+                    ragStore = ragStore,
+                    codeModManager = codeModManager,
+                    messageBus = messageBus
+                )
+            }
+            StartupDiagnostics.recordMilestone(this, "self_improvement_engine_initialized")
+            Log.d(TAG, "Self-improvement engine initialized (measure -> identify -> retrain -> validate -> deploy)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "self_improvement_engine_init_failed", e)
+            Log.e(TAG, "Failed to initialize self-improvement engine", e)
+        }
+
         // Log successful initialization
         auditLogger?.logAsync(
             AuditLogger.Severity.INFO,
@@ -375,9 +530,26 @@ class TronProtocolService : Service() {
             outcome = "success",
             details = mapOf(
                 "constitutional_directives" to (constitutionalMemory?.getDirectives()?.size ?: 0),
-                "session_count" to (sessionKeyManager?.getStats()?.get("total_sessions") ?: 0)
+                "session_count" to (sessionKeyManager?.getStats()?.get("total_sessions") ?: 0),
+                "npu_delegate" to (npuInferenceManager?.getPreferredDelegate()?.name ?: "none"),
+                "message_bus" to (messageBus != null),
+                "react_loop" to (reActLoop != null),
+                "task_planner" to (taskPlanningEngine != null),
+                "micro_trainer" to (microTrainer != null),
+                "self_improvement" to (selfImprovementEngine != null)
             )
         )
+
+        messageBus?.publishAsync("system.initialized", mapOf(
+            "subsystems" to listOf(
+                "SecureStorage", "AuditLogger", "ConstitutionalMemory", "RAGStore",
+                "CodeModificationManager", "MemoryConsolidationManager", "SessionKeyManager",
+                "AutoCompactionManager", "ToolPolicyEngine", "PluginSafetyScanner",
+                "LaneQueueExecutor", "SubAgentManager", "MessageBus", "ProgressivePluginLoader",
+                "NPUInferenceManager", "MicroTrainer", "ReActLoop", "TaskPlanningEngine",
+                "SelfImprovementEngine"
+            )
+        ), "TronProtocolService")
     }
 
     private fun scheduleInitializationRetry(cause: Exception) {
@@ -550,7 +722,13 @@ class TronProtocolService : Service() {
             // 1. Store heartbeat event as memory
             ragStore?.addMemory("Heartbeat #$heartbeatCount at ${Date()}", 0.5f)
 
-            // 2. Retrieve relevant context using MemRL every 10th heartbeat
+            // 2. Publish heartbeat to MessageBus
+            messageBus?.publishAsync("system.heartbeat", mapOf(
+                "count" to heartbeatCount,
+                "timestamp" to System.currentTimeMillis()
+            ), "TronProtocolService")
+
+            // 3. Retrieve relevant context using MemRL every 10th heartbeat
             if (heartbeatCount % 10 == 0) {
                 ragStore?.let { store ->
                     val results = store.retrieve(
@@ -567,7 +745,7 @@ class TronProtocolService : Service() {
                 }
             }
 
-            // 3. Auto-compaction check every 25 heartbeats (OpenClaw-inspired)
+            // 4. Auto-compaction check every 25 heartbeats (OpenClaw-inspired)
             if (heartbeatCount % 25 == 0) {
                 ragStore?.let { store ->
                     autoCompactionManager?.let { compactor ->
@@ -593,7 +771,7 @@ class TronProtocolService : Service() {
                 }
             }
 
-            // 4. Self-reflection and improvement every 50 heartbeats
+            // 5. Self-reflection and improvement every 50 heartbeats
             if (heartbeatCount % 50 == 0) {
                 codeModManager?.let { manager ->
                     val metrics = mapOf<String, Any>(
@@ -609,14 +787,14 @@ class TronProtocolService : Service() {
                 }
             }
 
-            // 5. Store secure heartbeat timestamp
+            // 6. Store secure heartbeat timestamp
             secureStorage?.let { storage ->
                 val timestamp = System.currentTimeMillis()
                 storage.store("last_heartbeat", timestamp.toString())
                 storage.store("heartbeat_count", heartbeatCount.toString())
             }
 
-            // 6. Log MemRL, consolidation, and OpenClaw subsystem stats every 100 heartbeats
+            // 7. Log MemRL, consolidation, and subsystem stats every 100 heartbeats
             if (heartbeatCount % 100 == 0) {
                 ragStore?.let { store ->
                     Log.d(TAG, "MemRL Stats: ${store.getMemRLStats()}")
@@ -633,14 +811,39 @@ class TronProtocolService : Service() {
                 subAgentManager?.let { Log.d(TAG, "SubAgent Stats: ${it.getStats()}") }
                 safetyScanner?.let { Log.d(TAG, "SafetyScanner Stats: ${it.getStats()}") }
                 auditLogger?.let { Log.d(TAG, "Audit Stats: ${it.getStats()}") }
+
+                // NanoBot + new subsystem stats
+                messageBus?.let { Log.d(TAG, "MessageBus Stats: ${it.getStats()}") }
+                progressivePluginLoader?.let { Log.d(TAG, "ProgressiveLoader Stats: ${it.getStats()}") }
+                reActLoop?.let { Log.d(TAG, "ReActLoop Stats: ${it.getStats()}") }
+                taskPlanningEngine?.let { Log.d(TAG, "TaskPlanning Stats: ${it.getStats()}") }
+                npuInferenceManager?.let { Log.d(TAG, "NPU Stats: ${it.getStats()}") }
+                microTrainer?.let { Log.d(TAG, "MicroTrainer Stats: ${it.getStats()}") }
+                selfImprovementEngine?.let { Log.d(TAG, "SelfImprovement Stats: ${it.getStats()}") }
             }
 
-            // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
+            // 8. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
             if (heartbeatCount % 200 == 0) {
                 sessionKeyManager?.let { mgr ->
                     val archived = mgr.archiveExpiredSessions()
                     if (archived > 0) {
                         Log.d(TAG, "Archived $archived expired sessions")
+                    }
+                }
+            }
+
+            // 9. Self-improvement cycle every 500 heartbeats
+            if (heartbeatCount % 500 == 0) {
+                selfImprovementEngine?.let { engine ->
+                    try {
+                        Log.d(TAG, "Starting self-improvement cycle...")
+                        val result = engine.runImprovementCycle()
+                        Log.d(TAG, "Self-improvement cycle: weaknesses=${result.weaknessesFound}, " +
+                                "addressed=${result.weaknessesAddressed}, " +
+                                "deployed=${result.deployed}, " +
+                                "duration=${result.durationMs}ms")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Self-improvement cycle failed", e)
                     }
                 }
             }
@@ -694,6 +897,11 @@ class TronProtocolService : Service() {
                                     "consolidation_manager", "consolidate",
                                     outcome = "success"
                                 )
+
+                                messageBus?.publishAsync("system.consolidation.complete", mapOf(
+                                    "success" to result.success,
+                                    "timestamp" to System.currentTimeMillis()
+                                ), "TronProtocolService")
                             }
                         }
                     }
