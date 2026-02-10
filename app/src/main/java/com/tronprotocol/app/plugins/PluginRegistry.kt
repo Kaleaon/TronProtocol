@@ -23,6 +23,7 @@ object PluginRegistry {
         PluginConfig("sandbox_exec", SandboxedCodeExecutionPlugin::class.java, true, 110) { SandboxedCodeExecutionPlugin() },
         PluginConfig("personalization", PersonalizationPlugin::class.java, true, 120) { PersonalizationPlugin() },
         PluginConfig("communication_hub", CommunicationHubPlugin::class.java, true, 130) { CommunicationHubPlugin() },
+        PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15) { OnDeviceLLMPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140) { GuidanceRouterPlugin() },
     )
 

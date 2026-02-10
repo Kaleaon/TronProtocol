@@ -45,6 +45,13 @@ dependencies {
     implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
+    // MNN (Mobile Neural Network) — Alibaba's on-device inference framework
+    // Core AAR provides Java API for model loading, session management, and inference.
+    // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true
+    // and placed in app/src/main/jniLibs/arm64-v8a/ (libMNN.so, libMNN_Express.so, libmnnllm.so).
+    // See: https://github.com/alibaba/MNN
+    implementation 'com.alibaba.android:mnn:0.0.8'
+
     // For neural network acceleration
     implementation 'com.google.android.gms:play-services-base:18.2.0'
 
