@@ -318,17 +318,41 @@ class RAGStore @Throws(Exception::class) constructor(
         text.length / 4
 
     private fun generateEmbedding(text: String): FloatArray {
-        // Simplified TF-IDF-like embedding (100 dimensions)
-        // In production, use proper embedding model
-        val words = text.lowercase().split("\\s+".toRegex())
-        val embedding = FloatArray(100)
+        // Multi-hash embedding with bigrams for better semantic representation.
+        // Uses multiple hash seeds to reduce collisions and includes word bigrams
+        // to capture some word-order information.
+        // In production, replace with a proper embedding model (e.g., TFLite sentence encoder).
+        val embeddingSize = 128
+        val embedding = FloatArray(embeddingSize)
+        val words = text.lowercase()
+            .replace("[^a-z0-9\\s]".toRegex(), " ")
+            .split("\\s+".toRegex())
+            .filter { it.isNotEmpty() }
 
+        if (words.isEmpty()) return embedding
+
+        // IDF approximation: down-weight very common short words
+        val stopWords = setOf("the", "a", "an", "is", "it", "in", "on", "to", "of", "and", "or", "for", "at", "by")
+
+        // Unigrams with multiple hashes for better distribution
         for (word in words) {
-            val hash = abs(word.hashCode() % 100)
-            embedding[hash] += 1.0f
+            val weight = if (word in stopWords) 0.3f else 1.0f
+            val h1 = abs(word.hashCode())
+            val h2 = abs(word.hashCode() * 31 + 17)
+            val h3 = abs(word.hashCode() * 37 + 53)
+            embedding[h1 % embeddingSize] += weight
+            embedding[h2 % embeddingSize] += weight * 0.5f
+            embedding[h3 % embeddingSize] += weight * 0.25f
         }
 
-        // Normalize
+        // Bigrams for word-order sensitivity
+        for (i in 0 until words.size - 1) {
+            val bigram = words[i] + "_" + words[i + 1]
+            val bh = abs(bigram.hashCode())
+            embedding[bh % embeddingSize] += 0.5f
+        }
+
+        // L2 normalize
         var norm = 0.0f
         for (value in embedding) {
             norm += value * value
