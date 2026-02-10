@@ -62,6 +62,7 @@ class GuidanceRouterPlugin : Plugin {
                     val orch = orchestrator
                         ?: return PluginResult.error("Plugin not initialized", elapsed(start))
                     val key = storage.retrieve(API_KEY)
+                        ?: return PluginResult.error("API key not set. Use set_api_key first", elapsed(start))
                     val response = orch.guide(key, parts[1].trim())
                     if (!response.success) {
                         return PluginResult.error("Guidance failed: ${response.error}", elapsed(start))
