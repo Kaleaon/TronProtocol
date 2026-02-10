@@ -1,19 +1,33 @@
 package com.tronprotocol.app.guidance
 
 import android.text.TextUtils
+import android.util.Log
+import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalStrategy
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
 /**
- * Orchestrates local-vs-cloud guidance, caching, and ethical-kernel validation.
+ * Orchestrates local-vs-ondevice-vs-cloud guidance, caching, and ethical-kernel validation.
+ *
+ * Routing tiers:
+ * 1. Local — template responses for trivial prompts
+ * 2. On-Device LLM — MNN-powered inference for medium-complexity queries (offline capable)
+ * 3. Cloud (Sonnet/Opus) — Anthropic API for complex or high-stakes guidance
+ *
+ * The on-device LLM tier is used when:
+ * - DecisionRouter routes the prompt to on-device (medium complexity, no high-stakes terms)
+ * - OR as a fallback when all cloud models are exhausted (offline resilience)
+ *
+ * @see <a href="https://github.com/alibaba/MNN">Alibaba MNN</a>
  */
 class GuidanceOrchestrator(
     private val anthropicApiClient: AnthropicApiClient,
     private val decisionRouter: DecisionRouter,
     private val ethicalKernelValidator: EthicalKernelValidator,
-    private val ragStore: RAGStore?
+    private val ragStore: RAGStore?,
+    private val onDeviceLLMManager: OnDeviceLLMManager? = null
 ) {
 
     @Throws(Exception::class)
@@ -34,6 +48,22 @@ class GuidanceOrchestrator(
             return GuidanceResponse.success(localAnswer, "local", "local-brain", true)
         }
 
+        // On-device LLM tier: handle medium-complexity prompts locally via MNN
+        if (decision.useOnDeviceLLM) {
+            val onDeviceResult = tryOnDeviceLLM(prompt)
+            if (onDeviceResult != null) {
+                val llmCheck = ethicalKernelValidator.validateResponse(onDeviceResult)
+                if (!llmCheck.allowed) {
+                    return GuidanceResponse.error(llmCheck.message, "on_device_llm_blocked")
+                }
+                cache(prompt, onDeviceResult, "on_device_llm")
+                val modelId = onDeviceLLMManager?.activeConfig?.modelId ?: "mnn_local"
+                return GuidanceResponse.success(onDeviceResult, "on_device_llm", modelId, false)
+            }
+            // Fall through to cloud if on-device LLM failed
+            Log.d(TAG, "On-device LLM unavailable, falling through to cloud")
+        }
+
         val cached = lookupCache(prompt)
         if (!TextUtils.isEmpty(cached)) {
             val cacheCheck = ethicalKernelValidator.validateResponse(cached)
@@ -43,14 +73,60 @@ class GuidanceOrchestrator(
             return GuidanceResponse.success(cached!!, "cache", decision.cloudModel, true)
         }
 
-        val cloudAnswer = anthropicApiClient.createGuidance(apiKey, decision.cloudModel!!, prompt, 600)
-        val cloudCheck = ethicalKernelValidator.validateResponse(cloudAnswer)
-        if (!cloudCheck.allowed) {
-            return GuidanceResponse.error(cloudCheck.message, "cloud_blocked")
-        }
+        // Cloud tier: call Anthropic API
+        try {
+            val cloudAnswer = anthropicApiClient.createGuidance(
+                apiKey, decision.cloudModel!!, prompt, 600
+            )
+            val cloudCheck = ethicalKernelValidator.validateResponse(cloudAnswer)
+            if (!cloudCheck.allowed) {
+                return GuidanceResponse.error(cloudCheck.message, "cloud_blocked")
+            }
 
-        cache(prompt, cloudAnswer, decision.cloudModel)
-        return GuidanceResponse.success(cloudAnswer, "cloud", decision.cloudModel, false)
+            cache(prompt, cloudAnswer, decision.cloudModel)
+            return GuidanceResponse.success(cloudAnswer, "cloud", decision.cloudModel, false)
+        } catch (e: AnthropicApiClient.AnthropicException) {
+            // If cloud fails and on-device LLM is available, use it as fallback
+            if (onDeviceLLMManager != null && onDeviceLLMManager.isReady) {
+                Log.d(TAG, "Cloud API failed (${e.message}), falling back to on-device LLM")
+                val fallbackResult = tryOnDeviceLLM(prompt)
+                if (fallbackResult != null) {
+                    val fallbackCheck = ethicalKernelValidator.validateResponse(fallbackResult)
+                    if (!fallbackCheck.allowed) {
+                        return GuidanceResponse.error(fallbackCheck.message, "fallback_blocked")
+                    }
+                    val modelId = onDeviceLLMManager.activeConfig?.modelId ?: "mnn_fallback"
+                    return GuidanceResponse.success(
+                        fallbackResult, "on_device_llm_fallback", modelId, false
+                    )
+                }
+            }
+            throw e
+        }
+    }
+
+    /**
+     * Attempt to generate a response using the on-device MNN LLM.
+     * Returns null if the LLM is not available or generation fails.
+     */
+    private fun tryOnDeviceLLM(prompt: String): String? {
+        val manager = onDeviceLLMManager ?: return null
+        if (!manager.isReady) return null
+
+        return try {
+            val result = manager.generate(prompt)
+            if (result.success && result.text != null) {
+                Log.d(TAG, "On-device LLM generated ${result.tokensGenerated} tokens " +
+                        "in ${result.latencyMs}ms (${String.format("%.1f", result.tokensPerSecond)} tok/s)")
+                result.text
+            } else {
+                Log.w(TAG, "On-device LLM generation failed: ${result.error}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "On-device LLM exception: ${e.message}")
+            null
+        }
     }
 
     private fun buildLocalResponse(prompt: String, reason: String): String {
@@ -130,6 +206,7 @@ class GuidanceOrchestrator(
     }
 
     companion object {
+        private const val TAG = "GuidanceOrchestrator"
         private const val CACHE_PREFIX = "GUIDANCE_CACHE"
     }
 }

@@ -1,6 +1,7 @@
 package com.tronprotocol.app.guidance
 
 import android.util.Log
+import com.tronprotocol.app.llm.OnDeviceLLMManager
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -67,8 +68,20 @@ class ModelFailoverManager(
     // Compaction callback for context overflow
     private var compactionCallback: (() -> String?)? = null
 
+    // On-device LLM for ultimate fallback when all cloud models are exhausted
+    private var onDeviceLLMManager: OnDeviceLLMManager? = null
+
     fun setCompactionCallback(callback: () -> String?) {
         this.compactionCallback = callback
+    }
+
+    /**
+     * Set the on-device LLM manager for offline fallback.
+     * When all cloud models are exhausted, the on-device MNN LLM
+     * will be used as a last resort if available and ready.
+     */
+    fun setOnDeviceLLMFallback(manager: OnDeviceLLMManager?) {
+        this.onDeviceLLMManager = manager
     }
 
     /**
@@ -153,6 +166,31 @@ class ModelFailoverManager(
 
                 // Apply backoff before trying next model
                 applyBackoff(attempts)
+            }
+        }
+
+        // Last resort: try on-device MNN LLM if all cloud models are exhausted
+        val llm = onDeviceLLMManager
+        if (llm != null && llm.isReady) {
+            Log.d(TAG, "All cloud models exhausted — attempting on-device MNN LLM fallback")
+            try {
+                val result = llm.generate(prompt)
+                if (result.success && result.text != null) {
+                    val latency = System.currentTimeMillis() - startTime
+                    Log.d(TAG, "On-device LLM fallback succeeded: ${result.tokensGenerated} tokens " +
+                            "in ${result.latencyMs}ms")
+                    return FailoverResult(
+                        success = true,
+                        response = result.text,
+                        modelUsed = result.modelId ?: "mnn_on_device",
+                        attemptsCount = attempts + 1,
+                        totalLatencyMs = latency,
+                        failoverReasons = failoverReasons,
+                        error = null
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "On-device LLM fallback also failed: ${e.message}")
             }
         }
 

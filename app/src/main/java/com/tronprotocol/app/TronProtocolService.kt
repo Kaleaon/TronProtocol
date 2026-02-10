@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.plugins.LaneQueueExecutor
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginSafetyScanner
@@ -63,6 +64,7 @@ class TronProtocolService : Service() {
     private var subAgentManager: SubAgentManager? = null
     private var autoCompactionManager: AutoCompactionManager? = null
     private var sessionKeyManager: SessionKeyManager? = null
+    private var onDeviceLLMManager: OnDeviceLLMManager? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -154,7 +156,8 @@ class TronProtocolService : Service() {
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
 
-        // Shut down OpenClaw-inspired subsystems
+        // Shut down OpenClaw-inspired subsystems and on-device LLM
+        onDeviceLLMManager?.shutdown()
         laneQueueExecutor?.shutdown()
         subAgentManager?.shutdown()
         auditLogger?.shutdown()
@@ -353,6 +356,36 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "sub_agent_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize sub-agent manager", e)
+        }
+
+        // --- OnDeviceLLMManager (MNN on-device inference) --------------------
+        try {
+            if (onDeviceLLMManager == null) {
+                onDeviceLLMManager = OnDeviceLLMManager(this).also { manager ->
+                    val capability = manager.assessDevice()
+                    Log.d(TAG, "On-device LLM: canRun=${capability.canRunLLM}, " +
+                            "recommended=${capability.recommendedModel}, " +
+                            "ram=${capability.availableRamMb}MB, " +
+                            "nativeAvailable=${OnDeviceLLMManager.isNativeAvailable()}")
+
+                    // Auto-discover and load a model if native libs are available
+                    if (OnDeviceLLMManager.isNativeAvailable() && capability.canRunLLM) {
+                        val models = manager.discoverModels()
+                        if (models.isNotEmpty()) {
+                            val config = manager.createConfigFromDirectory(models[0])
+                            val loaded = manager.loadModel(config)
+                            if (loaded) {
+                                Log.d(TAG, "Auto-loaded on-device LLM: ${config.modelName}")
+                            }
+                        }
+                    }
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "on_device_llm_manager_initialized")
+            Log.d(TAG, "On-device LLM manager initialized (MNN framework)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "on_device_llm_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize on-device LLM manager", e)
         }
 
         // --- Wire OpenClaw subsystems into PluginManager --------------------
@@ -633,6 +666,7 @@ class TronProtocolService : Service() {
                 subAgentManager?.let { Log.d(TAG, "SubAgent Stats: ${it.getStats()}") }
                 safetyScanner?.let { Log.d(TAG, "SafetyScanner Stats: ${it.getStats()}") }
                 auditLogger?.let { Log.d(TAG, "Audit Stats: ${it.getStats()}") }
+                onDeviceLLMManager?.let { Log.d(TAG, "OnDeviceLLM Stats: ${it.stats}") }
             }
 
             // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)

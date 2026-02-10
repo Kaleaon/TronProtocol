@@ -5,6 +5,7 @@ import com.tronprotocol.app.guidance.AnthropicApiClient
 import com.tronprotocol.app.guidance.DecisionRouter
 import com.tronprotocol.app.guidance.EthicalKernelValidator
 import com.tronprotocol.app.guidance.GuidanceOrchestrator
+import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.security.SecureStorage
 import com.tronprotocol.app.selfmod.CodeModificationManager
@@ -22,6 +23,7 @@ class GuidanceRouterPlugin : Plugin {
 
     private var secureStorage: SecureStorage? = null
     private var orchestrator: GuidanceOrchestrator? = null
+    private var onDeviceLLMManager: OnDeviceLLMManager? = null
 
     override val id: String = ID
 
@@ -72,12 +74,21 @@ class GuidanceRouterPlugin : Plugin {
                         ", cache_hit=${response.cacheHit}\n${response.answer}"
                     PluginResult.success(payload, elapsed(start))
                 }
-                "stats" -> PluginResult.success(
-                    "Configured models: routine=${AnthropicApiClient.MODEL_SONNET}" +
-                        ", high_stakes=${AnthropicApiClient.MODEL_OPUS}" +
-                        "; ethical kernel validation enabled on local+cloud layers",
-                    elapsed(start)
-                )
+                "stats" -> {
+                    val llmStatus = if (onDeviceLLMManager?.isReady == true)
+                        "READY (${onDeviceLLMManager?.activeConfig?.modelName})"
+                    else if (OnDeviceLLMManager.isNativeAvailable())
+                        "available (no model loaded)"
+                    else
+                        "unavailable (MNN native libs not installed)"
+                    PluginResult.success(
+                        "Configured models: routine=${AnthropicApiClient.MODEL_SONNET}" +
+                            ", high_stakes=${AnthropicApiClient.MODEL_OPUS}" +
+                            ", on_device_llm=$llmStatus" +
+                            "; ethical kernel validation enabled on local+cloud+ondevice layers",
+                        elapsed(start)
+                    )
+                }
                 else -> PluginResult.error("Unknown command: $command", elapsed(start))
             }
         } catch (e: Exception) {
@@ -91,16 +102,26 @@ class GuidanceRouterPlugin : Plugin {
             val ragStore = RAGStore(context, AI_ID)
             val codeModificationManager = CodeModificationManager(context)
 
+            // Initialize on-device LLM manager (MNN-powered)
+            val llmManager = OnDeviceLLMManager(context)
+            onDeviceLLMManager = llmManager
+
             val client = AnthropicApiClient(20, 1500)
             val router = DecisionRouter()
+
+            // Inform the router whether on-device LLM is available
+            router.onDeviceLLMAvailable = llmManager.isReady
+
             val validator = EthicalKernelValidator(codeModificationManager)
-            orchestrator = GuidanceOrchestrator(client, router, validator, ragStore)
+            orchestrator = GuidanceOrchestrator(client, router, validator, ragStore, llmManager)
         } catch (e: Exception) {
             throw RuntimeException("Failed to initialize guidance router", e)
         }
     }
 
     override fun destroy() {
+        onDeviceLLMManager?.shutdown()
+        onDeviceLLMManager = null
         orchestrator = null
         secureStorage = null
     }
