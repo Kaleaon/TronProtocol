@@ -666,7 +666,7 @@ class TronProtocolService : Service() {
                 subAgentManager?.let { Log.d(TAG, "SubAgent Stats: ${it.getStats()}") }
                 safetyScanner?.let { Log.d(TAG, "SafetyScanner Stats: ${it.getStats()}") }
                 auditLogger?.let { Log.d(TAG, "Audit Stats: ${it.getStats()}") }
-                onDeviceLLMManager?.let { Log.d(TAG, "OnDeviceLLM Stats: ${it.stats}") }
+                onDeviceLLMManager?.let { Log.d(TAG, "OnDeviceLLM Stats: ${it.getStats()}") }
             }
 
             // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
