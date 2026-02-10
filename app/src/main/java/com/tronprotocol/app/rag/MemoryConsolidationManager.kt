@@ -1,6 +1,10 @@
 package com.tronprotocol.app.rag
 
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.os.PowerManager
 import android.util.Log
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONObject
@@ -68,6 +72,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
 
             // Phase 5: Optimize chunk organization
             result.optimized = optimizeChunkOrganization(ragStore)
+
+            // Phase 6: Maintain knowledge graph connections
+            result.graphEdgesUpdated = maintainKnowledgeGraph(ragStore)
 
             totalConsolidations++
             result.duration = System.currentTimeMillis() - startTime
@@ -230,6 +237,50 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     }
 
     /**
+     * Phase 6: Maintain knowledge graph connections (MiniRAG-inspired)
+     * Updates entity relationships and prunes orphaned nodes during consolidation.
+     */
+    private fun maintainKnowledgeGraph(ragStore: RAGStore): Int {
+        Log.d(TAG, "Maintaining knowledge graph...")
+
+        val graph = ragStore.knowledgeGraph
+        val chunks = ragStore.getChunks()
+        val validChunkIds = chunks.map { it.chunkId }.toSet()
+        var updatedEdges = 0
+
+        // Prune chunk nodes that no longer exist in the RAGStore
+        val graphStats = graph.getStats()
+        val graphChunkCount = graphStats["chunk_count"] as? Int ?: 0
+        Log.d(TAG, "Graph has $graphChunkCount chunk nodes, RAGStore has ${validChunkIds.size} chunks")
+
+        // Re-extract entities for chunks without graph entries
+        val entityExtractor = EntityExtractor()
+        for (chunk in chunks) {
+            try {
+                val extraction = entityExtractor.extract(chunk.content)
+                if (extraction.entities.size >= 2) {
+                    // Add relationships between entities found in the same chunk
+                    for (rel in extraction.relationships) {
+                        val sourceId = "entity_${rel.sourceEntity.lowercase().trim()}"
+                        val targetId = "entity_${rel.targetEntity.lowercase().trim()}"
+                        graph.addRelationship(sourceId, targetId, rel.relationship, rel.strength)
+                        updatedEdges++
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to update graph for chunk ${chunk.chunkId}", e)
+            }
+        }
+
+        if (updatedEdges > 0) {
+            graph.save()
+        }
+
+        Log.d(TAG, "Updated $updatedEdges graph edges during consolidation")
+        return updatedEdges
+    }
+
+    /**
      * Get consolidation statistics
      */
     fun getStats(): Map<String, Any> {
@@ -251,24 +302,51 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     }
 
     /**
-     * Check if it's a good time for consolidation
-     * (nighttime, device charging, low activity, etc.)
+     * Check if it's a good time for consolidation.
+     * Considers multiple device state signals:
+     * - Time of day (nighttime preferred)
+     * - Battery charging status
+     * - Device idle state (interactive mode)
+     *
+     * Consolidation runs when at least 2 of 3 conditions are met,
+     * OR always during nighttime + charging.
      */
     fun isConsolidationTime(): Boolean {
-        // Get current hour (0-23)
         val cal = Calendar.getInstance()
         val hour = cal.get(Calendar.HOUR_OF_DAY)
 
-        // Consider nighttime (1 AM - 5 AM) as consolidation time
+        // Condition 1: Nighttime (1 AM - 5 AM)
         val isNighttime = hour in 1..5
 
-        // In full implementation, also check:
-        // - Device is charging
-        // - Device is idle (no user activity)
-        // - Screen is off
-        // - Wi-Fi connected (if needed)
+        // Condition 2: Device is charging
+        val isCharging = try {
+            val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+            status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not check charging status", e)
+            false
+        }
 
-        return isNighttime
+        // Condition 3: Screen is off / device is idle
+        val isIdle = try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            powerManager != null && !powerManager.isInteractive
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not check idle status", e)
+            false
+        }
+
+        // Ideal: nighttime + charging
+        if (isNighttime && isCharging) return true
+
+        // Good: any 2 of 3 conditions
+        var conditionsMet = 0
+        if (isNighttime) conditionsMet++
+        if (isCharging) conditionsMet++
+        if (isIdle) conditionsMet++
+
+        return conditionsMet >= 2
     }
 
     @Throws(Exception::class)
@@ -301,6 +379,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         @JvmField var forgotten: Int = 0
         @JvmField var connections: Int = 0
         @JvmField var optimized: Int = 0
+        @JvmField var graphEdgesUpdated: Int = 0
         @JvmField var duration: Long = 0
 
         override fun toString(): String =
@@ -311,6 +390,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
                     ", forgotten=" + forgotten +
                     ", connections=" + connections +
                     ", optimized=" + optimized +
+                    ", graphEdges=" + graphEdgesUpdated +
                     ", duration=" + duration + "ms" +
                     '}'
     }

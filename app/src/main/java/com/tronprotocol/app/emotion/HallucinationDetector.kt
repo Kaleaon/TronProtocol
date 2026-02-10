@@ -74,9 +74,9 @@ class HallucinationDetector(
                     val factualSupport = calculateFactualSupport(response, retrievedFacts)
                     result.factualSupportScore = factualSupport
 
-                    if (factualSupport < 0.3f) {
+                    if (factualSupport < LOW_FACTUAL_SUPPORT_THRESHOLD) {
                         result.hallucinationType = HallucinationType.UNSUPPORTED
-                        result.confidence = max(result.confidence, 0.7f)
+                        result.confidence = max(result.confidence, CONSISTENCY_THRESHOLD)
                         Log.w(TAG, "Low factual support: $factualSupport")
                     }
                 }
@@ -90,7 +90,7 @@ class HallucinationDetector(
         result.claims = claims
         result.claimCount = claims.size
 
-        if (claims.size > 5 && result.consistencyScore < 0.5f) {
+        if (claims.size > MAX_CLAIMS_FOR_OVERSPECIFIC && result.consistencyScore < LOW_CONSISTENCY_CLAIMS_THRESHOLD) {
             // Many specific claims with low consistency = likely hallucinating details
             result.hallucinationType = HallucinationType.OVERSPECIFIC
             result.confidence = max(result.confidence, 0.75f)
@@ -100,10 +100,10 @@ class HallucinationDetector(
         val uncertaintyScore = detectUncertaintyPatterns(response)
         result.uncertaintyScore = uncertaintyScore
 
-        if (uncertaintyScore > 0.7f) {
+        if (uncertaintyScore > HIGH_UNCERTAINTY_THRESHOLD) {
             // AI is uncertain but still generating - risky
             result.hallucinationType = HallucinationType.UNCERTAIN_GENERATION
-            result.confidence = max(result.confidence, 0.6f)
+            result.confidence = max(result.confidence, CONFIDENCE_THRESHOLD)
         }
 
         // Strategy 5: Emotional Bias (recent embarrassments)
@@ -127,36 +127,36 @@ class HallucinationDetector(
     }
 
     /**
-     * Calculate how well the response is supported by retrieved facts
+     * Calculate how well the response is supported by retrieved facts.
+     *
+     * Uses Set-based intersection (O(n+m)) instead of nested loops (O(n*m))
+     * for efficient word overlap computation. Filters stop words and short
+     * tokens to reduce noise.
      */
     private fun calculateFactualSupport(response: String, facts: List<RetrievalResult>): Float {
         if (facts.isEmpty()) return 0.0f
 
         val responseLower = response.lowercase()
-        var totalSupport = 0
+        val responseWords = responseLower.split("\\s+".toRegex())
+            .filter { it.length > MIN_WORD_LENGTH_FOR_OVERLAP }
+            .toSet()
+
+        if (responseWords.isEmpty()) return 0.0f
+
+        var totalOverlap = 0
 
         for (fact in facts) {
             val factContent = fact.chunk.content.lowercase()
+            val factWordSet = factContent.split("\\s+".toRegex())
+                .filter { it.length > MIN_WORD_LENGTH_FOR_OVERLAP && it !in STOP_WORDS }
+                .toSet()
 
-            // Calculate word overlap
-            val responseWords = responseLower.split("\\s+".toRegex())
-            val factWords = factContent.split("\\s+".toRegex())
-
-            var overlap = 0
-            for (rWord in responseWords) {
-                for (fWord in factWords) {
-                    if (rWord == fWord && rWord.length > 3) {
-                        overlap++
-                    }
-                }
-            }
-
-            totalSupport += overlap
+            // Set intersection: O(min(n,m)) instead of O(n*m)
+            val overlap = responseWords.intersect(factWordSet).size
+            totalOverlap += overlap
         }
 
-        // Normalize by response length
-        val responseWords = responseLower.split("\\s+".toRegex())
-        return min(1.0f, totalSupport / max(1, responseWords.size).toFloat())
+        return min(1.0f, totalOverlap / max(1, responseWords.size).toFloat())
     }
 
     /**
@@ -204,20 +204,24 @@ class HallucinationDetector(
     }
 
     /**
-     * Make final hallucination determination based on multiple signals
+     * Make final hallucination determination based on multiple signals.
+     *
+     * Uses a two-tier approach:
+     * 1. High-confidence single signal: any signal above HIGH_CONFIDENCE_THRESHOLD
+     * 2. Convergence of weak signals: 3+ weak signals from independent detectors
      */
     private fun determineHallucination(result: HallucinationResult): Boolean {
         // High confidence hallucination signals
-        if (result.confidence > 0.85f) return true
+        if (result.confidence > HIGH_CONFIDENCE_THRESHOLD) return true
 
-        // Multiple weak signals
+        // Multiple weak signals from independent detectors
         var weakSignals = 0
         if (!result.isConsistent) weakSignals++
-        if (result.factualSupportScore < 0.4f) weakSignals++
-        if (result.uncertaintyScore > 0.5f) weakSignals++
-        if (result.emotionalBias < -0.1f) weakSignals++ // Recently embarrassed
+        if (result.factualSupportScore < WEAK_FACTUAL_SUPPORT_THRESHOLD) weakSignals++
+        if (result.uncertaintyScore > WEAK_UNCERTAINTY_THRESHOLD) weakSignals++
+        if (result.emotionalBias < WEAK_EMOTIONAL_BIAS_THRESHOLD) weakSignals++ // Recently embarrassed
 
-        if (weakSignals >= 3) return true
+        if (weakSignals >= MIN_WEAK_SIGNALS_FOR_HALLUCINATION) return true
 
         // Conservative: only flag clear hallucinations
         return false
@@ -300,5 +304,29 @@ class HallucinationDetector(
         private const val TAG = "HallucinationDetector"
         private const val CONSISTENCY_THRESHOLD = 0.7f
         private const val CONFIDENCE_THRESHOLD = 0.6f
+
+        // Factual support thresholds
+        private const val LOW_FACTUAL_SUPPORT_THRESHOLD = 0.3f
+        private const val LOW_CONSISTENCY_CLAIMS_THRESHOLD = 0.5f
+        private const val HIGH_UNCERTAINTY_THRESHOLD = 0.7f
+        private const val MAX_CLAIMS_FOR_OVERSPECIFIC = 5
+
+        // Determination thresholds
+        private const val HIGH_CONFIDENCE_THRESHOLD = 0.85f
+        private const val WEAK_FACTUAL_SUPPORT_THRESHOLD = 0.4f
+        private const val WEAK_UNCERTAINTY_THRESHOLD = 0.5f
+        private const val WEAK_EMOTIONAL_BIAS_THRESHOLD = -0.1f
+        private const val MIN_WEAK_SIGNALS_FOR_HALLUCINATION = 3
+
+        // Word overlap
+        private const val MIN_WORD_LENGTH_FOR_OVERLAP = 3
+
+        private val STOP_WORDS = setOf(
+            "the", "a", "an", "is", "it", "in", "on", "to", "of",
+            "and", "or", "for", "at", "by", "from", "with", "that",
+            "this", "but", "not", "are", "was", "were", "been", "has",
+            "have", "had", "will", "would", "could", "should", "may",
+            "can", "do", "did", "does", "than", "then", "also", "just"
+        )
     }
 }

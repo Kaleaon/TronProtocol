@@ -8,6 +8,7 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import kotlin.math.abs
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -31,6 +32,10 @@ class RAGStore @Throws(Exception::class) constructor(
     private val storage: SecureStorage = SecureStorage(context)
     private val chunks: MutableList<TextChunk> = mutableListOf()
     private val chunkIndex: MutableMap<String, TextChunk> = mutableMapOf()
+
+    // MiniRAG-inspired knowledge graph for entity-aware retrieval
+    val knowledgeGraph: KnowledgeGraph = KnowledgeGraph(context, aiId)
+    private val entityExtractor: EntityExtractor = EntityExtractor()
 
     init {
         loadChunks()
@@ -79,6 +84,33 @@ class RAGStore @Throws(Exception::class) constructor(
         chunks.add(chunk)
         chunkIndex[chunkId] = chunk
 
+        // Extract entities and populate knowledge graph (MiniRAG-inspired)
+        try {
+            val extraction = entityExtractor.extract(content)
+            val entityIds = mutableListOf<String>()
+
+            for (entity in extraction.entities) {
+                val entityId = knowledgeGraph.addEntity(entity.name, entity.entityType, entity.context)
+                entityIds.add(entityId)
+            }
+
+            if (entityIds.isNotEmpty()) {
+                val summary = content.substring(0, min(100, content.length))
+                knowledgeGraph.addChunkNode(chunkId, summary, entityIds)
+                chunk.addMetadata("entity_count", entityIds.size)
+            }
+
+            for (rel in extraction.relationships) {
+                val sourceId = "entity_${rel.sourceEntity.lowercase().trim()}"
+                val targetId = "entity_${rel.targetEntity.lowercase().trim()}"
+                knowledgeGraph.addRelationship(sourceId, targetId, rel.relationship, rel.strength)
+            }
+
+            knowledgeGraph.save()
+        } catch (e: Exception) {
+            Log.w(TAG, "Entity extraction failed for chunk $chunkId", e)
+        }
+
         saveChunks()
         Log.d(TAG, "Added chunk: $chunkId for AI: $aiId")
 
@@ -95,7 +127,8 @@ class RAGStore @Throws(Exception::class) constructor(
             RetrievalStrategy.HYBRID -> retrieveHybrid(query, topK)
             RetrievalStrategy.RECENCY -> retrieveRecency(query, topK)
             RetrievalStrategy.MEMRL -> retrieveMemRL(query, topK)
-            else -> retrieveSemantic(query, topK)
+            RetrievalStrategy.RELEVANCE_DECAY -> retrieveRelevanceDecay(query, topK)
+            RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
         }
 
     /**
@@ -219,6 +252,103 @@ class RAGStore @Throws(Exception::class) constructor(
     }
 
     /**
+     * Relevance decay retrieval - combines semantic similarity with time decay.
+     * Balances how relevant content is with how recent it is, preventing
+     * stale information from dominating results.
+     */
+    private fun retrieveRelevanceDecay(query: String, topK: Int): List<RetrievalResult> {
+        val queryEmbedding = generateEmbedding(query)
+
+        val results = chunks.mapNotNull { chunk ->
+            val embedding = chunk.embedding ?: return@mapNotNull null
+
+            try {
+                val semanticScore = cosineSimilarity(queryEmbedding, embedding)
+                val timestamp = chunk.timestamp.toLong()
+                val ageInDays = (System.currentTimeMillis() - timestamp) / 86400000.0f
+
+                // Exponential decay: relevance halves every 30 days
+                val decayFactor = Math.pow(0.5, (ageInDays / RELEVANCE_DECAY_HALF_LIFE_DAYS).toDouble()).toFloat()
+
+                // Weighted combination: 60% semantic, 40% recency-decayed
+                val combinedScore = 0.6f * semanticScore + 0.4f * decayFactor
+
+                RetrievalResult(chunk, combinedScore, RetrievalStrategy.RELEVANCE_DECAY)
+            } catch (e: NumberFormatException) {
+                null
+            }
+        }
+
+        return results
+            .sortedByDescending { it.score }
+            .take(topK)
+    }
+
+    /**
+     * Graph-based topology retrieval (MiniRAG-inspired, arXiv:2501.06713).
+     *
+     * Uses the heterogeneous knowledge graph for entity-aware retrieval:
+     * 1. Extract entities from query
+     * 2. Find matching entity nodes in the graph
+     * 3. Traverse entity-chunk edges (1-2 hops)
+     * 4. Score by topology (node degree, path quality)
+     * 5. Combine with semantic scores for final ranking
+     *
+     * Falls back to HYBRID retrieval if graph has insufficient data.
+     */
+    private fun retrieveGraph(query: String, topK: Int): List<RetrievalResult> {
+        // Extract entities from the query
+        val extraction = entityExtractor.extract(query)
+        val queryEntityNames = extraction.entities.map { it.name }
+
+        // Also use raw query tokens as potential entity matches
+        val queryTokens = query.split("\\s+".toRegex())
+            .filter { it.length > 3 }
+            .map { it.replace("[^a-zA-Z0-9]".toRegex(), "") }
+            .filter { it.isNotEmpty() }
+
+        val allQueryTerms = (queryEntityNames + queryTokens).distinct()
+
+        if (allQueryTerms.isEmpty() || knowledgeGraph.getEntities().isEmpty()) {
+            // Fall back to hybrid if no entities available
+            return retrieveHybrid(query, topK)
+        }
+
+        // Topology retrieval from knowledge graph
+        val graphResults = knowledgeGraph.topologyRetrieve(allQueryTerms, topK * 2)
+
+        if (graphResults.isEmpty()) {
+            return retrieveHybrid(query, topK)
+        }
+
+        // Get semantic scores for blending
+        val semanticResults = retrieveSemantic(query, topK * 2)
+        val semanticScoreMap = semanticResults.associate { it.chunk.chunkId to it.score }
+
+        // Combine graph topology scores with semantic scores
+        val combinedResults = graphResults.mapNotNull { graphResult ->
+            val chunk = chunkIndex[graphResult.chunkId] ?: return@mapNotNull null
+            val graphScore = graphResult.score
+            val semanticScore = semanticScoreMap.getOrDefault(graphResult.chunkId, 0.0f)
+
+            // 50% graph topology, 50% semantic (MiniRAG uses graph as primary signal)
+            val combinedScore = 0.5f * graphScore + 0.5f * semanticScore
+
+            RetrievalResult(chunk, combinedScore, RetrievalStrategy.GRAPH)
+        }
+
+        // Also include high-scoring semantic results not found by graph
+        val graphChunkIds = graphResults.map { it.chunkId }.toSet()
+        val additionalSemantic = semanticResults
+            .filter { it.chunk.chunkId !in graphChunkIds }
+            .map { RetrievalResult(it.chunk, it.score * 0.4f, RetrievalStrategy.GRAPH) }
+
+        return (combinedResults + additionalSemantic)
+            .sortedByDescending { it.score }
+            .take(topK)
+    }
+
+    /**
      * Provide feedback to improve future retrievals (MemRL learning)
      * @param chunkIds List of chunk IDs that were retrieved
      * @param success Whether the retrieval was helpful
@@ -279,6 +409,15 @@ class RAGStore @Throws(Exception::class) constructor(
     fun removeChunk(chunkId: String): Boolean {
         val chunk = chunkIndex.remove(chunkId) ?: return false
         chunks.remove(chunk)
+
+        // Also clean up the knowledge graph
+        try {
+            knowledgeGraph.removeChunkNode(chunkId)
+            knowledgeGraph.save()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to remove chunk from knowledge graph", e)
+        }
+
         saveChunks()
         Log.d(TAG, "Removed chunk: $chunkId for AI: $aiId")
         return true
@@ -479,5 +618,6 @@ class RAGStore @Throws(Exception::class) constructor(
         private const val DEFAULT_TOP_K = 10
         private const val DEFAULT_LEARNING_RATE = 0.1f
         private const val MAX_CHUNK_SIZE = 512  // tokens
+        private const val RELEVANCE_DECAY_HALF_LIFE_DAYS = 30.0
     }
 }

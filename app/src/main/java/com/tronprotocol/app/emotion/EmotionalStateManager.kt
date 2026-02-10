@@ -41,8 +41,23 @@ class EmotionalStateManager(private val context: Context) {
     private var embarrassmentCount: Int = 0
     private var lastEmbarrassmentTime: Long = 0L
 
+    /**
+     * Personality traits system (inspired by subliminal-learning research).
+     *
+     * Traits are implicit behavioral tendencies that evolve through experience,
+     * not explicit programming. They influence response style and decision-making.
+     *
+     * Key insight from subliminal-learning (arXiv:2507.14805): behavioral traits
+     * transfer through statistical patterns in data, not explicit content.
+     * Here we model this as traits that strengthen through repeated experience.
+     */
+    private val personalityTraits = mutableMapOf<String, Float>()
+    private var curiosityStreak: Int = 0
+    private var lastCuriosityTime: Long = 0L
+
     init {
         loadEmotionalHistory()
+        loadPersonalityTraits()
     }
 
     /**
@@ -165,6 +180,131 @@ class EmotionalStateManager(private val context: Context) {
     }
 
     /**
+     * Apply curiosity when encountering new information or topics.
+     * Implements the CURIOUS emotion state that was previously unused.
+     *
+     * Curiosity drives exploration behavior:
+     * - Increases willingness to retrieve more context
+     * - Boosts engagement with novel topics
+     * - Builds a curiosity streak for sustained exploration
+     */
+    fun applyCuriosity(context: String): Float {
+        currentEmotion = Emotion.CURIOUS
+        emotionalIntensity = 0.7f
+
+        curiosityStreak++
+        lastCuriosityTime = System.currentTimeMillis()
+
+        emotionalHistory.add(
+            EmotionalEvent(Emotion.CURIOUS, emotionalIntensity, context, System.currentTimeMillis())
+        )
+
+        // Strengthen the curiosity personality trait
+        reinforceTrait("curiosity", CURIOSITY_TRAIT_BOOST)
+
+        Log.d(TAG, "Curiosity applied (streak: $curiosityStreak): $context")
+        saveEmotionalHistory()
+
+        return CURIOSITY_BOOST
+    }
+
+    /**
+     * Check if the AI is in an active curiosity streak.
+     * A streak means multiple curiosity events within a short period.
+     */
+    fun isInCuriosityStreak(): Boolean {
+        val timeSinceCuriosity = System.currentTimeMillis() - lastCuriosityTime
+        return curiosityStreak >= 2 && timeSinceCuriosity < CURIOSITY_STREAK_WINDOW_MS
+    }
+
+    // --- Personality Trait System (subliminal-learning inspired) ---
+
+    /**
+     * Reinforce a personality trait through experience.
+     *
+     * Inspired by the subliminal-learning finding that behavioral traits
+     * transmit through repeated exposure patterns. Each experience slightly
+     * shifts the trait value, creating emergent personality over time.
+     *
+     * @param traitName Name of the trait (e.g., "caution", "curiosity", "thoroughness")
+     * @param amount Reinforcement amount (positive or negative)
+     */
+    fun reinforceTrait(traitName: String, amount: Float) {
+        val current = personalityTraits.getOrDefault(traitName, 0.5f)
+        val updated = (current + amount * TRAIT_LEARNING_RATE).coerceIn(0.0f, 1.0f)
+        personalityTraits[traitName] = updated
+        savePersonalityTraits()
+    }
+
+    /**
+     * Get the current value of a personality trait.
+     * Returns 0.5 (neutral) if the trait hasn't been established.
+     */
+    fun getTraitValue(traitName: String): Float {
+        return personalityTraits.getOrDefault(traitName, 0.5f)
+    }
+
+    /**
+     * Get all personality traits.
+     */
+    fun getPersonalityTraits(): Map<String, Float> = personalityTraits.toMap()
+
+    /**
+     * Get a personality profile summary.
+     * Categorizes traits into dominant, balanced, and weak.
+     */
+    fun getPersonalityProfile(): Map<String, Any> {
+        val profile = mutableMapOf<String, Any>()
+        val dominant = personalityTraits.filter { it.value > 0.7f }.keys.toList()
+        val balanced = personalityTraits.filter { it.value in 0.3f..0.7f }.keys.toList()
+        val weak = personalityTraits.filter { it.value < 0.3f }.keys.toList()
+
+        profile["dominant_traits"] = dominant
+        profile["balanced_traits"] = balanced
+        profile["weak_traits"] = weak
+        profile["trait_count"] = personalityTraits.size
+        profile["curiosity_streak"] = curiosityStreak
+
+        return profile
+    }
+
+    private fun savePersonalityTraits() {
+        try {
+            val traitsObj = JSONObject()
+            for ((key, value) in personalityTraits) {
+                traitsObj.put(key, value.toDouble())
+            }
+            traitsObj.put("_curiosity_streak", curiosityStreak)
+            traitsObj.put("_last_curiosity_time", lastCuriosityTime)
+            storage.store(PERSONALITY_TRAITS_KEY, traitsObj.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving personality traits", e)
+        }
+    }
+
+    private fun loadPersonalityTraits() {
+        try {
+            val data = storage.retrieve(PERSONALITY_TRAITS_KEY) ?: return
+            val traitsObj = JSONObject(data)
+            val keys = traitsObj.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key.startsWith("_")) {
+                    // Internal state fields
+                    when (key) {
+                        "_curiosity_streak" -> curiosityStreak = traitsObj.optInt(key, 0)
+                        "_last_curiosity_time" -> lastCuriosityTime = traitsObj.optLong(key, 0L)
+                    }
+                } else {
+                    personalityTraits[key] = traitsObj.getDouble(key).toFloat()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading personality traits", e)
+        }
+    }
+
+    /**
      * Get emotional bias for decision making
      * Recent embarrassment increases caution
      */
@@ -198,6 +338,8 @@ class EmotionalStateManager(private val context: Context) {
         state["embarrassment_count"] = embarrassmentCount
         state["emotional_bias"] = getEmotionalBias()
         state["history_size"] = emotionalHistory.size
+        state["curiosity_streak"] = curiosityStreak
+        state["in_curiosity_streak"] = isInCuriosityStreak()
 
         val distribution = mutableMapOf<String, Int>()
         for (event in emotionalHistory) {
@@ -205,6 +347,10 @@ class EmotionalStateManager(private val context: Context) {
             distribution[emotion] = (distribution[emotion] ?: 0) + 1
         }
         state["emotion_distribution"] = distribution
+
+        // Include personality traits
+        state["personality_traits"] = personalityTraits.toMap()
+        state["personality_profile"] = getPersonalityProfile()
 
         return state
     }
@@ -280,7 +426,12 @@ class EmotionalStateManager(private val context: Context) {
     companion object {
         private const val TAG = "EmotionalState"
         private const val EMOTIONAL_HISTORY_KEY = "emotional_history"
+        private const val PERSONALITY_TRAITS_KEY = "personality_traits"
         private const val EMBARRASSMENT_PENALTY = -0.3f
         private const val CONFIDENCE_BOOST = 0.2f
+        private const val CURIOSITY_BOOST = 0.15f
+        private const val CURIOSITY_TRAIT_BOOST = 0.1f
+        private const val TRAIT_LEARNING_RATE = 0.05f
+        private const val CURIOSITY_STREAK_WINDOW_MS = 1800000L  // 30 minutes
     }
 }

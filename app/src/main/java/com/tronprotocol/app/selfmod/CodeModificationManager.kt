@@ -5,6 +5,7 @@ import android.util.Log
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import kotlin.math.abs
 
 /**
@@ -20,41 +21,73 @@ import kotlin.math.abs
  * 5. Rollback if needed
  *
  * Safety Features:
- * - Sandboxed modification area
+ * - Sandboxed modification area (writes to app-private sandbox directory)
  * - Validation before applying changes
- * - Automatic backups
- * - Rollback capability
- * - Change history tracking
+ * - Full code backups in SecureStorage for reliable rollback
+ * - Complete history persistence (including code)
+ * - Change history tracking with statistics
+ *
+ * Enhanced with:
+ * - Full code persistence in history (both original and modified)
+ * - Actual sandbox directory for code staging
+ * - Proper backup/restore with stored code content
+ * - Reflection with additional metric types
  */
 class CodeModificationManager(private val context: Context) {
 
     private val storage = SecureStorage(context)
     private val modificationHistory = mutableListOf<CodeModification>()
+    private val sandboxDir: File by lazy {
+        File(context.filesDir, SANDBOX_DIR_NAME).also { it.mkdirs() }
+    }
 
     init {
         loadHistory()
     }
 
     /**
-     * Reflect on current behavior and identify improvement opportunities
+     * Reflect on current behavior and identify improvement opportunities.
+     * Analyzes multiple metric types for comprehensive self-assessment.
      */
     fun reflect(behaviorMetrics: Map<String, Any>): ReflectionResult {
         val result = ReflectionResult()
 
         for ((metric, value) in behaviorMetrics) {
-            if (metric == "error_rate" && value is Number) {
-                val errorRate = value.toDouble()
-                if (errorRate > 0.1) { // More than 10% errors
-                    result.addInsight("High error rate detected: $errorRate")
-                    result.addSuggestion("Consider adding more error handling")
+            when {
+                metric == "error_rate" && value is Number -> {
+                    val errorRate = value.toDouble()
+                    if (errorRate > 0.1) {
+                        result.addInsight("High error rate detected: $errorRate")
+                        result.addSuggestion("Consider adding more error handling")
+                    }
                 }
-            }
-
-            if (metric == "response_time" && value is Number) {
-                val responseTime = value.toLong()
-                if (responseTime > 5000) { // More than 5 seconds
-                    result.addInsight("Slow response time: ${responseTime}ms")
-                    result.addSuggestion("Consider caching or optimization")
+                metric == "response_time" && value is Number -> {
+                    val responseTime = value.toLong()
+                    if (responseTime > 5000) {
+                        result.addInsight("Slow response time: ${responseTime}ms")
+                        result.addSuggestion("Consider caching or optimization")
+                    }
+                }
+                metric == "memory_usage" && value is Number -> {
+                    val memoryMb = value.toLong()
+                    if (memoryMb > 256) {
+                        result.addInsight("High memory usage: ${memoryMb}MB")
+                        result.addSuggestion("Consider reducing cached data or using pagination")
+                    }
+                }
+                metric == "hallucination_rate" && value is Number -> {
+                    val hallRate = value.toDouble()
+                    if (hallRate > 0.05) {
+                        result.addInsight("Elevated hallucination rate: $hallRate")
+                        result.addSuggestion("Increase RAG retrieval depth or add more verification")
+                    }
+                }
+                metric == "rollback_count" && value is Number -> {
+                    val rollbacks = value.toInt()
+                    if (rollbacks > 3) {
+                        result.addInsight("Multiple rollbacks detected: $rollbacks")
+                        result.addSuggestion("Improve validation before applying modifications")
+                    }
                 }
             }
         }
@@ -100,7 +133,7 @@ class CodeModificationManager(private val context: Context) {
         val modifiedCode = modification.modifiedCode
 
         // Check 1: Not empty
-        if (modifiedCode.isNullOrBlank()) {
+        if (modifiedCode.isBlank()) {
             result.addError("Modified code is empty")
             result.setValid(false)
             return result
@@ -130,8 +163,23 @@ class CodeModificationManager(private val context: Context) {
 
         // Check 4: Ensure modification size is reasonable
         val changeSize = abs(modifiedCode.length - modification.originalCode.length)
-        if (changeSize > 10000) { // More than 10KB change
+        if (changeSize > MAX_CHANGE_SIZE) {
             result.addWarning("Large modification detected: $changeSize bytes")
+        }
+
+        // Check 5: Check for balanced parentheses and brackets
+        val openParens = countOccurrences(modifiedCode, '(')
+        val closeParens = countOccurrences(modifiedCode, ')')
+        if (openParens != closeParens) {
+            result.addError("Unbalanced parentheses in modified code")
+            result.setValid(false)
+        }
+
+        val openBrackets = countOccurrences(modifiedCode, '[')
+        val closeBrackets = countOccurrences(modifiedCode, ']')
+        if (openBrackets != closeBrackets) {
+            result.addError("Unbalanced brackets in modified code")
+            result.setValid(false)
         }
 
         if (result.getErrors().isEmpty()) {
@@ -147,36 +195,37 @@ class CodeModificationManager(private val context: Context) {
     /**
      * Apply a validated modification (sandbox mode)
      *
-     * Note: In production, this would write to a sandboxed area
-     * and require user approval before actual deployment
+     * Workflow:
+     * 1. Validate the modification
+     * 2. Create a backup of the original code in SecureStorage
+     * 3. Write the modified code to a sandbox directory
+     * 4. Mark as APPLIED and persist in history with full code
+     *
+     * Rollback is possible via the stored backup.
      */
     fun applyModification(modification: CodeModification): Boolean {
         return try {
             // Validate first
             val validation = validate(modification)
             if (!validation.isValid()) {
-                Log.e(TAG, "Cannot apply invalid modification")
+                Log.e(TAG, "Cannot apply invalid modification: ${validation.getErrors()}")
                 return false
             }
 
-            // Create backup
+            // Create backup with full original code
             val backupId = createBackup(modification)
             modification.backupId = backupId
 
-            // In a real implementation, this would:
-            // 1. Write to a sandbox directory
-            // 2. Run tests
-            // 3. Get user approval
-            // 4. Deploy to production
+            // Write modified code to sandbox area for review
+            writeSandboxCode(modification)
 
-            // For now, just log and store in history
             modification.status = ModificationStatus.APPLIED
             modification.appliedTimestamp = System.currentTimeMillis()
 
             modificationHistory.add(modification)
             saveHistory()
 
-            Log.d(TAG, "Applied modification: ${modification.id}")
+            Log.d(TAG, "Applied modification: ${modification.id} for ${modification.componentName}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error applying modification", e)
@@ -185,7 +234,7 @@ class CodeModificationManager(private val context: Context) {
     }
 
     /**
-     * Rollback a modification
+     * Rollback a modification by restoring the original code from backup.
      */
     fun rollback(modificationId: String): Boolean {
         return try {
@@ -200,8 +249,25 @@ class CodeModificationManager(private val context: Context) {
                 return false
             }
 
-            // Restore from backup
-            modification.backupId?.let { restoreBackup(it) }
+            // Restore from backup - retrieve the stored original code
+            val backupId = modification.backupId
+            if (backupId != null) {
+                val restoredCode = restoreBackup(backupId)
+                if (restoredCode != null) {
+                    // Write restored code to sandbox to replace the modified version
+                    val sandboxFile = File(sandboxDir, "${modification.componentName}_${modification.id}.txt")
+                    sandboxFile.writeText(restoredCode)
+                    Log.d(TAG, "Restored original code for ${modification.componentName}")
+                } else {
+                    Log.w(TAG, "Backup not found for $backupId, but marking as rolled back")
+                }
+            }
+
+            // Clean up sandbox file for the modification
+            val modSandboxFile = File(sandboxDir, "${modification.componentName}_${modification.id}_modified.txt")
+            if (modSandboxFile.exists()) {
+                modSandboxFile.delete()
+            }
 
             modification.status = ModificationStatus.ROLLED_BACK
             saveHistory()
@@ -212,6 +278,20 @@ class CodeModificationManager(private val context: Context) {
             Log.e(TAG, "Error rolling back modification", e)
             false
         }
+    }
+
+    /**
+     * Reject a proposed modification
+     */
+    fun rejectModification(modificationId: String): Boolean {
+        val modification = findModification(modificationId) ?: return false
+        if (modification.status != ModificationStatus.PROPOSED) return false
+
+        modification.status = ModificationStatus.REJECTED
+        saveHistory()
+
+        Log.d(TAG, "Rejected modification: $modificationId")
+        return true
     }
 
     /**
@@ -246,6 +326,7 @@ class CodeModificationManager(private val context: Context) {
         stats["rejected"] = rejected
         stats["success_rate"] = if (modificationHistory.isEmpty()) 0.0
             else applied.toDouble() / modificationHistory.size
+        stats["sandbox_dir"] = sandboxDir.absolutePath
 
         return stats
     }
@@ -259,21 +340,47 @@ class CodeModificationManager(private val context: Context) {
     }
 
     private fun createBackup(modification: CodeModification): String {
-        val backupId = "backup_${System.currentTimeMillis()}"
+        val backupId = "backup_${modification.id}"
+        // Store the full original code for reliable restoration
         storage.store(backupId, modification.originalCode)
+        Log.d(TAG, "Created backup: $backupId (${modification.originalCode.length} chars)")
         return backupId
     }
 
-    private fun restoreBackup(backupId: String) {
+    private fun restoreBackup(backupId: String): String? {
         val backup = storage.retrieve(backupId)
-        // In production, this would restore the actual code
-        Log.d(TAG, "Restored backup: $backupId")
+        if (backup != null) {
+            Log.d(TAG, "Restored backup: $backupId (${backup.length} chars)")
+        } else {
+            Log.w(TAG, "Backup not found: $backupId")
+        }
+        return backup
+    }
+
+    /**
+     * Write modified code to the sandbox directory for review.
+     */
+    private fun writeSandboxCode(modification: CodeModification) {
+        try {
+            val sandboxFile = File(
+                sandboxDir,
+                "${modification.componentName}_${modification.id}_modified.txt"
+            )
+            sandboxFile.writeText(modification.modifiedCode)
+            Log.d(TAG, "Wrote sandbox code: ${sandboxFile.name}")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not write to sandbox", e)
+        }
     }
 
     private fun countOccurrences(text: String, ch: Char): Int {
         return text.count { it == ch }
     }
 
+    /**
+     * Save full modification history including code content.
+     * Code is stored for reliable rollback capability.
+     */
     private fun saveHistory() {
         val historyArray = JSONArray()
 
@@ -282,8 +389,16 @@ class CodeModificationManager(private val context: Context) {
                 put("id", mod.id)
                 put("componentName", mod.componentName)
                 put("description", mod.description)
+                put("originalCode", mod.originalCode)
+                put("modifiedCode", mod.modifiedCode)
                 put("timestamp", mod.timestamp)
                 put("status", mod.status.name)
+                if (mod.appliedTimestamp != 0L) {
+                    put("appliedTimestamp", mod.appliedTimestamp)
+                }
+                if (mod.backupId != null) {
+                    put("backupId", mod.backupId)
+                }
             }
             historyArray.put(modObj)
         }
@@ -299,16 +414,21 @@ class CodeModificationManager(private val context: Context) {
             for (i in 0 until historyArray.length()) {
                 val modObj = historyArray.getJSONObject(i)
 
-                // Load basic info (full code not stored for space reasons)
                 val mod = CodeModification(
                     modObj.getString("id"),
                     modObj.getString("componentName"),
                     modObj.getString("description"),
-                    "", // original code not stored
-                    "", // modified code not stored
+                    modObj.optString("originalCode", ""),
+                    modObj.optString("modifiedCode", ""),
                     modObj.getLong("timestamp"),
                     ModificationStatus.valueOf(modObj.getString("status"))
                 )
+
+                mod.appliedTimestamp = if (modObj.has("appliedTimestamp")) {
+                    modObj.getLong("appliedTimestamp")
+                } else 0L
+
+                mod.backupId = modObj.optString("backupId", null)
 
                 modificationHistory.add(mod)
             }
@@ -322,5 +442,7 @@ class CodeModificationManager(private val context: Context) {
     companion object {
         private const val TAG = "CodeModificationManager"
         private const val MODIFICATIONS_KEY = "code_modifications_history"
+        private const val SANDBOX_DIR_NAME = "selfmod_sandbox"
+        private const val MAX_CHANGE_SIZE = 10000
     }
 }
