@@ -71,7 +71,7 @@ libraries:
     - tensorflow-lite-support:0.4.4
 
 build_config:
-  java_version: 1.8
+  java_version: 17
   gradle_version: 8.1.0
   kotlin_version: null  # Java project
 
