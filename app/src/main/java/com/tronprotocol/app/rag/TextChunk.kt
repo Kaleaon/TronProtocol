@@ -46,6 +46,16 @@ class TextChunk(
     }
 
     /**
+     * Restore persisted MemRL state when loading from storage.
+     * Unlike updateQValue, this does not apply learning — it sets the exact saved values.
+     */
+    fun restoreMemRLState(savedQValue: Float, savedRetrievalCount: Int, savedSuccessCount: Int) {
+        qValue = savedQValue.coerceIn(0.0f, 1.0f)
+        retrievalCount = savedRetrievalCount
+        successCount = savedSuccessCount
+    }
+
+    /**
      * Get success rate for this chunk
      */
     fun getSuccessRate(): Float =

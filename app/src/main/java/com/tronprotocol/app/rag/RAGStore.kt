@@ -267,6 +267,24 @@ class RAGStore @Throws(Exception::class) constructor(
     }
 
     /**
+     * Get a read-only view of all chunks in this store.
+     */
+    fun getChunks(): List<TextChunk> = chunks.toList()
+
+    /**
+     * Remove a specific chunk by ID.
+     * @return true if the chunk was found and removed
+     */
+    @Throws(Exception::class)
+    fun removeChunk(chunkId: String): Boolean {
+        val chunk = chunkIndex.remove(chunkId) ?: return false
+        chunks.remove(chunk)
+        saveChunks()
+        Log.d(TAG, "Removed chunk: $chunkId for AI: $aiId")
+        return true
+    }
+
+    /**
      * Clear all chunks
      */
     @Throws(Exception::class)
@@ -353,6 +371,15 @@ class RAGStore @Throws(Exception::class) constructor(
                 put("retrievalCount", chunk.retrievalCount)
                 put("successCount", chunk.successCount)
 
+                // Save metadata
+                if (chunk.metadata.isNotEmpty()) {
+                    val metaObj = JSONObject()
+                    for ((key, value) in chunk.metadata) {
+                        metaObj.put(key, value)
+                    }
+                    put("metadata", metaObj)
+                }
+
                 // Save embedding
                 chunk.embedding?.let { emb ->
                     val embArray = JSONArray()
@@ -388,8 +415,20 @@ class RAGStore @Throws(Exception::class) constructor(
 
                 // Load MemRL values
                 if (chunkObj.has("qValue")) {
-                    chunk.updateQValue(false, 0f)  // Initialize without changing
-                    // Set values directly via reflection or other means
+                    val savedQ = chunkObj.getDouble("qValue").toFloat()
+                    val savedRetrieval = chunkObj.optInt("retrievalCount", 0)
+                    val savedSuccess = chunkObj.optInt("successCount", 0)
+                    chunk.restoreMemRLState(savedQ, savedRetrieval, savedSuccess)
+                }
+
+                // Load metadata
+                if (chunkObj.has("metadata")) {
+                    val metaObj = chunkObj.getJSONObject("metadata")
+                    val keys = metaObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        chunk.metadata[key] = metaObj.get(key)
+                    }
                 }
 
                 // Load embedding
