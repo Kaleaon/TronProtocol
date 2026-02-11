@@ -6,7 +6,7 @@ TronProtocol is an **Android application** for AI-driven cellular device monitor
 
 **Package**: `com.tronprotocol.app`
 **Min SDK**: 24 (Android 7.0) | **Target/Compile SDK**: 34 (Android 14)
-**Languages**: Java (~85%), Kotlin (~15%)
+**Languages**: Kotlin (100%)
 
 ## Repository Structure
 
@@ -19,17 +19,19 @@ TronProtocol/
 │       ├── AndroidManifest.xml         # Permissions, components, metadata
 │       ├── java/com/tronprotocol/app/
 │       │   ├── MainActivity.kt         # App entry point, UI, permission mgmt
-│       │   ├── TronProtocolService.java # Foreground background service
+│       │   ├── TronProtocolService.kt   # Foreground background service
 │       │   ├── BootReceiver.kt         # Auto-start on device boot
 │       │   ├── BootStartWorker.kt      # WorkManager boot task
 │       │   ├── StartupDiagnostics.kt   # Service startup diagnostics
-│       │   ├── plugins/                # 14 plugin implementations
+│       │   ├── plugins/                # 15 plugin implementations + safety/agent subsystems
 │       │   ├── security/               # Encryption & secure storage
 │       │   ├── rag/                    # RAG memory system (MemRL-inspired)
 │       │   ├── selfmod/               # Self-modification system
 │       │   ├── aimodel/               # AI model training
 │       │   ├── emotion/               # Emotional state & hallucination detection
 │       │   ├── guidance/              # Ethical guidance & Anthropic API client
+│       │   ├── affect/                # 3-layer emotional architecture (AffectEngine)
+│       │   ├── llm/                   # On-device LLM integration (MNN framework)
 │       │   └── models/                # Data model classes
 │       └── res/                        # Android resources (layouts, strings, etc.)
 ├── .github/workflows/                  # CI/CD pipeline configs
@@ -49,7 +51,7 @@ TronProtocol/
 
 ## Build System
 
-**Build tool**: Gradle 8.1.0 with Android Gradle Plugin 8.1.0 and Kotlin 1.9.10.
+**Build tool**: Gradle 8.4 with Android Gradle Plugin 8.1.0 and Kotlin 1.9.10.
 
 ### Essential Commands
 
@@ -92,23 +94,25 @@ TronProtocol/
 | `org.tensorflow:tensorflow-lite-support` | 0.4.4 | TFLite utilities |
 | `play-services-mlkit-text-recognition` | 19.0.0 | ML Kit OCR |
 | `play-services-base` | 18.2.0 | GMS for neural network acceleration |
+| `com.alibaba.android:mnn` | 0.0.8 | On-device LLM inference (MNN framework) |
 
 ## Architecture
 
 ### Entry Points
 
 1. **MainActivity.kt** - Launcher activity. Manages permissions, plugin UI, and starts the service.
-2. **TronProtocolService.java** - Foreground service (`dataSync` type). Runs heartbeat (30s interval) and memory consolidation loops. Returns `START_STICKY` for auto-restart.
+2. **TronProtocolService.kt** - Foreground service (`dataSync` type). Runs heartbeat (30s interval) and memory consolidation loops. Returns `START_STICKY` for auto-restart.
 3. **BootReceiver.kt** - `BOOT_COMPLETED` receiver. Schedules `BootStartWorker` via WorkManager for deferred service startup after device reboot.
 
 ### Module Responsibilities
 
-**plugins/** - Extensible plugin system with 14 built-in plugins. All plugins implement the `Plugin` interface (`getId`, `getName`, `getDescription`, `isEnabled`, `setEnabled`, `execute`, `initialize`, `destroy`). Plugins are registered in `PluginRegistry.kt` with startup priority ordering. `PluginManager` is a singleton orchestrator.
+**plugins/** - Extensible plugin system with 15 built-in plugins plus safety/agent subsystems. All plugins implement the `Plugin` interface (`id`, `name`, `description`, `isEnabled`, `execute`, `initialize`, `destroy`). Plugins are registered in `PluginRegistry.kt` with startup priority ordering. `PluginManager` is a singleton orchestrator with OpenClaw-inspired safety layers (`PluginSafetyScanner`, `ToolPolicyEngine`, `AuditLogger`).
 
 Plugin startup priority order:
 | Priority | Plugin | ID |
 |---|---|---|
 | 10 | PolicyGuardrailPlugin | `policy_guardrail` |
+| 15 | OnDeviceLLMPlugin | `on_device_llm` |
 | 20 | DeviceInfoPlugin | `device_info` |
 | 30 | WebSearchPlugin | `web_search` |
 | 40 | CalculatorPlugin | `calculator` |
@@ -123,9 +127,9 @@ Plugin startup priority order:
 | 130 | CommunicationHubPlugin | `communication_hub` |
 | 140 | GuidanceRouterPlugin | `guidance_router` |
 
-**security/** - Hardware-backed AES-256-GCM encryption via Android KeyStore (`EncryptionManager`) and encrypted key-value storage (`SecureStorage`).
+**security/** - Hardware-backed AES-256-GCM encryption via Android KeyStore (`EncryptionManager`), encrypted key-value storage (`SecureStorage`), comprehensive audit logging (`AuditLogger`), and constitutional security directives (`ConstitutionalMemory`).
 
-**rag/** - Retrieval-Augmented Generation memory system inspired by MemRL (arXiv:2601.03192). Includes `RAGStore` with multiple retrieval strategies (semantic, keyword, hybrid, recency, MemRL), `TextChunk` with Q-values, and `MemoryConsolidationManager` for sleep-like memory optimization.
+**rag/** - Retrieval-Augmented Generation memory system inspired by MemRL (arXiv:2601.03192) and MiniRAG (arXiv:2501.06713). Includes `RAGStore` with 7 retrieval strategies (semantic, keyword, hybrid, recency, MemRL, relevance-decay, graph), `TextChunk` with Q-values, `KnowledgeGraph` for entity-aware retrieval, `EntityExtractor`, `EmbeddingQuantizer`, `AutoCompactionManager`, `SessionKeyManager`, and `MemoryConsolidationManager` for sleep-like memory optimization.
 
 **selfmod/** - Self-modification system. `CodeModificationManager` handles self-reflection, code modification proposals, sandboxed validation, and rollback.
 
@@ -133,7 +137,11 @@ Plugin startup priority order:
 
 **emotion/** - `EmotionalStateManager` for emotional state tracking and `HallucinationDetector` for hallucination detection.
 
-**guidance/** - Ethical guidance with `GuidanceOrchestrator`, `EthicalKernelValidator`, `DecisionRouter`, and `AnthropicApiClient` for Claude API integration.
+**guidance/** - Ethical guidance with `GuidanceOrchestrator`, `EthicalKernelValidator`, `DecisionRouter`, `AnthropicApiClient` for Claude API integration, and `ModelFailoverManager` for resilient API access.
+
+**affect/** - 3-layer emotional architecture with `AffectEngine` (core computation), `AffectOrchestrator` (coordination), `AffectState`/`AffectDimension` (dimensional model), `ImmutableAffectLog` (emotion history), `MotorNoise` (output noise injection), and `ExpressionDriver` (expression output).
+
+**llm/** - On-device LLM integration via Alibaba's MNN framework. `OnDeviceLLMManager` handles model loading, inference, and benchmarking with `LLMModelConfig` for model configuration. Supports Qwen, Gemma, DeepSeek models up to ~4B parameters with Q4 quantization.
 
 ### Design Patterns
 
@@ -159,38 +167,37 @@ The CI pipeline runs sequentially: compile first, then unit tests and lint in pa
 
 ### Style
 
-- **Java**: Standard Android Java conventions. CamelCase for classes/methods, UPPER_SNAKE_CASE for constants. JavaDoc on public methods.
-- **Kotlin**: Idiomatic Kotlin with data classes, object singletons, and lambda factories.
-- **Mixed language**: Java for core services and plugins, Kotlin for Android components and registry.
+- **Kotlin**: Idiomatic Kotlin throughout. CamelCase for classes/methods, UPPER_SNAKE_CASE for constants. KDoc on public APIs. Uses data classes, object singletons, sealed classes, and lambda factories.
 
 ### Package Structure
 
 All source lives under `com.tronprotocol.app` with feature-based subpackages:
 ```
 com.tronprotocol.app
-├── plugins/       # Plugin interface + 14 implementations + manager + registry
+├── plugins/       # Plugin interface + 15 implementations + manager + registry + safety
 ├── security/      # Encryption and secure storage
 ├── rag/           # RAG memory system
 ├── selfmod/       # Self-modification
 ├── aimodel/       # AI model training
 ├── emotion/       # Emotional state management
 ├── guidance/      # Ethical guidance system
+├── affect/        # 3-layer emotional architecture
+├── llm/           # On-device LLM integration (MNN)
 └── models/        # Data model classes
 ```
 
 ### Key Interfaces
 
 New plugins must implement `com.tronprotocol.app.plugins.Plugin`:
-```java
-public interface Plugin {
-    String getId();
-    String getName();
-    String getDescription();
-    boolean isEnabled();
-    void setEnabled(boolean enabled);
-    PluginResult execute(String input) throws Exception;
-    void initialize(android.content.Context context);
-    void destroy();
+```kotlin
+interface Plugin {
+    val id: String
+    val name: String
+    val description: String
+    var isEnabled: Boolean
+    fun execute(input: String): PluginResult
+    fun initialize(context: Context)
+    fun destroy()
 }
 ```
 
@@ -198,12 +205,20 @@ Then register in `PluginRegistry.kt` with an ID, class, default enabled state, p
 
 ## Testing
 
-There are currently no unit tests or instrumentation tests in the repository. The CI workflow runs `testDebugUnitTest` and `lintDebug`, but the test directories (`src/test/`, `src/androidTest/`) do not exist yet.
+Unit tests exist in `app/src/test/java/com/tronprotocol/app/` covering plugins and RAG system:
+- `plugins/CalculatorPluginTest.kt` - Calculator plugin operations
+- `plugins/TextAnalysisPluginTest.kt` - Text analysis functionality
+- `plugins/DateTimePluginTest.kt` - DateTime plugin operations
+- `plugins/PluginResultTest.kt` - PluginResult model
+- `rag/TextChunkTest.kt` - TextChunk and MemRL Q-value learning
+- `rag/RetrievalResultTest.kt` - RetrievalResult model
 
-When adding tests:
-- Unit tests go in `app/src/test/java/com/tronprotocol/app/`
-- Instrumentation tests go in `app/src/androidTest/java/com/tronprotocol/app/`
-- Run with `./gradlew testDebugUnitTest` (unit) or `./gradlew connectedDebugAndroidTest` (instrumentation)
+Test dependencies: JUnit 4.13.2, Mockito 5.5.0, Robolectric 4.10.3, org.json 20230227.
+
+Run tests:
+- Unit tests: `./gradlew testDebugUnitTest`
+- Lint: `./gradlew lintDebug`
+- Instrumentation tests go in `app/src/androidTest/java/com/tronprotocol/app/` (none yet)
 
 ## Android Permissions
 
@@ -220,9 +235,9 @@ The app declares 23 permissions across several categories: phone, SMS, contacts,
 
 ### Adding a New Plugin
 
-1. Create a Java/Kotlin class implementing `Plugin` in `app/src/main/java/com/tronprotocol/app/plugins/`
-2. Implement all interface methods (`getId`, `getName`, `getDescription`, `isEnabled`, `setEnabled`, `execute`, `initialize`, `destroy`)
-3. Return a `PluginResult` from `execute()`
+1. Create a Kotlin class implementing `Plugin` in `app/src/main/java/com/tronprotocol/app/plugins/`
+2. Implement all interface members (`id`, `name`, `description`, `isEnabled`, `execute`, `initialize`, `destroy`)
+3. Return a `PluginResult` from `execute()` using `PluginResult.success()` or `PluginResult.error()`
 4. Register the plugin in `PluginRegistry.kt` with a unique ID and appropriate startup priority
 
 ### Building from YAML Config

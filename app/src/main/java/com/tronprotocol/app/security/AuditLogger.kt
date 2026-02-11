@@ -64,7 +64,7 @@ class AuditLogger(private val context: Context) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id)
             put("timestamp", timestamp)
-            put("datetime", ISO_FORMAT.format(Date(timestamp)))
+            put("datetime", ISO_FORMAT.get()!!.format(Date(timestamp)))
             put("severity", severity.name)
             put("category", category.name)
             put("actor", actor)
@@ -432,6 +432,8 @@ class AuditLogger(private val context: Context) {
         private const val MAX_PERSISTED = 2000
         private const val FLUSH_INTERVAL_MS = 10_000L
 
-        val ISO_FORMAT = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        val ISO_FORMAT: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        }
     }
 }

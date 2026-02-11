@@ -90,8 +90,9 @@ class OnDeviceLLMPlugin : Plugin {
             Log.d(TAG, "OnDeviceLLMPlugin initialized. MNN native available: " +
                     OnDeviceLLMManager.isNativeAvailable())
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize OnDeviceLLMManager: ${e.message}", e)
-            throw RuntimeException("Failed to initialize on-device LLM plugin", e)
+            Log.w(TAG, "OnDeviceLLMPlugin initialized without MNN backend: ${e.message}")
+            // Don't throw — plugin registers successfully but operates in degraded mode.
+            // Commands will report that MNN native libraries are not installed.
         }
     }
 
