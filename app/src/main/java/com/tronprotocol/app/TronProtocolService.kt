@@ -14,6 +14,8 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.tronprotocol.app.affect.AffectInput
+import com.tronprotocol.app.affect.AffectOrchestrator
 import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.plugins.LaneQueueExecutor
 import com.tronprotocol.app.plugins.PluginManager
@@ -65,6 +67,7 @@ class TronProtocolService : Service() {
     private var autoCompactionManager: AutoCompactionManager? = null
     private var sessionKeyManager: SessionKeyManager? = null
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
+    private var affectOrchestrator: AffectOrchestrator? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -156,7 +159,8 @@ class TronProtocolService : Service() {
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
 
-        // Shut down OpenClaw-inspired subsystems and on-device LLM
+        // Shut down AffectEngine and OpenClaw-inspired subsystems
+        affectOrchestrator?.stop()
         onDeviceLLMManager?.shutdown()
         laneQueueExecutor?.shutdown()
         subAgentManager?.shutdown()
@@ -386,6 +390,18 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "on_device_llm_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize on-device LLM manager", e)
+        }
+
+        // --- AffectOrchestrator (AffectEngine emotional architecture) ---------
+        try {
+            if (affectOrchestrator == null) {
+                affectOrchestrator = AffectOrchestrator(this).also { it.start() }
+            }
+            StartupDiagnostics.recordMilestone(this, "affect_orchestrator_initialized")
+            Log.d(TAG, "AffectOrchestrator initialized (3-layer emotional architecture)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "affect_orchestrator_init_failed", e)
+            Log.e(TAG, "Failed to initialize AffectOrchestrator", e)
         }
 
         // --- Wire OpenClaw subsystems into PluginManager --------------------
@@ -629,16 +645,49 @@ class TronProtocolService : Service() {
             // 4. Self-reflection and improvement every 50 heartbeats
             if (heartbeatCount % 50 == 0) {
                 codeModManager?.let { manager ->
-                    val metrics = mapOf<String, Any>(
+                    val metrics = mutableMapOf<String, Any>(
                         "heartbeat_count" to heartbeatCount,
                         "avg_processing_time" to
                             if (heartbeatCount > 0) totalProcessingTime / heartbeatCount else 0L,
                         "error_rate" to 0.0
                     )
+                    // Include affect state at time of reflection
+                    affectOrchestrator?.let { affect ->
+                        val snap = affect.getAffectSnapshot()
+                        metrics["affect_intensity"] = snap["intensity"] ?: 0.0f
+                        metrics["affect_zero_noise"] = snap["zero_noise_state"] ?: false
+                    }
                     val reflection = manager.reflect(metrics)
                     if (reflection.hasInsights()) {
                         Log.d(TAG, "Self-reflection insights: ${reflection.getInsights()}")
                     }
+                }
+            }
+
+            // 4b. Feed affect system with heartbeat context
+            affectOrchestrator?.let { affect ->
+                // MemRL retrieval patterns feed into affect
+                if (heartbeatCount % 10 == 0) {
+                    ragStore?.let { store ->
+                        val stats = store.getMemRLStats()
+                        val avgQ = (stats["avg_q_value"] as? Float) ?: 0.0f
+                        affect.processMemRLRetrieval("knowledge", avgQ)
+                    }
+                }
+
+                // Self-reflection affects novelty & vulnerability
+                if (heartbeatCount % 50 == 0) {
+                    affect.processSelfModProposal()
+                }
+
+                // Store affect snapshot as memory every 20 heartbeats (~10 min)
+                if (heartbeatCount % 20 == 0) {
+                    val snapshot = affect.getAffectSnapshot()
+                    ragStore?.addMemory(
+                        "Affect state: intensity=${"%.2f".format(snapshot["intensity"])} " +
+                                "zero_noise=${snapshot["zero_noise_state"]}",
+                        0.6f
+                    )
                 }
             }
 
@@ -667,6 +716,7 @@ class TronProtocolService : Service() {
                 safetyScanner?.let { Log.d(TAG, "SafetyScanner Stats: ${it.getStats()}") }
                 auditLogger?.let { Log.d(TAG, "Audit Stats: ${it.getStats()}") }
                 onDeviceLLMManager?.let { Log.d(TAG, "OnDeviceLLM Stats: ${it.getStats()}") }
+                affectOrchestrator?.let { Log.d(TAG, "AffectEngine Stats: ${it.getStats()}") }
             }
 
             // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
@@ -721,6 +771,15 @@ class TronProtocolService : Service() {
                                     0.8f
                                 )
                                 lastConsolidation = System.currentTimeMillis()
+
+                                // Consolidation success elevates satiation and coherence
+                                affectOrchestrator?.submitInput(
+                                    AffectInput.builder("consolidation:complete")
+                                        .satiation(0.15f)
+                                        .coherence(0.1f)
+                                        .valence(0.05f)
+                                        .build()
+                                )
 
                                 auditLogger?.logAsync(
                                     AuditLogger.Severity.INFO,
