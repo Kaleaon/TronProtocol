@@ -287,7 +287,7 @@ class AuditLogger(private val context: Context) {
      */
     fun exportJson(limit: Int = 500): String {
         val arr = JSONArray()
-        entries.takeLast(limit).forEach { arr.put(it.toJson()) }
+        entries.toList().takeLast(limit).forEach { arr.put(it.toJson()) }
         return arr.toString(2)
     }
 
@@ -383,7 +383,7 @@ class AuditLogger(private val context: Context) {
     private fun persistAllEntries() {
         try {
             val arr = JSONArray()
-            entries.takeLast(MAX_PERSISTED).forEach { arr.put(it.toJson()) }
+            entries.toList().takeLast(MAX_PERSISTED).forEach { arr.put(it.toJson()) }
             storage.store(STORAGE_KEY, arr.toString())
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist all audit entries", e)

@@ -80,6 +80,7 @@ class HallucinationDetector(
                         Log.w(TAG, "Low factual support: $factualSupport")
                     }
                 }
+                Unit
             } catch (e: Exception) {
                 Log.e(TAG, "Error in RAG verification", e)
             }
