@@ -16,6 +16,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.tronprotocol.app.affect.AffectInput
 import com.tronprotocol.app.affect.AffectOrchestrator
+import com.tronprotocol.app.frontier.FrontierDynamicsManager
+import com.tronprotocol.app.frontier.FrontierDynamicsPlugin
 import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.plugins.LaneQueueExecutor
 import com.tronprotocol.app.plugins.PluginManager
@@ -68,6 +70,7 @@ class TronProtocolService : Service() {
     private var sessionKeyManager: SessionKeyManager? = null
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
     private var affectOrchestrator: AffectOrchestrator? = null
+    private var frontierDynamicsManager: FrontierDynamicsManager? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -402,6 +405,36 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "affect_orchestrator_init_failed", e)
             Log.e(TAG, "Failed to initialize AffectOrchestrator", e)
+        }
+
+        // --- FrontierDynamicsManager (STLE uncertainty framework) -----------
+        try {
+            if (frontierDynamicsManager == null) {
+                frontierDynamicsManager = FrontierDynamicsManager(this).also { fdm ->
+                    // Wire STLE into RAG store for frontier-aware retrieval
+                    ragStore?.frontierDynamicsManager = fdm
+
+                    // Train STLE from existing RAG embeddings if available
+                    ragStore?.let { store ->
+                        fdm.trainFromRAGStore(store)
+                    }
+
+                    // Wire STLE into the FrontierDynamicsPlugin if registered
+                    val pluginManager = PluginManager.getInstance()
+                    val fdPlugin = pluginManager.getAllPlugins()
+                        .filterIsInstance<FrontierDynamicsPlugin>()
+                        .firstOrNull()
+                    if (fdPlugin != null) {
+                        fdPlugin.manager = fdm
+                        fdPlugin.ragStore = ragStore
+                    }
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "frontier_dynamics_initialized")
+            Log.d(TAG, "FrontierDynamicsManager initialized (STLE framework, ready=${frontierDynamicsManager?.isReady})")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "frontier_dynamics_init_failed", e)
+            Log.e(TAG, "Failed to initialize FrontierDynamicsManager", e)
         }
 
         // --- Wire OpenClaw subsystems into PluginManager --------------------

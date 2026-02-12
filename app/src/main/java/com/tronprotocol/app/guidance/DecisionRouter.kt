@@ -1,5 +1,6 @@
 package com.tronprotocol.app.guidance
 
+import com.tronprotocol.app.frontier.FrontierDynamicsManager
 import java.util.Locale
 
 /**
@@ -24,7 +25,30 @@ class DecisionRouter {
     @Volatile
     var onDeviceLLMAvailable: Boolean = false
 
+    /**
+     * Optional Frontier Dynamics STLE manager for accessibility-aware routing.
+     * When available and a prompt embedding is provided, the router will escalate
+     * to cloud if the prompt falls in the FRONTIER or INACCESSIBLE state.
+     */
+    var frontierDynamicsManager: FrontierDynamicsManager? = null
+
     fun decide(prompt: String?): RouteDecision {
+        return decide(prompt, null)
+    }
+
+    /**
+     * Decide routing for a prompt, optionally using an STLE embedding for
+     * frontier-aware escalation.
+     *
+     * When a [promptEmbedding] is provided and the FrontierDynamicsManager
+     * indicates the prompt is in the FRONTIER or INACCESSIBLE state, the
+     * router escalates to the cloud Sonnet tier instead of the on-device LLM,
+     * because a small model is unreliable outside its training distribution.
+     *
+     * @param prompt The text prompt
+     * @param promptEmbedding Optional TF-IDF embedding for STLE accessibility check
+     */
+    fun decide(prompt: String?, promptEmbedding: FloatArray?): RouteDecision {
         if (prompt == null) {
             return RouteDecision.local("Empty prompt")
         }
@@ -42,6 +66,18 @@ class DecisionRouter {
 
         if (canHandleLocally(lowered)) {
             return RouteDecision.local("Simple prompt handled locally")
+        }
+
+        // Frontier Dynamics STLE check: if the prompt embedding is out-of-distribution,
+        // bypass on-device LLM and escalate to cloud for better reliability.
+        if (promptEmbedding != null) {
+            val fdm = frontierDynamicsManager
+            if (fdm != null && fdm.isReady && fdm.shouldEscalateToCloud(promptEmbedding)) {
+                return RouteDecision.cloud(
+                    AnthropicApiClient.MODEL_SONNET,
+                    "STLE frontier analysis: prompt is OOD — escalated to cloud"
+                )
+            }
         }
 
         // Route medium-complexity prompts to on-device LLM when available.
