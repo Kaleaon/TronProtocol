@@ -116,8 +116,6 @@ class OnDeviceLLMManager(context: Context) {
 
     /** Assess this device's capability for on-device LLM inference. */
     fun assessDevice(): DeviceCapability {
-        currentModelState.set(ModelState.CHECKING_DEVICE)
-
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val memInfo = ActivityManager.MemoryInfo()
         am?.getMemoryInfo(memInfo)
