@@ -108,7 +108,7 @@ class STLEEngine(
                 }
             }
             for (d in 0 until inputDim) {
-                mean[d] /= classIndices.size
+                mean[d] /= classIndices.size.toFloat()
             }
             classMeans[c] = mean
 
@@ -123,7 +123,7 @@ class STLEEngine(
             }
             for (i in 0 until inputDim) {
                 for (j in 0 until inputDim) {
-                    cov[i][j] /= classIndices.size
+                    cov[i][j] /= classIndices.size.toFloat()
                 }
                 cov[i][i] += REGULARIZATION // Ridge regularisation
             }
@@ -154,7 +154,7 @@ class STLEEngine(
             val gradLogits = Array(n) { i ->
                 val g = probs[i].copyOf()
                 g[y[i]] -= 1.0f
-                for (j in g.indices) g[j] /= n
+                for (j in g.indices) g[j] /= n.toFloat()
                 g
             }
 
