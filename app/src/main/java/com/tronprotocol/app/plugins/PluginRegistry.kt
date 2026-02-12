@@ -28,6 +28,9 @@ object PluginRegistry {
         PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15) { OnDeviceLLMPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140) { GuidanceRouterPlugin() },
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25) { FrontierDynamicsPlugin() },
+        PluginConfig("picoclaw_bridge", PicoClawBridgePlugin::class.java, true, 85) { PicoClawBridgePlugin() },
+        PluginConfig("discord_bridge", DiscordBridgePlugin::class.java, true, 95) { DiscordBridgePlugin() },
+        PluginConfig("swarm_coordinator", SwarmCoordinatorPlugin::class.java, true, 150) { SwarmCoordinatorPlugin() },
     )
 
     val sortedConfigs: List<PluginConfig>
