@@ -174,7 +174,9 @@ class OnDeviceLLMManager(context: Context) {
                 recommendedModel, canRunLLM, reason
             )
         } finally {
-            currentModelState.compareAndSet(ModelState.CHECKING_DEVICE, previousState)
+            currentModelState.updateAndGet { state ->
+                if (state == ModelState.CHECKING_DEVICE) previousState else state
+            }
         }
     }
 
