@@ -34,5 +34,16 @@ enum class RetrievalStrategy {
      * Traverses entity-chunk relationships and uses path scoring
      * rather than relying solely on embedding quality.
      */
-    GRAPH
+    GRAPH,
+
+    /**
+     * Frontier-aware retrieval (Frontier Dynamics STLE-enhanced).
+     * Combines semantic similarity with STLE accessibility scoring to
+     * prefer in-distribution (high mu_x) chunks and deprioritise
+     * out-of-distribution results. Uses the Set Theoretic Learning
+     * Environment's complementary fuzzy sets (mu_x + mu_y = 1).
+     *
+     * @see <a href="https://github.com/strangehospital/Frontier-Dynamics-Project">Frontier Dynamics</a>
+     */
+    FRONTIER_AWARE
 }

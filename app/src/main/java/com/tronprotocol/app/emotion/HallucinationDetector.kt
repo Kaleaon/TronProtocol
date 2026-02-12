@@ -2,6 +2,8 @@ package com.tronprotocol.app.emotion
 
 import android.content.Context
 import android.util.Log
+import com.tronprotocol.app.frontier.ConfidenceLevel
+import com.tronprotocol.app.frontier.FrontierDynamicsManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalResult
 import com.tronprotocol.app.rag.RetrievalStrategy
@@ -28,6 +30,9 @@ class HallucinationDetector(
 ) {
 
     var ragStore: RAGStore? = null
+
+    /** Optional Frontier Dynamics manager for STLE-based uncertainty scoring. */
+    var frontierDynamicsManager: FrontierDynamicsManager? = null
 
     /**
      * Comprehensive hallucination detection pipeline
@@ -110,6 +115,33 @@ class HallucinationDetector(
         // Strategy 5: Emotional Bias (recent embarrassments)
         val emotionalBias = emotionalManager.getEmotionalBias()
         result.emotionalBias = emotionalBias
+
+        // Strategy 6: Frontier Dynamics STLE accessibility check
+        // Uses the Set Theoretic Learning Environment to score how
+        // "in-distribution" the retrieved context is. Low mu_x means
+        // the model is operating outside its training distribution.
+        frontierDynamicsManager?.let { fdm ->
+            ragStore?.let { store ->
+                try {
+                    val retrievedFacts = store.retrieve(
+                        prompt, RetrievalStrategy.MEMRL, 5
+                    )
+                    if (retrievedFacts.isNotEmpty()) {
+                        val aggregate = fdm.aggregateAccessibility(retrievedFacts)
+                        result.frontierAccessibility = aggregate.meanMuX
+                        result.frontierConfidence = aggregate.confidenceLevel
+
+                        if (aggregate.confidenceLevel == ConfidenceLevel.VERY_LOW) {
+                            result.hallucinationType = HallucinationType.FRONTIER_OOD
+                            result.confidence = max(result.confidence, 0.7f)
+                            Log.w(TAG, "STLE frontier OOD: mean mu_x=${aggregate.meanMuX}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in STLE frontier check", e)
+                }
+            }
+        }
 
         // Final determination
         result.isHallucination = determineHallucination(result)
@@ -221,6 +253,7 @@ class HallucinationDetector(
         if (result.factualSupportScore < WEAK_FACTUAL_SUPPORT_THRESHOLD) weakSignals++
         if (result.uncertaintyScore > WEAK_UNCERTAINTY_THRESHOLD) weakSignals++
         if (result.emotionalBias < WEAK_EMOTIONAL_BIAS_THRESHOLD) weakSignals++ // Recently embarrassed
+        if (result.frontierAccessibility < WEAK_FRONTIER_THRESHOLD) weakSignals++ // STLE OOD
 
         if (weakSignals >= MIN_WEAK_SIGNALS_FOR_HALLUCINATION) return true
 
@@ -245,6 +278,8 @@ class HallucinationDetector(
                 "Too many specific claims without support. Simplify or verify claims."
             HallucinationType.UNCERTAIN_GENERATION ->
                 "AI is uncertain. Better to say 'I don't know' than guess."
+            HallucinationType.FRONTIER_OOD ->
+                "Context is out-of-distribution (low STLE accessibility). Defer to cloud or human."
             else ->
                 "Potential hallucination detected. Exercise caution."
         }
@@ -259,6 +294,7 @@ class HallucinationDetector(
         UNSUPPORTED,           // RAG: no factual support found
         OVERSPECIFIC,          // Too many specific claims
         UNCERTAIN_GENERATION,  // Generating despite uncertainty
+        FRONTIER_OOD,          // Frontier Dynamics: context is out-of-distribution (low mu_x)
         UNKNOWN
     }
 
@@ -281,6 +317,10 @@ class HallucinationDetector(
         // Claims analysis
         var claims: List<String> = mutableListOf()
         var claimCount: Int = 0
+
+        // Frontier Dynamics STLE accessibility
+        var frontierAccessibility: Float = 0.5f
+        var frontierConfidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
 
         override fun toString(): String {
             return String.format(
@@ -317,6 +357,7 @@ class HallucinationDetector(
         private const val WEAK_FACTUAL_SUPPORT_THRESHOLD = 0.4f
         private const val WEAK_UNCERTAINTY_THRESHOLD = 0.5f
         private const val WEAK_EMOTIONAL_BIAS_THRESHOLD = -0.1f
+        private const val WEAK_FRONTIER_THRESHOLD = 0.3f // STLE mu_x below this = weak OOD signal
         private const val MIN_WEAK_SIGNALS_FOR_HALLUCINATION = 3
 
         // Word overlap

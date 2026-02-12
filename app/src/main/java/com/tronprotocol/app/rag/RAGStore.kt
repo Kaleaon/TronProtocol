@@ -7,6 +7,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import com.tronprotocol.app.frontier.FrontierDynamicsManager
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -36,6 +37,9 @@ class RAGStore @Throws(Exception::class) constructor(
     // MiniRAG-inspired knowledge graph for entity-aware retrieval
     val knowledgeGraph: KnowledgeGraph = KnowledgeGraph(context, aiId)
     private val entityExtractor: EntityExtractor = EntityExtractor()
+
+    /** Optional Frontier Dynamics STLE manager for accessibility-aware retrieval. */
+    var frontierDynamicsManager: FrontierDynamicsManager? = null
 
     init {
         loadChunks()
@@ -129,6 +133,7 @@ class RAGStore @Throws(Exception::class) constructor(
             RetrievalStrategy.MEMRL -> retrieveMemRL(query, topK)
             RetrievalStrategy.RELEVANCE_DECAY -> retrieveRelevanceDecay(query, topK)
             RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
+            RetrievalStrategy.FRONTIER_AWARE -> retrieveFrontierAware(query, topK)
         }
 
     /**
@@ -344,6 +349,45 @@ class RAGStore @Throws(Exception::class) constructor(
             .map { RetrievalResult(it.chunk, it.score * 0.4f, RetrievalStrategy.GRAPH) }
 
         return (combinedResults + additionalSemantic)
+            .sortedByDescending { it.score }
+            .take(topK)
+    }
+
+    /**
+     * Frontier-aware retrieval (Frontier Dynamics STLE-enhanced).
+     *
+     * Combines semantic similarity with STLE accessibility scoring.
+     * Chunks with higher mu_x (in-distribution) are boosted, while
+     * out-of-distribution chunks are penalised. Falls back to HYBRID
+     * if the FrontierDynamicsManager is not available or not trained.
+     *
+     * Score = 0.6 * semantic + 0.4 * mu_x
+     *
+     * @see <a href="https://github.com/strangehospital/Frontier-Dynamics-Project">Frontier Dynamics</a>
+     */
+    private fun retrieveFrontierAware(query: String, topK: Int): List<RetrievalResult> {
+        val fdm = frontierDynamicsManager
+        if (fdm == null || !fdm.isReady) {
+            // Fall back to hybrid when STLE is unavailable
+            return retrieveHybrid(query, topK)
+        }
+
+        val queryEmbedding = generateEmbedding(query)
+
+        val results = chunks.mapNotNull { chunk ->
+            val embedding = chunk.embedding ?: return@mapNotNull null
+
+            val semanticScore = cosineSimilarity(queryEmbedding, embedding)
+            val accessibility = fdm.scoreEmbedding(embedding)
+            val muX = accessibility?.muX ?: 0.5f
+
+            // Weighted combination: semantic relevance + accessibility confidence
+            val combinedScore = 0.6f * semanticScore + 0.4f * muX
+
+            RetrievalResult(chunk, combinedScore, RetrievalStrategy.FRONTIER_AWARE)
+        }
+
+        return results
             .sortedByDescending { it.score }
             .take(topK)
     }

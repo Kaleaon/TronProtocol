@@ -1,5 +1,7 @@
 package com.tronprotocol.app.plugins
 
+import com.tronprotocol.app.frontier.FrontierDynamicsPlugin
+
 object PluginRegistry {
     data class PluginConfig(
         val id: String,
@@ -25,6 +27,7 @@ object PluginRegistry {
         PluginConfig("communication_hub", CommunicationHubPlugin::class.java, true, 130) { CommunicationHubPlugin() },
         PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15) { OnDeviceLLMPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140) { GuidanceRouterPlugin() },
+        PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25) { FrontierDynamicsPlugin() },
     )
 
     val sortedConfigs: List<PluginConfig>
