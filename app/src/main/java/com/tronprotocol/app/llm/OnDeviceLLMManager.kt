@@ -116,61 +116,66 @@ class OnDeviceLLMManager(context: Context) {
 
     /** Assess this device's capability for on-device LLM inference. */
     fun assessDevice(): DeviceCapability {
+        val previousState = currentModelState.get()
         currentModelState.set(ModelState.CHECKING_DEVICE)
 
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
-        val memInfo = ActivityManager.MemoryInfo()
-        am?.getMemoryInfo(memInfo)
+        return try {
+            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val memInfo = ActivityManager.MemoryInfo()
+            am?.getMemoryInfo(memInfo)
 
-        val totalRamMb = memInfo.totalMem / (1024 * 1024)
-        val availableRamMb = memInfo.availMem / (1024 * 1024)
+            val totalRamMb = memInfo.totalMem / (1024 * 1024)
+            val availableRamMb = memInfo.availMem / (1024 * 1024)
 
-        val cpuArch = if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "unknown"
-        val supportsArm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+            val cpuArch = if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "unknown"
+            val supportsArm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
 
-        // ARMv8.2+ supports FP16 natively (most devices from 2018+)
-        val supportsFp16 = supportsArm64 && Build.VERSION.SDK_INT >= 28
+            // ARMv8.2+ supports FP16 natively (most devices from 2018+)
+            val supportsFp16 = supportsArm64 && Build.VERSION.SDK_INT >= 28
 
-        // Estimate GPU availability (OpenCL) — conservative check
-        val hasGpu = supportsArm64
+            // Estimate GPU availability (OpenCL) — conservative check
+            val hasGpu = supportsArm64
 
-        // Thread recommendation: use big cores, cap at 4 for battery
-        val recommendedThreads = minOf(Runtime.getRuntime().availableProcessors(), DEFAULT_THREAD_COUNT)
+            // Thread recommendation: use big cores, cap at 4 for battery
+            val recommendedThreads = minOf(Runtime.getRuntime().availableProcessors(), DEFAULT_THREAD_COUNT)
 
-        // Model size recommendation based on available RAM
-        val (maxModelSizeMb, recommendedModel, canRunLLM, baseReason) = when {
-            !supportsArm64 -> Quad(
-                0L, "none", false,
-                "Device does not support arm64-v8a — MNN LLM requires 64-bit ARM"
+            // Model size recommendation based on available RAM
+            val (maxModelSizeMb, recommendedModel, canRunLLM, baseReason) = when {
+                !supportsArm64 -> Quad(
+                    0L, "none", false,
+                    "Device does not support arm64-v8a — MNN LLM requires 64-bit ARM"
+                )
+                availableRamMb < MIN_RAM_MB -> Quad(
+                    0L, "none", false,
+                    "Insufficient RAM: ${availableRamMb}MB available, ${MIN_RAM_MB}MB required minimum"
+                )
+                availableRamMb < RECOMMENDED_RAM_MB -> Quad(
+                    1500L, "Qwen2.5-1.5B-Instruct-Q4", true,
+                    "Limited RAM — recommend 1.5B parameter model with Q4 quantization"
+                )
+                availableRamMb < LARGE_MODEL_RAM_MB -> Quad(
+                    2500L, "Qwen3-1.7B-Q4", true,
+                    "Moderate RAM — can run up to 1.7B parameter model comfortably"
+                )
+                else -> Quad(
+                    4000L, "Qwen2.5-3B-Instruct-Q4", true,
+                    "Good RAM — can run up to 3B+ parameter models"
+                )
+            }
+
+            val reason = if (canRunLLM && !nativeAvailable.get())
+                "$baseReason (MNN native libraries not installed — build from github.com/alibaba/MNN)"
+            else baseReason
+
+            DeviceCapability(
+                totalRamMb, availableRamMb, cpuArch,
+                supportsArm64, supportsFp16, hasGpu,
+                recommendedThreads, maxModelSizeMb,
+                recommendedModel, canRunLLM, reason
             )
-            availableRamMb < MIN_RAM_MB -> Quad(
-                0L, "none", false,
-                "Insufficient RAM: ${availableRamMb}MB available, ${MIN_RAM_MB}MB required minimum"
-            )
-            availableRamMb < RECOMMENDED_RAM_MB -> Quad(
-                1500L, "Qwen2.5-1.5B-Instruct-Q4", true,
-                "Limited RAM — recommend 1.5B parameter model with Q4 quantization"
-            )
-            availableRamMb < LARGE_MODEL_RAM_MB -> Quad(
-                2500L, "Qwen3-1.7B-Q4", true,
-                "Moderate RAM — can run up to 1.7B parameter model comfortably"
-            )
-            else -> Quad(
-                4000L, "Qwen2.5-3B-Instruct-Q4", true,
-                "Good RAM — can run up to 3B+ parameter models"
-            )
+        } finally {
+            currentModelState.compareAndSet(ModelState.CHECKING_DEVICE, previousState)
         }
-
-        val reason = if (canRunLLM && !nativeAvailable.get())
-            "$baseReason (MNN native libraries not installed — build from github.com/alibaba/MNN)"
-        else baseReason
-
-        return DeviceCapability(
-            totalRamMb, availableRamMb, cpuArch,
-            supportsArm64, supportsFp16, hasGpu,
-            recommendedThreads, maxModelSizeMb,
-            recommendedModel, canRunLLM, reason
-        )
     }
 
     /**
