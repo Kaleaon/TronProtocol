@@ -68,6 +68,10 @@ dependencies {
     implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
 
+    // NNAPI delegate for Pixel TPU routing (Tensor G5 Edge TPU)
+    // Routes TFLite ops to on-device TPU/DSP/GPU via Android NNAPI
+    implementation 'org.tensorflow:tensorflow-lite-nnapi:2.13.0'
+
     // MNN (Mobile Neural Network) — Alibaba's on-device inference framework
     // Core AAR provides Java API for model loading, session management, and inference.
     // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true
