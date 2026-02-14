@@ -31,6 +31,20 @@ class SubAgentManager(
     private val defaultTimeoutMs: Long = DEFAULT_TIMEOUT_MS
 ) {
 
+    /** Batch request to spawn multiple sub-agents as a bounded swarm. */
+    data class SwarmRequest(
+        val parentPluginId: String,
+        val tasks: List<SwarmTask>,
+        val timeoutMs: Long = DEFAULT_TIMEOUT_MS,
+        val isolationLevel: IsolationLevel = IsolationLevel.STANDARD
+    )
+
+    data class SwarmTask(
+        val targetPluginId: String,
+        val input: String,
+        val timeoutMs: Long = DEFAULT_TIMEOUT_MS
+    )
+
     /** Request to spawn a sub-agent. */
     data class SpawnRequest(
         val parentPluginId: String,
@@ -192,6 +206,93 @@ class SubAgentManager(
             result = null, runtimeMs = request.timeoutMs,
             error = "Sub-agent timed out after ${request.timeoutMs}ms"
         )
+    }
+
+    /**
+     * Spawn a bounded swarm of sub-agents.
+     * Returns IDs for successfully scheduled agents in spawn order.
+     */
+    fun spawnSwarm(request: SwarmRequest, callback: CompletionCallback? = null): List<String> {
+        if (request.tasks.isEmpty()) return emptyList()
+
+        val scheduled = mutableListOf<String>()
+        for (task in request.tasks) {
+            val remaining = maxConcurrentAgents - activeCount.get()
+            if (remaining <= 0) {
+                Log.w(TAG, "Swarm scheduling reached concurrency ceiling; scheduled=${scheduled.size} total=${request.tasks.size}")
+                break
+            }
+
+            val spawnRequest = SpawnRequest(
+                parentPluginId = request.parentPluginId,
+                targetPluginId = task.targetPluginId,
+                input = task.input,
+                timeoutMs = minOf(task.timeoutMs, request.timeoutMs),
+                isolationLevel = request.isolationLevel
+            )
+            val agentId = spawn(spawnRequest, callback)
+            if (agentId != null) {
+                scheduled.add(agentId)
+            }
+        }
+        return scheduled
+    }
+
+    /**
+     * Spawn a swarm and wait until all scheduled agents finish or the swarm timeout elapses.
+     * Returns completed results plus timed-out placeholders for any unfinished scheduled agent.
+     */
+    fun spawnSwarmAndWait(request: SwarmRequest): List<SubAgentResult> {
+        if (request.tasks.isEmpty()) return emptyList()
+
+        val completed = ConcurrentHashMap<String, SubAgentResult>()
+        val lock = Object()
+        val startedAt = System.currentTimeMillis()
+
+        val agentIds = spawnSwarm(request) { result ->
+            synchronized(lock) {
+                completed[result.agentId] = result
+                lock.notifyAll()
+            }
+        }
+
+        if (agentIds.isEmpty()) {
+            return listOf(
+                SubAgentResult(
+                    agentId = "",
+                    parentPluginId = request.parentPluginId,
+                    targetPluginId = "*",
+                    status = SubAgentResult.Status.REJECTED,
+                    result = null,
+                    runtimeMs = 0,
+                    error = "Failed to spawn any sub-agents in swarm"
+                )
+            )
+        }
+
+        val deadline = startedAt + request.timeoutMs
+        synchronized(lock) {
+            while (completed.size < agentIds.size) {
+                val remaining = deadline - System.currentTimeMillis()
+                if (remaining <= 0) break
+                lock.wait(remaining)
+            }
+        }
+
+        val out = mutableListOf<SubAgentResult>()
+        for (agentId in agentIds) {
+            val result = completed[agentId] ?: SubAgentResult(
+                agentId = agentId,
+                parentPluginId = request.parentPluginId,
+                targetPluginId = activeAgents[agentId]?.request?.targetPluginId ?: "unknown",
+                status = SubAgentResult.Status.TIMED_OUT,
+                result = null,
+                runtimeMs = System.currentTimeMillis() - startedAt,
+                error = "Swarm timed out after ${request.timeoutMs}ms"
+            )
+            out.add(result)
+        }
+        return out
     }
 
     /**
