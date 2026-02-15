@@ -117,6 +117,28 @@ esac
 
 
 # Determine the Java command to use to start the JVM.
+find_compatible_java_home() {
+    for candidate in \
+        "$JAVA21_HOME" \
+        "$HOME/.local/share/mise/installs/java/21.0.2" \
+        "$HOME/.local/share/mise/installs/java/21" \
+        "/usr/lib/jvm/java-21-openjdk" \
+        "/usr/lib/jvm/java-21-openjdk-amd64" \
+        "/usr/lib/jvm/temurin-21-jdk"
+    do
+        if [ -n "$candidate" ] && [ -x "$candidate/bin/java" ]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+java_major_version() {
+    "$1" -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n1
+}
+
 if [ -n "$JAVA_HOME" ] ; then
     if [ -x "$JAVA_HOME/jre/sh/java" ] ; then
         # IBM's JDK on AIX uses strange locations for the executables
@@ -138,6 +160,18 @@ else
 
 Please set the JAVA_HOME variable in your environment to match the
 location of your Java installation."
+    fi
+fi
+
+JAVA_MAJOR=$(java_major_version "$JAVACMD")
+if [ -n "$JAVA_MAJOR" ] && [ "$JAVA_MAJOR" -ge 25 ]; then
+    COMPATIBLE_JAVA_HOME=$(find_compatible_java_home)
+    if [ -n "$COMPATIBLE_JAVA_HOME" ]; then
+        JAVA_HOME=$COMPATIBLE_JAVA_HOME
+        JAVACMD=$JAVA_HOME/bin/java
+        warn "Detected Java $JAVA_MAJOR for Gradle startup; falling back to Java 21 at $JAVA_HOME for compatibility."
+    else
+        warn "Detected Java $JAVA_MAJOR, but no Java 21 runtime was found. Gradle startup may fail on this JVM."
     fi
 fi
 
