@@ -139,6 +139,12 @@ TronProtocol/
 - Android Studio Arctic Fox or later
 - Android SDK with API Level 24 (Android 7.0) or higher
 - Gradle 8.0
+- Java 17 or Java 21 (recommended for Gradle/AGP compatibility)
+
+### Java Compatibility Note
+Some environments default to Java 25, which can fail during Gradle script compilation with `Unsupported class file major version 69`.
+
+`./gradlew` now auto-detects Java 25 and falls back to Java 21 if it can find a compatible local JDK (for example via `JAVA21_HOME` or common install paths).
 
 ### Build Steps
 1. Open the project in Android Studio
