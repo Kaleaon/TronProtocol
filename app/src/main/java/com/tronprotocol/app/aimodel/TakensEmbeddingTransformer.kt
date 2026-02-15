@@ -227,7 +227,7 @@ class TakensEmbeddingTransformer(val config: TakensConfig) {
             val probs = softmax(result.logits[t])
             probs[targets[t]] -= 1.0f
             // Scale by 1/n for mean loss
-            for (i in probs.indices) probs[i] /= n
+            for (i in probs.indices) probs[i] /= n.toFloat()
             probs
         }
 

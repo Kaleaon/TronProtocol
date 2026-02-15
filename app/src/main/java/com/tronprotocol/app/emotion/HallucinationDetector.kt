@@ -120,26 +120,26 @@ class HallucinationDetector(
         // Uses the Set Theoretic Learning Environment to score how
         // "in-distribution" the retrieved context is. Low mu_x means
         // the model is operating outside its training distribution.
-        frontierDynamicsManager?.let { fdm ->
-            ragStore?.let { store ->
-                try {
-                    val retrievedFacts = store.retrieve(
-                        prompt, RetrievalStrategy.MEMRL, 5
-                    )
-                    if (retrievedFacts.isNotEmpty()) {
-                        val aggregate = fdm.aggregateAccessibility(retrievedFacts)
-                        result.frontierAccessibility = aggregate.meanMuX
-                        result.frontierConfidence = aggregate.confidenceLevel
+        val fdm = frontierDynamicsManager
+        val store = ragStore
+        if (fdm != null && store != null) {
+            try {
+                val retrievedFacts = store.retrieve(
+                    prompt, RetrievalStrategy.MEMRL, 5
+                )
+                if (retrievedFacts.isNotEmpty()) {
+                    val aggregate = fdm.aggregateAccessibility(retrievedFacts)
+                    result.frontierAccessibility = aggregate.meanMuX
+                    result.frontierConfidence = aggregate.confidenceLevel
 
-                        if (aggregate.confidenceLevel == ConfidenceLevel.VERY_LOW) {
-                            result.hallucinationType = HallucinationType.FRONTIER_OOD
-                            result.confidence = max(result.confidence, 0.7f)
-                            Log.w(TAG, "STLE frontier OOD: mean mu_x=${aggregate.meanMuX}")
-                        }
+                    if (aggregate.confidenceLevel == ConfidenceLevel.VERY_LOW) {
+                        result.hallucinationType = HallucinationType.FRONTIER_OOD
+                        result.confidence = max(result.confidence, 0.7f)
+                        Log.w(TAG, "STLE frontier OOD: mean mu_x=${aggregate.meanMuX}")
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in STLE frontier check", e)
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in STLE frontier check", e)
             }
         }
 
