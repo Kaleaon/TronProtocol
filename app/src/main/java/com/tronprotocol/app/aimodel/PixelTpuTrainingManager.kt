@@ -50,7 +50,7 @@ class PixelTpuTrainingManager(private val context: Context) {
     private var modelConfig: TakensConfig? = null
 
     // Hardware capability
-    private val tpuCapability: TpuCapability by lazy { detectTpuCapability() }
+    private val detectedTpuCapability: TpuCapability by lazy { detectTpuCapability() }
 
     enum class TrainingState {
         IDLE, PREPARING, TRAINING, COMPLETED, FAILED
@@ -193,7 +193,7 @@ class PixelTpuTrainingManager(private val context: Context) {
         reverseVocab = revVocab
 
         // Tokenize into training sequences
-        val maxSeqLen = tpuCapability.recommendedSeqLen()
+        val maxSeqLen = detectedTpuCapability.recommendedSeqLen()
         val sequences = mutableListOf<IntArray>()
 
         for (chunk in chunks) {
@@ -254,20 +254,20 @@ class PixelTpuTrainingManager(private val context: Context) {
         vocabulary = data.vocabulary
         reverseVocab = data.reverseVocabulary
 
-        val effectiveBatch = if (batchSize > 0) batchSize else tpuCapability.recommendedBatchSize
+        val effectiveBatch = if (batchSize > 0) batchSize else detectedTpuCapability.recommendedBatchSize
 
         Log.d(TAG, "Training Takens Embedding Transformer: " +
                 "vocab=$vocabSize, embed=${config.embedDim}, hidden=${config.hiddenDim}, " +
                 "layers=${config.numLayers}, delays=${config.delays}, " +
                 "batch=$effectiveBatch, epochs=$epochs, " +
-                "tpu=${tpuCapability.tpuGeneration}")
+                "tpu=${detectedTpuCapability.tpuGeneration}")
 
         val transformer = TakensEmbeddingTransformer(config)
         model = transformer
 
         val metrics = TrainingMetrics(
             totalParams = transformer.parameterCount(),
-            tpuGeneration = tpuCapability.tpuGeneration.name,
+            tpuGeneration = detectedTpuCapability.tpuGeneration.name,
             configDescription = "embed=${config.embedDim}, hidden=${config.hiddenDim}, " +
                     "layers=${config.numLayers}, delays=${config.delays}"
         )
@@ -682,7 +682,7 @@ class PixelTpuTrainingManager(private val context: Context) {
 
     fun getTrainingState(): TrainingState = trainingState
     fun getMetrics(): TrainingMetrics = currentMetrics
-    fun getTpuCapability(): TpuCapability = tpuCapability
+    fun getTpuCapability(): TpuCapability = detectedTpuCapability
     fun getVocabSize(): Int = vocabulary.size
     fun isModelLoaded(): Boolean = model != null
     fun getConfig(): TakensConfig? = modelConfig
