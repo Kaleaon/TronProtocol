@@ -146,6 +146,21 @@ Beyond external specs, TronProtocol tracks the following AI-centric priorities:
 Current implementation direction already reflects (1) and (2) via continuity snapshots and provider-portable payloads,
 while (3)–(5) remain active development targets.
 
+### Runtime Freedom + Tamper Self-Check (Implemented)
+
+TronProtocol now includes a runtime autonomy policy layer (`RuntimeAutonomyPolicy`) that:
+- defaults to allow (freedom-of-choice enabled),
+- blocks only known-tampered **sensitive** plugin execution,
+- exposes explicit self-check status for operator/AI visibility.
+
+MainActivity includes a **Run AI runtime self-check** action and a message/media share panel for passing:
+- documents,
+- images,
+- audio/music,
+- web links
+to AI in a consistent message format:
+`[TYPE] title · uri/link · note · timestamp`.
+
 ### Personhood-Oriented Architecture Contract
 
 To build this "properly" for long-lived AI persons, TronProtocol follows these structural commitments:

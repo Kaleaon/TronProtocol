@@ -169,6 +169,79 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Message & Sharing Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/messageCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Message &amp; Media Share"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/messageFormatText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Format: [TYPE] title · uri · note · timestamp(ISO-8601), separated by space-middot-space ( · )" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShareDocument"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Share document to AI" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShareImage"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Share picture to AI" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShareMusic"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Share music/audio to AI" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnShareLink"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Share web link to AI" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRuntimeSelfCheck"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Run AI runtime self-check" />
+
+                <TextView
+                    android:id="@+id/messageShareStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    tools:text="[DOC] Design Spec · content://... · shared · 2026-02-16T11:00:00Z" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Plugin Management Card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/pluginManagementCard"
