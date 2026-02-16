@@ -3,6 +3,7 @@ package com.tronprotocol.app
 import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -19,8 +20,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.children
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.ktheme.core.ThemeEngine
+import com.ktheme.utils.ColorUtils
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
 
@@ -142,6 +147,7 @@ class MainActivity : AppCompatActivity() {
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
         diagnosticsText = findViewById(R.id.diagnosticsText)
 
+        runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
         renderPluginManagementUi()
         runStartupBlock("wire_ui_actions") { wireUiActions() }
@@ -175,6 +181,80 @@ class MainActivity : AppCompatActivity() {
         } catch (t: Throwable) {
             StartupDiagnostics.recordError(this, name, t)
             Log.e(TAG, "Startup block failed: $name", t)
+        }
+    }
+
+    private fun applyKtheme() {
+        try {
+            val engine = ThemeEngine()
+            val themeFile = java.io.File.createTempFile("navy-gold", ".json", cacheDir).apply {
+                outputStream().use { output ->
+                    assets.open("themes/navy-gold.json").use { input -> input.copyTo(output) }
+                }
+                deleteOnExit()
+            }
+
+            val theme = engine.loadThemeFromFile(themeFile)
+            engine.setActiveTheme(theme.metadata.id)
+            val activeTheme = engine.getActiveTheme() ?: return
+            val colors = activeTheme.colorScheme
+
+            val background = ColorUtils.hexToColorInt(colors.background)
+            val surface = ColorUtils.hexToColorInt(colors.surface)
+            val onSurface = ColorUtils.hexToColorInt(colors.onSurface)
+            val primary = ColorUtils.hexToColorInt(colors.primary)
+            val onPrimary = ColorUtils.hexToColorInt(colors.onPrimary)
+
+            findViewById<android.widget.ScrollView>(R.id.rootScrollView).setBackgroundColor(background)
+
+            listOf(
+                R.id.headerCard,
+                R.id.actionCard,
+                R.id.pluginManagementCard,
+                R.id.diagnosticsCard,
+            ).forEach { cardId ->
+                findViewById<MaterialCardView>(cardId).setCardBackgroundColor(surface)
+            }
+
+            listOf(
+                R.id.pluginCountText,
+                R.id.permissionStatusText,
+                R.id.startupStateBadgeText,
+                R.id.permissionRationaleText,
+                R.id.pluginStatusText,
+                R.id.diagnosticsText,
+            ).forEach { textId ->
+                findViewById<TextView>(textId).setTextColor(onSurface)
+            }
+
+            listOf(
+                R.id.btnTelephonyFeature,
+                R.id.btnSmsFeature,
+                R.id.btnContactsFeature,
+                R.id.btnLocationFeature,
+                R.id.btnStorageFeature,
+                R.id.btnNotificationsFeature,
+            ).forEach { buttonId ->
+                findViewById<MaterialButton>(buttonId).apply {
+                    backgroundTintList = ColorStateList.valueOf(primary)
+                    setTextColor(onPrimary)
+                }
+            }
+
+            findViewById<MaterialButton>(R.id.btnGrantAllFiles).apply {
+                strokeColor = ColorStateList.valueOf(primary)
+                setTextColor(primary)
+            }
+
+            findViewById<MaterialButton>(R.id.btnStartService).setTextColor(primary)
+
+            pluginToggleContainer.children.forEach { child ->
+                if (child is SwitchMaterial) {
+                    child.setTextColor(onSurface)
+                }
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "Unable to apply ktheme styling", t)
         }
     }
 
@@ -262,6 +342,7 @@ class MainActivity : AppCompatActivity() {
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 )
+                setTextColor(pluginStatusText.currentTextColor)
             }
 
             toggle.setOnCheckedChangeListener { _, isChecked ->
