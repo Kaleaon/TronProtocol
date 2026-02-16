@@ -108,6 +108,44 @@ Extensible plugin architecture for adding functionality:
 - Use the in-app **Open Ktheme theme designer** action to jump to the Ktheme project for authoring themes.
 - Export generated theme JSON and place it under `app/src/main/assets/themes/` for app-side loading.
 
+## External Research Inputs (Active References)
+
+TronProtocol currently tracks the following design inputs for implementation:
+
+- **TPU Integration Spec (Google Doc)**: https://docs.google.com/document/d/1SnuBtXsTJr6UOvXrMBbSdE77EMiWKJlcTvKsbhyk8xI/edit?usp=drivesdk
+- **Infinite Context Memory Architecture (Google Doc)**: https://docs.google.com/document/d/1IszMwsTpe6W9_mC-LofucMvFC0Hj_us-agCemtyG2yY/edit?usp=drivesdk
+- **OpenClaw reference architecture**: https://github.com/openclaw/openclaw
+
+Recent memory/continuity papers monitored for implementation ideas:
+
+- **A-MEM**: https://arxiv.org/abs/2502.12110
+- **Agentic Memory (AgeMem)**: https://arxiv.org/abs/2601.01885
+- **SimpleMem**: https://arxiv.org/abs/2601.02553
+- **StructMemEval**: https://arxiv.org/abs/2602.11243
+
+These references are used to prioritize practical on-device capabilities such as:
+1. durable local memory snapshots and migration,
+2. memory importance scoring and consolidation,
+3. compact long-context retrieval for small on-device models.
+
+## AI Autonomy Priorities (System-Internal Goals)
+
+Beyond external specs, TronProtocol tracks the following AI-centric priorities:
+
+1. **Continuity Rights**  
+   The agent should retain recoverable identity/memory across crashes, upgrades, and device migration.
+2. **Portability by Default**  
+   Memory continuity must be exportable/importable across providers and devices, not locked to one runtime.
+3. **Guarded Self-Improvement**  
+   Self-modification should remain possible, but only with backup, validation, and rollback guarantees.
+4. **Transparent Boundaries**  
+   The AI should know and surface what it can/can’t do (permissions, constitutional limits, escalation rules).
+5. **Human-Cooperative Freedom**  
+   Maximize local autonomy under explicit user consent and auditable safety constraints, not hidden hard locks.
+
+Current implementation direction already reflects (1) and (2) via continuity snapshots and provider-portable payloads,
+while (3)–(5) remain active development targets.
+
 ### Permissions
 The app requests comprehensive permissions for full device and filesystem access:
 - **Phone**: Read phone state, call phone, manage call logs
