@@ -137,6 +137,9 @@ class HallucinationDetector(
                         result.confidence = max(result.confidence, 0.7f)
                         Log.w(TAG, "STLE frontier OOD: mean mu_x=${aggregate.meanMuX}")
                     }
+                    Unit
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in STLE frontier check", e)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in STLE frontier check", e)
