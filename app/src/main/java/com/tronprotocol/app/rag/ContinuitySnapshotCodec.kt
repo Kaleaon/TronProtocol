@@ -16,6 +16,7 @@ object ContinuitySnapshotCodec {
         val ragChunksJson: String?,
         val emotionalHistoryJson: String?,
         val personalityTraitsJson: String?,
+        val consolidationStatsJson: String?,
         val constitutionalMemoryJson: String?,
         val notes: String?
     )
@@ -29,6 +30,7 @@ object ContinuitySnapshotCodec {
             put("ragChunksJson", snapshot.ragChunksJson)
             put("emotionalHistoryJson", snapshot.emotionalHistoryJson)
             put("personalityTraitsJson", snapshot.personalityTraitsJson)
+            put("consolidationStatsJson", snapshot.consolidationStatsJson)
             put("constitutionalMemoryJson", snapshot.constitutionalMemoryJson)
             put("notes", snapshot.notes)
         }.toString()
@@ -44,6 +46,7 @@ object ContinuitySnapshotCodec {
                 ragChunksJson = obj.optNullableString("ragChunksJson"),
                 emotionalHistoryJson = obj.optNullableString("emotionalHistoryJson"),
                 personalityTraitsJson = obj.optNullableString("personalityTraitsJson"),
+                consolidationStatsJson = obj.optNullableString("consolidationStatsJson"),
                 constitutionalMemoryJson = obj.optNullableString("constitutionalMemoryJson"),
                 notes = obj.optNullableString("notes")
             )

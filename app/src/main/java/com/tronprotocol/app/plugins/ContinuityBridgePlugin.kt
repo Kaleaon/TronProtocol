@@ -23,8 +23,11 @@ import org.json.JSONArray
 class ContinuityBridgePlugin : Plugin {
     override val id: String = "continuity_bridge"
     override val name: String = "Continuity Bridge"
-    override val description: String =
-        "Create/restore/export/import continuity snapshots. Commands: snapshot, restore, export, import, list, inspect, provider_links"
+    override val description: String = """
+        Create/restore/export/import continuity snapshots for:
+        RAG memory, emotional history, personality traits, consolidation stats, constitutional memory.
+        Commands: snapshot, restore, export, import, list, inspect, provider_links
+    """.trimIndent()
     override var isEnabled: Boolean = true
 
     private lateinit var storage: SecureStorage
@@ -72,6 +75,7 @@ class ContinuityBridgePlugin : Plugin {
             ragChunksJson = storage.retrieve("rag_chunks_$aiId"),
             emotionalHistoryJson = storage.retrieve(KEY_EMOTIONAL_HISTORY),
             personalityTraitsJson = storage.retrieve(KEY_PERSONALITY_TRAITS),
+            consolidationStatsJson = storage.retrieve(KEY_CONSOLIDATION_STATS),
             constitutionalMemoryJson = storage.retrieve(KEY_CONSTITUTIONAL_MEMORY),
             notes = notes
         )
@@ -104,6 +108,7 @@ class ContinuityBridgePlugin : Plugin {
         snapshot.ragChunksJson?.let { storage.store("rag_chunks_$targetAiId", it) }
         snapshot.emotionalHistoryJson?.let { storage.store(KEY_EMOTIONAL_HISTORY, it) }
         snapshot.personalityTraitsJson?.let { storage.store(KEY_PERSONALITY_TRAITS, it) }
+        snapshot.consolidationStatsJson?.let { storage.store(KEY_CONSOLIDATION_STATS, it) }
         snapshot.constitutionalMemoryJson?.let { storage.store(KEY_CONSTITUTIONAL_MEMORY, it) }
 
         return PluginResult.success(
@@ -140,9 +145,16 @@ class ContinuityBridgePlugin : Plugin {
             ?: return PluginResult.error("Snapshot is corrupted: $snapshotId", elapsed(start))
 
         return PluginResult.success(
-            "Snapshot $snapshotId\naiId=${snapshot.aiId}\ncreatedAtMs=${snapshot.createdAtMs}\n" +
-                "hasRag=${snapshot.ragChunksJson != null}\nhasEmotion=${snapshot.emotionalHistoryJson != null}\n" +
-                "hasTraits=${snapshot.personalityTraitsJson != null}\nhasConstitution=${snapshot.constitutionalMemoryJson != null}",
+            """
+            Snapshot $snapshotId
+            aiId=${snapshot.aiId}
+            createdAtMs=${snapshot.createdAtMs}
+            hasRag=${snapshot.ragChunksJson != null}
+            hasEmotion=${snapshot.emotionalHistoryJson != null}
+            hasTraits=${snapshot.personalityTraitsJson != null}
+            hasConsolidation=${snapshot.consolidationStatsJson != null}
+            hasConstitution=${snapshot.constitutionalMemoryJson != null}
+            """.trimIndent(),
             elapsed(start)
         )
     }
@@ -181,18 +193,14 @@ class ContinuityBridgePlugin : Plugin {
         val snapshot = ContinuitySnapshotCodec.decode(decodedJson)
             ?: return PluginResult.error("Payload does not contain a valid continuity snapshot", elapsed(start))
 
-        val importedSnapshotId = buildString {
-            append("imported_")
-            append(ContinuitySnapshotCodec.sanitizeIdentifier(snapshot.snapshotId, "snapshot"))
-            append("_")
-            append(System.currentTimeMillis())
-        }
+        val importedSnapshotId = buildImportedSnapshotId(snapshot.snapshotId)
         storage.store(snapshotStorageKey(importedSnapshotId), decodedJson)
         persistSnapshotIndex(addSnapshotId(importedSnapshotId))
 
         snapshot.ragChunksJson?.let { storage.store("rag_chunks_$targetAiId", it) }
         snapshot.emotionalHistoryJson?.let { storage.store(KEY_EMOTIONAL_HISTORY, it) }
         snapshot.personalityTraitsJson?.let { storage.store(KEY_PERSONALITY_TRAITS, it) }
+        snapshot.consolidationStatsJson?.let { storage.store(KEY_CONSOLIDATION_STATS, it) }
         snapshot.constitutionalMemoryJson?.let { storage.store(KEY_CONSTITUTIONAL_MEMORY, it) }
 
         return PluginResult.success(
@@ -243,11 +251,19 @@ class ContinuityBridgePlugin : Plugin {
         storage.store(KEY_SNAPSHOT_INDEX, arr.toString())
     }
 
+    private fun buildImportedSnapshotId(sourceSnapshotId: String): String {
+        val safeSourceId = ContinuitySnapshotCodec.sanitizeIdentifier(sourceSnapshotId, "snapshot")
+            .take(MAX_SOURCE_ID_SEGMENT)
+        return "imported_${safeSourceId}_${System.currentTimeMillis()}"
+    }
+
     companion object {
         private const val KEY_EMOTIONAL_HISTORY = "emotional_history"
         private const val KEY_PERSONALITY_TRAITS = "personality_traits"
+        private const val KEY_CONSOLIDATION_STATS = "consolidation_stats"
         private const val KEY_CONSTITUTIONAL_MEMORY = "constitutional_memory"
         private const val KEY_SNAPSHOT_INDEX = "continuity_snapshot_index"
         private const val KEY_SNAPSHOT_PREFIX = "continuity_snapshot_"
+        private const val MAX_SOURCE_ID_SEGMENT = 24
     }
 }

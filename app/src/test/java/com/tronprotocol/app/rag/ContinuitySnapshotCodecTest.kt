@@ -16,6 +16,7 @@ class ContinuitySnapshotCodecTest {
             ragChunksJson = "[{\"chunkId\":\"a\"}]",
             emotionalHistoryJson = "[{\"emotion\":\"NEUTRAL\"}]",
             personalityTraitsJson = "{\"curiosity\":0.7}",
+            consolidationStatsJson = "{\"total_consolidations\":1}",
             constitutionalMemoryJson = "{\"version\":1}",
             notes = "continuity test"
         )
@@ -27,6 +28,11 @@ class ContinuitySnapshotCodecTest {
         assertEquals("snap_1", decoded?.snapshotId)
         assertEquals("ai_main", decoded?.aiId)
         assertEquals(123456789L, decoded?.createdAtMs)
+        assertEquals("[{\"chunkId\":\"a\"}]", decoded?.ragChunksJson)
+        assertEquals("[{\"emotion\":\"NEUTRAL\"}]", decoded?.emotionalHistoryJson)
+        assertEquals("{\"curiosity\":0.7}", decoded?.personalityTraitsJson)
+        assertEquals("{\"total_consolidations\":1}", decoded?.consolidationStatsJson)
+        assertEquals("{\"version\":1}", decoded?.constitutionalMemoryJson)
         assertEquals("continuity test", decoded?.notes)
     }
 
