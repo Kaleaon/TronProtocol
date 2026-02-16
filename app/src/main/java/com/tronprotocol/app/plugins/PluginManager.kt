@@ -22,6 +22,7 @@ class PluginManager private constructor() {
     private var safetyScanner: PluginSafetyScanner? = null
     private var toolPolicyEngine: ToolPolicyEngine? = null
     private var auditLogger: AuditLogger? = null
+    private val runtimeAutonomyPolicy = RuntimeAutonomyPolicy()
 
     fun initialize(context: Context) {
         this.context = context.applicationContext
@@ -190,6 +191,21 @@ class PluginManager private constructor() {
             }
         }
 
+        // Layer 3.5: Runtime autonomy + tamper safety policy
+        val autonomyDecision = runtimeAutonomyPolicy.evaluate(pluginId)
+        if (!autonomyDecision.allowed) {
+            auditLogger?.logSecurityEvent(
+                pluginId,
+                "autonomy_policy_denied",
+                "blocked",
+                mapOf("reason" to autonomyDecision.reason)
+            )
+            return PluginResult.error(
+                "Blocked by runtime autonomy policy: ${autonomyDecision.reason}",
+                System.currentTimeMillis() - startTime
+            )
+        }
+
         // Layer 4: Execute plugin
         return try {
             val result = plugin.execute(input)
@@ -213,6 +229,16 @@ class PluginManager private constructor() {
     private fun getGuardrailPlugin(): PolicyGuardrailPlugin? {
         return plugins["policy_guardrail"] as? PolicyGuardrailPlugin
     }
+
+    fun reportPluginIntegrity(pluginId: String, trusted: Boolean) {
+        runtimeAutonomyPolicy.reportIntegritySignal(pluginId, trusted)
+    }
+
+    fun runRuntimeSelfCheck(): String {
+        return runtimeAutonomyPolicy.runSelfCheck(plugins.keys)
+    }
+
+    fun getRuntimePolicyStatus(): String = runtimeAutonomyPolicy.summary()
 
     /**
      * Clean up all plugins

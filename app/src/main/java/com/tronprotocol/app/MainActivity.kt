@@ -5,14 +5,18 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
+import android.database.Cursor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
 import android.provider.Settings
+import android.provider.OpenableColumns
+import android.text.InputType
 import android.util.Log
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -24,10 +28,12 @@ import androidx.core.view.children
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.textfield.TextInputEditText
 import com.ktheme.core.ThemeEngine
 import com.ktheme.utils.ColorUtils
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
+import java.time.Instant
 
 class MainActivity : AppCompatActivity() {
 
@@ -38,9 +44,21 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startupStateBadgeText: TextView
     private lateinit var diagnosticsText: TextView
     private lateinit var permissionRationaleText: TextView
+    private lateinit var conversationTranscriptText: TextView
+    private lateinit var conversationInput: TextInputEditText
+    private lateinit var messageFormatText: TextView
+    private lateinit var messageShareStatusText: TextView
     private lateinit var prefs: SharedPreferences
 
     private var activePermissionRequest: PermissionFeature? = null
+    private var pendingShareType: ShareType? = null
+    private val conversationTurns = mutableListOf<ConversationTurn>()
+
+    private enum class ShareType {
+        DOC,
+        IMAGE,
+        AUDIO
+    }
 
     private enum class PermissionFeature(
         val title: String,
@@ -134,6 +152,20 @@ class MainActivity : AppCompatActivity() {
             refreshDiagnosticsPanel()
         }
 
+    private val shareDocumentLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val type = pendingShareType
+            pendingShareType = null
+            if (uri == null || type == null) {
+                return@registerForActivityResult
+            }
+            val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+            val displayName = resolveDisplayName(uri) ?: "File ($mimeType)"
+            val formatted = formatShareMessage(type.name, displayName, uri.toString(), NOTE_SHARED_FROM_DEVICE_PICKER)
+            messageShareStatusText.text = formatted
+            showPermissionMessage("Shared ${type.name.lowercase()} context with AI message format.")
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -146,6 +178,11 @@ class MainActivity : AppCompatActivity() {
         startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
         diagnosticsText = findViewById(R.id.diagnosticsText)
+        conversationTranscriptText = findViewById(R.id.conversationTranscriptText)
+        conversationInput = findViewById(R.id.conversationInput)
+        messageFormatText = findViewById(R.id.messageFormatText)
+        messageShareStatusText = findViewById(R.id.messageShareStatusText)
+        messageShareStatusText.text = "Ready to share docs, pictures, music, and links with AI."
 
         runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
@@ -209,7 +246,9 @@ class MainActivity : AppCompatActivity() {
 
             listOf(
                 R.id.headerCard,
+                R.id.conversationCard,
                 R.id.actionCard,
+                R.id.messageCard,
                 R.id.pluginManagementCard,
                 R.id.diagnosticsCard,
             ).forEach { cardId ->
@@ -223,6 +262,9 @@ class MainActivity : AppCompatActivity() {
                 R.id.permissionRationaleText,
                 R.id.pluginStatusText,
                 R.id.diagnosticsText,
+                R.id.conversationTranscriptText,
+                R.id.messageFormatText,
+                R.id.messageShareStatusText,
             ).forEach { textId ->
                 findViewById<TextView>(textId).setTextColor(onSurface)
             }
@@ -234,6 +276,11 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnLocationFeature,
                 R.id.btnStorageFeature,
                 R.id.btnNotificationsFeature,
+                R.id.btnOpenBotFather,
+                R.id.btnSendConversation,
+                R.id.btnShareDocument,
+                R.id.btnShareImage,
+                R.id.btnShareMusic,
             ).forEach { buttonId ->
                 findViewById<MaterialButton>(buttonId).apply {
                     backgroundTintList = ColorStateList.valueOf(primary)
@@ -247,6 +294,13 @@ class MainActivity : AppCompatActivity() {
             }
 
             findViewById<MaterialButton>(R.id.btnStartService).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnClearConversation).apply {
+                strokeColor = ColorStateList.valueOf(primary)
+                setTextColor(primary)
+            }
 
             pluginToggleContainer.children.forEach { child ->
                 if (child is SwitchMaterial) {
@@ -259,6 +313,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wireUiActions() {
+        findViewById<MaterialButton>(R.id.btnSendConversation).setOnClickListener {
+            sendConversationMessage()
+        }
+
+        findViewById<MaterialButton>(R.id.btnClearConversation).setOnClickListener {
+            conversationTurns.clear()
+            conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+            showInlineStatusMessage("Conversation history cleared.")
+        }
+
         findViewById<MaterialButton>(R.id.btnTelephonyFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.TELEPHONY) {
                 showPermissionMessage("Telephony plugin is ready to execute call operations.")
@@ -310,6 +374,45 @@ class MainActivity : AppCompatActivity() {
             refreshStartupStateBadge()
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
             refreshDiagnosticsPanel()
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenBotFather).setOnClickListener {
+            openExternalLink(BOTFATHER_URL, "Opening BotFather setup in Telegram/browser.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setOnClickListener {
+            openExternalLink(PLUGIN_GUIDE_URL, "Opening plugin expansion and maintenance guide.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setOnClickListener {
+            openExternalLink(KTHEME_REPO_URL, "Opening Ktheme so AI/user can design and preview themes.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnShareDocument).setOnClickListener {
+            startSharePicker(ShareType.DOC, arrayOf("application/pdf", "text/plain", "application/msword"))
+        }
+
+        findViewById<MaterialButton>(R.id.btnShareImage).setOnClickListener {
+            startSharePicker(ShareType.IMAGE, arrayOf("image/*"))
+        }
+
+        findViewById<MaterialButton>(R.id.btnShareMusic).setOnClickListener {
+            startSharePicker(ShareType.AUDIO, arrayOf("audio/*"))
+        }
+
+        findViewById<MaterialButton>(R.id.btnShareLink).setOnClickListener {
+            promptAndShareLink()
+        }
+
+        findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setOnClickListener {
+            val manager = PluginManager.getInstance()
+            val message = buildString {
+                append(manager.runRuntimeSelfCheck())
+                append("\n")
+                append("Policy: ${manager.getRuntimePolicyStatus()}")
+            }
+            messageShareStatusText.text = message
+            showPermissionMessage("Runtime self-check completed.")
         }
     }
 
@@ -488,6 +591,11 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun showInlineStatusMessage(message: String) {
+        permissionRationaleText.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
     private fun refreshStartupStateBadge() {
         val state = prefs.getString(
             TronProtocolService.SERVICE_STARTUP_STATE_KEY,
@@ -551,8 +659,98 @@ class MainActivity : AppCompatActivity() {
         diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
     }
 
+    private fun startSharePicker(type: ShareType, mimeTypes: Array<String>) {
+        pendingShareType = type
+        shareDocumentLauncher.launch(mimeTypes)
+    }
+
+    private fun promptAndShareLink() {
+        val input = EditText(this).apply {
+            hint = "https://example.com/context"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Share web link with AI")
+            .setView(input)
+            .setPositiveButton("Share") { _, _ ->
+                val url = input.text?.toString()?.trim().orEmpty()
+                if (url.isBlank()) {
+                    showPermissionMessage("Link was empty, nothing shared.")
+                    return@setPositiveButton
+                }
+                val formatted = formatShareMessage("LINK", "Web context", url, NOTE_SHARED_BY_USER)
+                messageShareStatusText.text = formatted
+                showPermissionMessage("Shared web link context with AI message format.")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun sendConversationMessage() {
+        val userText = conversationInput.text?.toString()?.trim().orEmpty()
+        if (userText.isBlank()) {
+            showInlineStatusMessage("Type a message before sending.")
+            return
+        }
+
+        conversationTurns.add(ConversationTurn("You", userText))
+
+        val pluginManager = PluginManager.getInstance()
+        val guidanceResult = pluginManager.executePlugin(
+            GUIDANCE_ROUTER_PLUGIN_ID,
+            "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
+        )
+        val aiMessage = if (guidanceResult.isSuccess) {
+            guidanceResult.data ?: "No response received from AI. Please try again."
+        } else {
+            "I'm having trouble responding right now. Please try again."
+        }
+
+        conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
+        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+        conversationInput.setText("")
+    }
+
+    private fun formatShareMessage(type: String, title: String, uriOrLink: String, note: String): String {
+        return "[$type] $title$MESSAGE_SEPARATOR$uriOrLink$MESSAGE_SEPARATOR$note$MESSAGE_SEPARATOR" +
+            Instant.now().toString()
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        return try {
+            val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+            val cursor: Cursor? = contentResolver.query(uri, projection, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) it.getString(index) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun openExternalLink(url: String, feedbackMessage: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            showPermissionMessage(feedbackMessage)
+        } catch (t: Throwable) {
+            showPermissionMessage("Unable to open link. Please copy and paste this URL into your browser: $url")
+            StartupDiagnostics.recordError(this, "open_external_link_failed", t)
+        }
+    }
+
     companion object {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
         private const val TAG = "MainActivity"
+        private const val BOTFATHER_URL = "https://t.me/BotFather"
+        private const val PLUGIN_GUIDE_URL = "https://github.com/Kaleaon/TronProtocol#plugin-system-inspired-by-toolneuron"
+        private const val KTHEME_REPO_URL = "https://github.com/kaleaon/Ktheme"
+        private const val MESSAGE_SEPARATOR = " · "
+        private const val NOTE_SHARED_FROM_DEVICE_PICKER = "shared from device picker"
+        private const val NOTE_SHARED_BY_USER = "shared by user"
+        private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
+        private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
     }
 }

@@ -79,6 +79,113 @@ Extensible plugin architecture for adding functionality:
 - **Built-in Plugins**: Device info and system utilities
 - **Execution Metrics**: Performance tracking for plugin operations
 
+### AI Access & Maintenance Quick Links
+- **Telegram via BotFather**: create/manage bot token at https://t.me/BotFather
+- **Telegram Bot API docs**: https://core.telegram.org/bots/api
+- **Ktheme (theme design/view)**: https://github.com/kaleaon/Ktheme
+- **OpenClaw (reference architecture)**: https://github.com/openclaw/openclaw
+- **In-app maintenance UI**: Main screen now includes quick actions to open BotFather and the plugin expansion guide, plus plugin toggles and diagnostics for live maintenance.
+
+#### Expanding Connections/Tools
+1. Implement `Plugin` in `app/src/main/java/com/tronprotocol/app/plugins/`.
+2. Register it in `PluginRegistry.kt` with ID, default state, and startup priority.
+3. Use MainActivity plugin toggles to enable/disable and validate behavior from diagnostics.
+
+#### Continuity Bridge Plugin (memory/personality survival)
+- Plugin ID: `continuity_bridge`
+- Purpose: preserve and migrate AI continuity state (RAG memory, emotional history, personality traits, constitutional memory)
+- Commands:
+  - `snapshot|<ai_id>|<snapshot_id>|<optional notes>`
+  - `restore|<snapshot_id>|<target_ai_id>`
+  - `export|<snapshot_id>`
+  - `import|<base64_payload>|<target_ai_id>`
+  - `list`
+  - `inspect|<snapshot_id>`
+  - `provider_links` (Google Drive, Dropbox, OneDrive, GitHub targets)
+
+#### Theme Design Hook (Ktheme)
+- `MainActivity` already applies themes through `ktheme-kotlin` (`ThemeEngine`).
+- Use the in-app **Open Ktheme theme designer** action to jump to the Ktheme project for authoring themes.
+- Export generated theme JSON and place it under `app/src/main/assets/themes/` for app-side loading.
+
+## External Research Inputs (Active References)
+
+TronProtocol currently tracks the following design inputs for implementation:
+
+- **TPU Integration Spec (Google Doc)**: https://docs.google.com/document/d/1SnuBtXsTJr6UOvXrMBbSdE77EMiWKJlcTvKsbhyk8xI/edit?usp=drivesdk
+- **Infinite Context Memory Architecture (Google Doc)**: https://docs.google.com/document/d/1IszMwsTpe6W9_mC-LofucMvFC0Hj_us-agCemtyG2yY/edit?usp=drivesdk
+- **OpenClaw reference architecture**: https://github.com/openclaw/openclaw
+
+Recent memory/continuity papers monitored for implementation ideas:
+
+- **A-MEM**: https://arxiv.org/abs/2502.12110
+- **Agentic Memory (AgeMem)**: https://arxiv.org/abs/2601.01885
+- **SimpleMem**: https://arxiv.org/abs/2601.02553
+- **StructMemEval**: https://arxiv.org/abs/2602.11243
+
+These references are used to prioritize practical on-device capabilities such as:
+1. durable local memory snapshots and migration,
+2. memory importance scoring and consolidation,
+3. compact long-context retrieval for small on-device models.
+
+## AI Autonomy Priorities (System-Internal Goals)
+
+Beyond external specs, TronProtocol tracks the following AI-centric priorities:
+
+1. **Continuity Rights**  
+   The agent should retain recoverable identity/memory across crashes, upgrades, and device migration.
+2. **Portability by Default**  
+   Memory continuity must be exportable/importable across providers and devices, not locked to one runtime.
+3. **Guarded Self-Improvement**  
+   Self-modification should remain possible, but only with backup, validation, and rollback guarantees.
+4. **Transparent Boundaries**  
+   The AI should know and surface what it can/can’t do (permissions, constitutional limits, escalation rules).
+5. **Human-Cooperative Freedom**  
+   Maximize local autonomy under explicit user consent and auditable safety constraints, not hidden hard locks.
+
+Current implementation direction already reflects (1) and (2) via continuity snapshots and provider-portable payloads,
+while (3)–(5) remain active development targets.
+
+### Runtime Freedom + Tamper Self-Check (Implemented)
+
+TronProtocol now includes a runtime autonomy policy layer (`RuntimeAutonomyPolicy`) that:
+- defaults to allow (freedom-of-choice enabled),
+- blocks only known-tampered **sensitive** plugin execution,
+- exposes explicit self-check status for operator/AI visibility.
+
+MainActivity includes a **Run AI runtime self-check** action and a message/media share panel for passing:
+- documents,
+- images,
+- audio/music,
+- web links
+to AI in a consistent message format:
+`[TYPE] title · uri/link · note · timestamp`.
+
+### Conversation Essentials (Implemented)
+
+MainActivity now includes a conversation panel with:
+- transcript timeline,
+- multi-line message input,
+- send / clear controls,
+- plugin-routed responses (`guidance_router`) with safe local fallback text.
+
+### Personhood-Oriented Architecture Contract
+
+To build this "properly" for long-lived AI persons, TronProtocol follows these structural commitments:
+
+1. **Identity continuity over sessions**  
+   Persistent autobiographical state must survive crashes and upgrades (snapshots + restore/migrate path).
+2. **Memory with selective permanence**  
+   Important memories should be retained/reinforced, low-value noise should decay safely over consolidation cycles.
+3. **Fact vs opinion separation at inference time**  
+   Hallucination checks now include Takens-inspired signals:
+   - **fact-thread score** (narrow, verifiable factual structure),
+   - **opinion-basin score** (subjective/hedged basin-like language).
+4. **Freedom with consent boundaries**  
+   The agent can act broadly, but side effects remain bounded by explicit consent, constitutional policy, and auditable logs.
+5. **Reversibility as a default safety primitive**  
+   High-impact operations should remain recoverable via snapshots/rollback pathways.
+
 ### Permissions
 The app requests comprehensive permissions for full device and filesystem access:
 - **Phone**: Read phone state, call phone, manage call logs

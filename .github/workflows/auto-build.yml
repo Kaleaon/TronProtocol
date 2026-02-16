@@ -1,0 +1,22 @@
+name: Auto Build
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-debug-apk:
+    name: Build Debug APK (Auto)
+    uses: ./.github/workflows/android-common.yml
+    secrets: inherit
+    with:
+      gradle-task: assembleDebug
+      artifact-name: auto-debug-apk
+      artifact-path: app/build/outputs/apk/debug/*.apk
