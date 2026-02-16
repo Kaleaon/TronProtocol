@@ -28,6 +28,7 @@ import androidx.core.view.children
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.android.material.textfield.TextInputEditText
 import com.ktheme.core.ThemeEngine
 import com.ktheme.utils.ColorUtils
 import com.tronprotocol.app.plugins.PluginManager
@@ -43,12 +44,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var startupStateBadgeText: TextView
     private lateinit var diagnosticsText: TextView
     private lateinit var permissionRationaleText: TextView
+    private lateinit var conversationTranscriptText: TextView
+    private lateinit var conversationInput: TextInputEditText
     private lateinit var messageFormatText: TextView
     private lateinit var messageShareStatusText: TextView
     private lateinit var prefs: SharedPreferences
 
     private var activePermissionRequest: PermissionFeature? = null
     private var pendingShareType: ShareType? = null
+    private val conversationTurns = mutableListOf<ConversationTurn>()
 
     private enum class ShareType {
         DOC,
@@ -174,6 +178,8 @@ class MainActivity : AppCompatActivity() {
         startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
         permissionRationaleText = findViewById(R.id.permissionRationaleText)
         diagnosticsText = findViewById(R.id.diagnosticsText)
+        conversationTranscriptText = findViewById(R.id.conversationTranscriptText)
+        conversationInput = findViewById(R.id.conversationInput)
         messageFormatText = findViewById(R.id.messageFormatText)
         messageShareStatusText = findViewById(R.id.messageShareStatusText)
         messageShareStatusText.text = "Ready to share docs, pictures, music, and links with AI."
@@ -240,6 +246,7 @@ class MainActivity : AppCompatActivity() {
 
             listOf(
                 R.id.headerCard,
+                R.id.conversationCard,
                 R.id.actionCard,
                 R.id.messageCard,
                 R.id.pluginManagementCard,
@@ -255,6 +262,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.permissionRationaleText,
                 R.id.pluginStatusText,
                 R.id.diagnosticsText,
+                R.id.conversationTranscriptText,
                 R.id.messageFormatText,
                 R.id.messageShareStatusText,
             ).forEach { textId ->
@@ -269,6 +277,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnStorageFeature,
                 R.id.btnNotificationsFeature,
                 R.id.btnOpenBotFather,
+                R.id.btnSendConversation,
                 R.id.btnShareDocument,
                 R.id.btnShareImage,
                 R.id.btnShareMusic,
@@ -288,6 +297,10 @@ class MainActivity : AppCompatActivity() {
             findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setTextColor(primary)
             findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setTextColor(primary)
             findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnClearConversation).apply {
+                strokeColor = ColorStateList.valueOf(primary)
+                setTextColor(primary)
+            }
 
             pluginToggleContainer.children.forEach { child ->
                 if (child is SwitchMaterial) {
@@ -300,6 +313,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wireUiActions() {
+        findViewById<MaterialButton>(R.id.btnSendConversation).setOnClickListener {
+            sendConversationMessage()
+        }
+
+        findViewById<MaterialButton>(R.id.btnClearConversation).setOnClickListener {
+            conversationTurns.clear()
+            conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+            showInlineStatusMessage("Conversation history cleared.")
+        }
+
         findViewById<MaterialButton>(R.id.btnTelephonyFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.TELEPHONY) {
                 showPermissionMessage("Telephony plugin is ready to execute call operations.")
@@ -568,6 +591,11 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
+    private fun showInlineStatusMessage(message: String) {
+        permissionRationaleText.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
     private fun refreshStartupStateBadge() {
         val state = prefs.getString(
             TronProtocolService.SERVICE_STARTUP_STATE_KEY,
@@ -658,6 +686,31 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun sendConversationMessage() {
+        val userText = conversationInput.text?.toString()?.trim().orEmpty()
+        if (userText.isBlank()) {
+            showInlineStatusMessage("Type a message before sending.")
+            return
+        }
+
+        conversationTurns.add(ConversationTurn("You", userText))
+
+        val pluginManager = PluginManager.getInstance()
+        val guidanceResult = pluginManager.executePlugin(
+            GUIDANCE_ROUTER_PLUGIN_ID,
+            "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
+        )
+        val aiMessage = if (guidanceResult.isSuccess) {
+            guidanceResult.data ?: "No response received from AI. Please try again."
+        } else {
+            "I'm having trouble responding right now. Please try again."
+        }
+
+        conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
+        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+        conversationInput.setText("")
+    }
+
     private fun formatShareMessage(type: String, title: String, uriOrLink: String, note: String): String {
         return "[$type] $title$MESSAGE_SEPARATOR$uriOrLink$MESSAGE_SEPARATOR$note$MESSAGE_SEPARATOR" +
             Instant.now().toString()
@@ -697,5 +750,7 @@ class MainActivity : AppCompatActivity() {
         private const val MESSAGE_SEPARATOR = " · "
         private const val NOTE_SHARED_FROM_DEVICE_PICKER = "shared from device picker"
         private const val NOTE_SHARED_BY_USER = "shared by user"
+        private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
+        private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
     }
 }

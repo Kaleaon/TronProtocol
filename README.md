@@ -161,6 +161,14 @@ MainActivity includes a **Run AI runtime self-check** action and a message/media
 to AI in a consistent message format:
 `[TYPE] title · uri/link · note · timestamp`.
 
+### Conversation Essentials (Implemented)
+
+MainActivity now includes a conversation panel with:
+- transcript timeline,
+- multi-line message input,
+- send / clear controls,
+- plugin-routed responses (`guidance_router`) with safe local fallback text.
+
 ### Personhood-Oriented Architecture Contract
 
 To build this "properly" for long-lived AI persons, TronProtocol follows these structural commitments:
