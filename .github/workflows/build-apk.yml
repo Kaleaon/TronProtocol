@@ -30,7 +30,7 @@ jobs:
 
   build-release-apk:
     name: Build Release APK
-    if: github.event_name != 'workflow_dispatch' || inputs.include-release
+    if: github.event_name != 'workflow_dispatch' || inputs['include-release']
     uses: ./.github/workflows/android-common.yml
     secrets: inherit
     with:
@@ -40,7 +40,7 @@ jobs:
 
   build-release-bundle:
     name: Build Release AAB
-    if: github.event_name != 'workflow_dispatch' || inputs.include-release
+    if: github.event_name != 'workflow_dispatch' || inputs['include-release']
     uses: ./.github/workflows/android-common.yml
     secrets: inherit
     with:

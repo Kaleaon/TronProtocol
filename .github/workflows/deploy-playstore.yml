@@ -97,6 +97,6 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONFIG_JSON }}
           packageName: ${{ secrets.PLAY_PACKAGE_NAME }}
           releaseFiles: app/build/outputs/bundle/release/*.aab
-          track: ${{ inputs.release-status }}
+          track: ${{ inputs['release-status'] }}
           status: completed
-          whatsNewDirectory: ${{ inputs.whatsnew-dir }}
+          whatsNewDirectory: ${{ inputs['whatsnew-dir'] }}
