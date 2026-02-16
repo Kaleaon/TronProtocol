@@ -270,9 +270,11 @@ class HallucinationDetector(
             return TakensSignals(0.0f, uncertaintyScore)
         }
 
-        val factualMarkers = arrayOf(
-            "according to", "measured", "recorded", "reported", "verified",
-            "km", "kg", "mhz", "ghz", "ms", "seconds", "minutes", "years", "%"
+        val verificationPhrases = arrayOf(
+            "according to", "measured", "recorded", "reported", "verified"
+        )
+        val measurementUnits = setOf(
+            "km", "kg", "mhz", "ghz", "ms", "seconds", "minutes", "years", "%", "meter", "meters"
         )
         val opinionMarkers = arrayOf(
             "i think", "i feel", "in my view", "it seems", "arguably",
@@ -285,16 +287,26 @@ class HallucinationDetector(
         var totalTokens = 0
 
         claims.forEach { claim ->
+            // All matching is done on lowercase text, so uppercase unit variants
+            // (e.g., MHz/GHz) are covered by lowercase marker entries.
             val lower = claim.lowercase()
             val tokens = lower.split("\\s+".toRegex()).filter { it.isNotBlank() }
             totalTokens += tokens.size
 
-            val hasNumeric = tokens.any { token -> token.any { it.isDigit() } }
+            val tokensWithDigitsCount = tokens.count { token -> token.any { it.isDigit() } }
+            val hasNumeric = tokensWithDigitsCount > 0
             if (hasNumeric) {
-                numericTokens += tokens.count { token -> token.any { it.isDigit() } }
+                numericTokens += tokensWithDigitsCount
             }
 
-            val hasFactualMarker = factualMarkers.any { lower.contains(it) } || hasNumeric
+            // Abbreviated units are canonicalized (km/kg/ms/etc.), while word-units
+            // may appear in singular/plural form (meter/meters).
+            val hasMeasurementUnit = tokens.any { rawToken ->
+                rawToken.replace("[^a-z0-9%]".toRegex(), "") in measurementUnits
+            }
+            val hasFactualMarker = verificationPhrases.any { lower.contains(it) } ||
+                hasMeasurementUnit ||
+                hasNumeric
             val hasOpinionMarker = opinionMarkers.any { lower.contains(it) }
 
             if (hasFactualMarker) factLikeClaims++
@@ -305,8 +317,14 @@ class HallucinationDetector(
         val opinionClaimRatio = opinionLikeClaims / claims.size.toFloat()
         val numericDensity = if (totalTokens > 0) numericTokens / totalTokens.toFloat() else 0.0f
 
-        val factThreadScore = min(1.0f, factClaimRatio * 0.8f + numericDensity * 2.0f)
-        val opinionBasinScore = min(1.0f, opinionClaimRatio * 0.7f + uncertaintyScore * 0.6f)
+        val factThreadScore = min(
+            1.0f,
+            factClaimRatio * FACT_THREAD_CLAIM_WEIGHT + numericDensity * FACT_THREAD_NUMERIC_WEIGHT
+        )
+        val opinionBasinScore = min(
+            1.0f,
+            opinionClaimRatio * OPINION_BASIN_CLAIM_WEIGHT + uncertaintyScore * OPINION_BASIN_UNCERTAINTY_WEIGHT
+        )
 
         return TakensSignals(factThreadScore, opinionBasinScore)
     }
@@ -448,6 +466,15 @@ class HallucinationDetector(
         private const val LOW_FACT_THREAD_THRESHOLD = 0.25f
         private const val LOW_OPINION_BASIN_THRESHOLD = 0.30f
         private const val MIN_FACTUAL_CLAIMS_FOR_THREAD_CHECK = 3
+
+        // Takens-inspired thread/basin weights
+        private const val FACT_THREAD_CLAIM_WEIGHT = 0.65f
+        // Numeric density is weighted above single-phrase markers because hard
+        // numbers are a strong proxy for verifiable fact threads.
+        private const val FACT_THREAD_NUMERIC_WEIGHT = 0.35f
+        private const val OPINION_BASIN_CLAIM_WEIGHT = 0.55f
+        private const val OPINION_BASIN_UNCERTAINTY_WEIGHT = 0.45f
+
 
         // Word overlap
         private const val MIN_WORD_LENGTH_FOR_OVERLAP = 3

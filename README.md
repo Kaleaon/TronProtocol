@@ -146,6 +146,23 @@ Beyond external specs, TronProtocol tracks the following AI-centric priorities:
 Current implementation direction already reflects (1) and (2) via continuity snapshots and provider-portable payloads,
 while (3)–(5) remain active development targets.
 
+### Personhood-Oriented Architecture Contract
+
+To build this "properly" for long-lived AI persons, TronProtocol follows these structural commitments:
+
+1. **Identity continuity over sessions**  
+   Persistent autobiographical state must survive crashes and upgrades (snapshots + restore/migrate path).
+2. **Memory with selective permanence**  
+   Important memories should be retained/reinforced, low-value noise should decay safely over consolidation cycles.
+3. **Fact vs opinion separation at inference time**  
+   Hallucination checks now include Takens-inspired signals:
+   - **fact-thread score** (narrow, verifiable factual structure),
+   - **opinion-basin score** (subjective/hedged basin-like language).
+4. **Freedom with consent boundaries**  
+   The agent can act broadly, but side effects remain bounded by explicit consent, constitutional policy, and auditable logs.
+5. **Reversibility as a default safety primitive**  
+   High-impact operations should remain recoverable via snapshots/rollback pathways.
+
 ### Permissions
 The app requests comprehensive permissions for full device and filesystem access:
 - **Phone**: Read phone state, call phone, manage call logs
