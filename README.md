@@ -21,7 +21,9 @@ The app includes dependencies for Neural Processing Unit (NPU) and AI Core funct
 
 ### RAG with Self-Evolving Memory (Inspired by landseek)
 - **MemRL System**: Self-evolving memory using Q-value learning (arXiv:2601.03192)
-- **Multiple Retrieval Strategies**: Semantic, keyword, hybrid, recency, MemRL
+- **NTS Cascade Retrieval (New)**: Neural Temporal Stack scoring for sensory → working → episodic → semantic memory flow
+- **MISE-Inspired Memory Scoring (New)**: Importance signals (novelty, utility, emotional salience, recency) influence retention and retrieval
+- **Multiple Retrieval Strategies**: Semantic, keyword, hybrid, recency, MemRL, graph, frontier-aware, NTS cascade
 - **Feedback-Driven Learning**: Memories improve through usage feedback
 - **10M+ Token Context**: Scalable knowledge base per AI instance
 - **Persistent Storage**: Encrypted memory chunks with embeddings
