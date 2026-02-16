@@ -41,11 +41,11 @@ object ContinuitySnapshotCodec {
                 snapshotId = obj.optString("snapshotId", ""),
                 aiId = obj.optString("aiId", ""),
                 createdAtMs = obj.optLong("createdAtMs", 0L),
-                ragChunksJson = obj.optString("ragChunksJson", null),
-                emotionalHistoryJson = obj.optString("emotionalHistoryJson", null),
-                personalityTraitsJson = obj.optString("personalityTraitsJson", null),
-                constitutionalMemoryJson = obj.optString("constitutionalMemoryJson", null),
-                notes = obj.optString("notes", null)
+                ragChunksJson = obj.optNullableString("ragChunksJson"),
+                emotionalHistoryJson = obj.optNullableString("emotionalHistoryJson"),
+                personalityTraitsJson = obj.optNullableString("personalityTraitsJson"),
+                constitutionalMemoryJson = obj.optNullableString("constitutionalMemoryJson"),
+                notes = obj.optNullableString("notes")
             )
         } catch (_: Exception) {
             null
@@ -58,6 +58,11 @@ object ContinuitySnapshotCodec {
             .replace(Regex("[^a-zA-Z0-9._-]"), "_")
             .take(MAX_IDENTIFIER_LENGTH)
         return if (cleaned.isNotEmpty()) cleaned else fallback
+    }
+
+    private fun JSONObject.optNullableString(key: String): String? {
+        if (!has(key) || isNull(key)) return null
+        return getString(key)
     }
 
     private const val MAX_IDENTIFIER_LENGTH = 64

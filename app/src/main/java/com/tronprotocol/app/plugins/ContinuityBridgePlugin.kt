@@ -1,10 +1,10 @@
 package com.tronprotocol.app.plugins
 
 import android.content.Context
+import android.util.Base64
 import com.tronprotocol.app.rag.ContinuitySnapshotCodec
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
-import java.util.Base64
 
 /**
  * Continuity bridge for preserving/restoring AI memory + personality state across failures/upgrades.
@@ -157,7 +157,7 @@ class ContinuityBridgePlugin : Plugin {
         }
         val encoded = storage.retrieve(snapshotStorageKey(snapshotId))
             ?: return PluginResult.error("Snapshot not found: $snapshotId", elapsed(start))
-        val payload = Base64.getEncoder().encodeToString(encoded.toByteArray(Charsets.UTF_8))
+        val payload = Base64.encodeToString(encoded.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
         return PluginResult.success(
             "EXPORT_PAYLOAD_BASE64:$payload",
             elapsed(start)
@@ -174,7 +174,7 @@ class ContinuityBridgePlugin : Plugin {
         }
         val targetAiId = ContinuitySnapshotCodec.sanitizeIdentifier(parts[2], "default")
         val decodedJson = try {
-            String(Base64.getDecoder().decode(payload), Charsets.UTF_8)
+            String(Base64.decode(payload, Base64.DEFAULT), Charsets.UTF_8)
         } catch (_: Exception) {
             return PluginResult.error("Invalid base64 payload", elapsed(start))
         }
@@ -217,13 +217,15 @@ class ContinuityBridgePlugin : Plugin {
 
     private fun snapshotStorageKey(snapshotId: String): String = "$KEY_SNAPSHOT_PREFIX$snapshotId"
 
-    private fun getSnapshotIds(): MutableList<String> {
-        val encoded = storage.retrieve(KEY_SNAPSHOT_INDEX) ?: return mutableListOf()
+    private fun getSnapshotIds(): List<String> {
+        val encoded = storage.retrieve(KEY_SNAPSHOT_INDEX) ?: return emptyList()
         return try {
             val arr = JSONArray(encoded)
-            MutableList(arr.length()) { index -> arr.optString(index) }.filter { it.isNotBlank() }.toMutableList()
+            (0 until arr.length()).mapNotNull { index ->
+                arr.optString(index).takeIf { it.isNotBlank() }
+            }
         } catch (_: Exception) {
-            mutableListOf()
+            emptyList()
         }
     }
 

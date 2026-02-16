@@ -36,10 +36,13 @@ class ContinuitySnapshotCodecTest {
     }
 
     @Test
-    fun sanitizeIdentifier_stripsUnsafeChars_andUsesFallback() {
+    fun sanitizeIdentifier_stripsUnsafeChars() {
         val cleaned = ContinuitySnapshotCodec.sanitizeIdentifier("ai id/with spaces", "fallback")
         assertEquals("ai_id_with_spaces", cleaned)
+    }
 
+    @Test
+    fun sanitizeIdentifier_usesFallbackForBlankInput() {
         val fallback = ContinuitySnapshotCodec.sanitizeIdentifier("   ", "fallback")
         assertEquals("fallback", fallback)
     }
