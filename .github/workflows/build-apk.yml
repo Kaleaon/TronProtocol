@@ -1,9 +1,15 @@
-name: Build APK
+name: Build Android Artifacts
 
 on:
   push:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      include-release:
+        description: Build release artifacts (signed if secrets are configured)
+        required: false
+        default: true
+        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,18 +19,31 @@ permissions:
   contents: read
 
 jobs:
-  build-debug:
+  build-debug-apk:
     name: Build Debug APK
     uses: ./.github/workflows/android-common.yml
+    secrets: inherit
     with:
       gradle-task: assembleDebug
       artifact-name: debug-apk
       artifact-path: app/build/outputs/apk/debug/*.apk
 
-  build-release:
+  build-release-apk:
     name: Build Release APK
+    if: github.event_name != 'workflow_dispatch' || inputs.include-release
     uses: ./.github/workflows/android-common.yml
+    secrets: inherit
     with:
       gradle-task: assembleRelease
       artifact-name: release-apk
       artifact-path: app/build/outputs/apk/release/*.apk
+
+  build-release-bundle:
+    name: Build Release AAB
+    if: github.event_name != 'workflow_dispatch' || inputs.include-release
+    uses: ./.github/workflows/android-common.yml
+    secrets: inherit
+    with:
+      gradle-task: bundleRelease
+      artifact-name: release-aab
+      artifact-path: app/build/outputs/bundle/release/*.aab

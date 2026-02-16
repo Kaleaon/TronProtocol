@@ -1,6 +1,5 @@
 package com.tronprotocol.app.frontier
 
-import android.util.Log
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.ln
@@ -178,7 +177,6 @@ class STLEEngine(
         }
 
         isTrained = true
-        Log.d(TAG, "STLE trained on $n samples, $numClasses classes, $inputDim dims")
     }
 
     // ========================================================================
@@ -300,38 +298,7 @@ class STLEEngine(
      * @return AUROC value in [0, 1]; higher means better OOD detection
      */
     fun computeAUROC(idScores: FloatArray, oodScores: FloatArray): Float {
-        val scores = FloatArray(idScores.size + oodScores.size)
-        val labels = IntArray(idScores.size + oodScores.size)
-
-        System.arraycopy(idScores, 0, scores, 0, idScores.size)
-        System.arraycopy(oodScores, 0, scores, idScores.size, oodScores.size)
-        for (i in idScores.indices) labels[i] = 1
-        // OOD labels remain 0
-
-        // Sort by scores descending
-        val indices = (scores.indices).sortedByDescending { scores[it] }
-
-        val nPos = idScores.size.toFloat()
-        val nNeg = oodScores.size.toFloat()
-        if (nPos == 0f || nNeg == 0f) return 0.5f
-
-        var tpCount = 0f
-        var fpCount = 0f
-        var prevFpr = 0f
-        var prevTpr = 0f
-        var auroc = 0f
-
-        for (idx in indices) {
-            if (labels[idx] == 1) tpCount++ else fpCount++
-            val tpr = tpCount / nPos
-            val fpr = fpCount / nNeg
-            // Trapezoidal rule
-            auroc += (fpr - prevFpr) * (tpr + prevTpr) / 2f
-            prevFpr = fpr
-            prevTpr = tpr
-        }
-
-        return auroc
+        return computeAurocWithTieHandling(idScores, oodScores)
     }
 
     /**
@@ -474,7 +441,6 @@ class STLEEngine(
     }
 
     companion object {
-        private const val TAG = "STLEEngine"
         private const val BETA_PRIOR = 1.0f // Flat Dirichlet prior
         private const val REGULARIZATION = 0.01f
         private val LN_2PI = ln(2.0f * Math.PI.toFloat())
@@ -491,35 +457,26 @@ class STLEEngine(
          */
         @JvmStatic
         fun computeAUROCStatic(idScores: FloatArray, oodScores: FloatArray): Float {
-            val scores = FloatArray(idScores.size + oodScores.size)
-            val labels = IntArray(idScores.size + oodScores.size)
+            return computeAurocWithTieHandling(idScores, oodScores)
+        }
 
-            System.arraycopy(idScores, 0, scores, 0, idScores.size)
-            System.arraycopy(oodScores, 0, scores, idScores.size, oodScores.size)
-            for (i in idScores.indices) labels[i] = 1
+        private fun computeAurocWithTieHandling(idScores: FloatArray, oodScores: FloatArray): Float {
+            if (idScores.isEmpty() || oodScores.isEmpty()) return 0.5f
 
-            val indices = (scores.indices).sortedByDescending { scores[it] }
+            var favorable = 0.0f
+            val totalPairs = idScores.size * oodScores.size
 
-            val nPos = idScores.size.toFloat()
-            val nNeg = oodScores.size.toFloat()
-            if (nPos == 0f || nNeg == 0f) return 0.5f
-
-            var tpCount = 0f
-            var fpCount = 0f
-            var prevFpr = 0f
-            var prevTpr = 0f
-            var auroc = 0f
-
-            for (idx in indices) {
-                if (labels[idx] == 1) tpCount++ else fpCount++
-                val tpr = tpCount / nPos
-                val fpr = fpCount / nNeg
-                auroc += (fpr - prevFpr) * (tpr + prevTpr) / 2f
-                prevFpr = fpr
-                prevTpr = tpr
+            for (id in idScores) {
+                for (ood in oodScores) {
+                    favorable += when {
+                        id > ood -> 1.0f
+                        id == ood -> 0.5f
+                        else -> 0.0f
+                    }
+                }
             }
 
-            return auroc
+            return favorable / totalPairs
         }
     }
 }

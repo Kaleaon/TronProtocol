@@ -28,6 +28,7 @@ object PluginRegistry {
         PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15) { OnDeviceLLMPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140) { GuidanceRouterPlugin() },
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25) { FrontierDynamicsPlugin() },
+        PluginConfig("takens_training", TakensTrainingPlugin::class.java, true, 145) { TakensTrainingPlugin() },
     )
 
     val sortedConfigs: List<PluginConfig>

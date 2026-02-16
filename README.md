@@ -133,12 +133,41 @@ TronProtocol/
 
 ```
 
+## CI/CD and YAML Deployment
+
+This repository is pre-configured for Android deployment through GitHub Actions YAML workflows:
+
+- `.github/workflows/ci.yml`: compile, unit tests, and lint on every push/PR.
+- `.github/workflows/build-apk.yml`: builds debug APK plus release APK/AAB artifacts.
+- `.github/workflows/release.yml`: tag-based release pipeline for signed release assets and SHA256 checksums.
+- `.github/workflows/deploy-playstore.yml`: manual Google Play deployment using a signed release AAB.
+
+### Required GitHub Secrets for Signed Builds
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-encoded keystore (`.jks`).
+- `ANDROID_KEYSTORE_PASSWORD`: Keystore password.
+- `ANDROID_KEY_ALIAS`: Signing key alias.
+- `ANDROID_KEY_PASSWORD`: Signing key password.
+
+### Additional Secrets for Google Play Deployment
+
+- `PLAY_CONFIG_JSON`: Google Play service account JSON (plain text).
+- `PLAY_PACKAGE_NAME`: Android package name, for example `com.tronprotocol.app`.
+
+If signing secrets are not provided, release builds fall back to the debug keystore and should not be used for Play Store production deployment.
+
 ## Building the App
 
 ### Prerequisites
 - Android Studio Arctic Fox or later
 - Android SDK with API Level 24 (Android 7.0) or higher
 - Gradle 8.0
+- Java 17 or Java 21 (recommended for Gradle/AGP compatibility)
+
+### Java Compatibility Note
+Some environments default to Java 25, which can fail during Gradle script compilation with `Unsupported class file major version 69`.
+
+`./gradlew` now auto-detects Java 25 and falls back to Java 21 if it can find a compatible local JDK (for example via `JAVA21_HOME` or common install paths).
 
 ### Build Steps
 1. Open the project in Android Studio

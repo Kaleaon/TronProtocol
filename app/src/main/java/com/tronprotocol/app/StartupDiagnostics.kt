@@ -6,18 +6,21 @@ import org.json.JSONObject
 import java.io.File
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object StartupDiagnostics {
     private const val TAG = "StartupDiagnostics"
     private const val FILE_NAME = "startup_diagnostics.jsonl"
     private const val MAX_EVENTS = 60
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val displayDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private val displayDateFormat: DateTimeFormatter = DateTimeFormatter
+        .ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+        .withZone(ZoneId.systemDefault())
 
     @JvmStatic
     fun recordMilestone(context: Context, milestone: String, details: String = "") {
@@ -98,12 +101,12 @@ object StartupDiagnostics {
         details: String,
         stackTrace: String?
     ): JSONObject {
-        val now = Date()
+        val now = Instant.now()
         return JSONObject().apply {
             put("type", type)
             put("milestone", milestone)
             put("details", details)
-            put("timestampEpochMs", now.time)
+            put("timestampEpochMs", now.toEpochMilli())
             put("timestamp", displayDateFormat.format(now))
             if (!stackTrace.isNullOrBlank()) {
                 put("stackTrace", stackTrace)

@@ -15,6 +15,7 @@ jobs:
   compile:
     name: Compile
     uses: ./.github/workflows/android-common.yml
+    secrets: inherit
     with:
       gradle-task: compileDebugSources
 
@@ -22,6 +23,7 @@ jobs:
     name: Unit Tests
     needs: compile
     uses: ./.github/workflows/android-common.yml
+    secrets: inherit
     with:
       gradle-task: testDebugUnitTest
 
@@ -29,5 +31,6 @@ jobs:
     name: Lint
     needs: compile
     uses: ./.github/workflows/android-common.yml
+    secrets: inherit
     with:
       gradle-task: lintDebug

@@ -61,12 +61,16 @@ dependencies {
     implementation 'com.google.android.material:material:1.9.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.work:work-runtime-ktx:2.9.1'
+    implementation project(':ktheme-kotlin')
 
     // NPU/AI Core dependencies
     implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.0'
     implementation 'org.tensorflow:tensorflow-lite:2.13.0'
     implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
     implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+
+    // NNAPI routing is enabled at runtime through TensorFlow Lite's built-in NNAPI delegate APIs.
+    // There is no standalone Maven artifact named tensorflow-lite-nnapi.
 
     // MNN (Mobile Neural Network) — Alibaba's on-device inference framework
     // Core AAR provides Java API for model loading, session management, and inference.
