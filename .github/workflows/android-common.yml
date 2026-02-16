@@ -44,17 +44,17 @@ on:
     outputs:
       version-name:
         description: App version name.
-        value: ${{ jobs.android.outputs.version-name }}
+        value: ${{ jobs.android.outputs['version-name'] }}
       version-code:
         description: App version code.
-        value: ${{ jobs.android.outputs.version-code }}
+        value: ${{ jobs.android.outputs['version-code'] }}
 
 jobs:
   android:
     runs-on: ubuntu-latest
     outputs:
-      version-name: ${{ steps.version.outputs.version-name }}
-      version-code: ${{ steps.version.outputs.version-code }}
+      version-name: ${{ steps.version.outputs['version-name'] }}
+      version-code: ${{ steps.version.outputs['version-code'] }}
 
     steps:
       - name: Checkout code
@@ -63,8 +63,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ inputs.java-version }}
-          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs['java-version'] }}
+          distribution: ${{ inputs['java-distribution'] }}
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -106,12 +106,12 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew ${{ inputs.gradle-task }} ${{ inputs.gradle-args }}
+        run: ./gradlew ${{ inputs['gradle-task'] }} ${{ inputs['gradle-args'] }}
 
       - name: Upload artifact
-        if: inputs.artifact-name != '' && inputs.artifact-path != ''
+        if: ${{ inputs['artifact-name'] != '' && inputs['artifact-path'] != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.artifact-name }}
-          path: ${{ inputs.artifact-path }}
+          name: ${{ inputs['artifact-name'] }}
+          path: ${{ inputs['artifact-path'] }}
           if-no-files-found: error
