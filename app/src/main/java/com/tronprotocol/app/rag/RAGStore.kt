@@ -37,6 +37,7 @@ class RAGStore @Throws(Exception::class) constructor(
     // MiniRAG-inspired knowledge graph for entity-aware retrieval
     val knowledgeGraph: KnowledgeGraph = KnowledgeGraph(context, aiId)
     private val entityExtractor: EntityExtractor = EntityExtractor()
+    private val ntsScoringEngine: NeuralTemporalScoringEngine = NeuralTemporalScoringEngine()
 
     /** Optional Frontier Dynamics STLE manager for accessibility-aware retrieval. */
     var frontierDynamicsManager: FrontierDynamicsManager? = null
@@ -84,6 +85,16 @@ class RAGStore @Throws(Exception::class) constructor(
 
         // Generate embedding (simplified TF-IDF based)
         chunk.embedding = generateEmbedding(content)
+
+        // Neural Temporal Stack (NTS) memory-stage annotation + MISE-inspired signals
+        val stage = ntsScoringEngine.assignStage(
+            content = content,
+            sourceType = sourceType,
+            baseImportance = metadata?.get("importance")?.toString()?.toFloatOrNull()
+        )
+        MemoryStage.assign(chunk, stage)
+        chunk.addMetadata("novelty", ntsScoringEngine.estimateNovelty(content))
+        chunk.addMetadata("emotional_salience", ntsScoringEngine.estimateEmotionalSalience(content))
 
         chunks.add(chunk)
         chunkIndex[chunkId] = chunk
@@ -134,6 +145,7 @@ class RAGStore @Throws(Exception::class) constructor(
             RetrievalStrategy.RELEVANCE_DECAY -> retrieveRelevanceDecay(query, topK)
             RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
             RetrievalStrategy.FRONTIER_AWARE -> retrieveFrontierAware(query, topK)
+            RetrievalStrategy.NTS_CASCADE -> retrieveNtsCascade(query, topK)
         }
 
     /**
@@ -160,6 +172,28 @@ class RAGStore @Throws(Exception::class) constructor(
 
         // Sort by combined score and return top-K
         return reranked
+            .sortedByDescending { it.score }
+            .take(topK)
+    }
+
+
+    /**
+     * NTS cascade retrieval.
+     *
+     * Starts from semantic candidates, then re-ranks using stage durability,
+     * recency within stage TTL, and learned MemRL utility.
+     */
+    private fun retrieveNtsCascade(query: String, topK: Int): List<RetrievalResult> {
+        val queryEmbedding = generateEmbedding(query)
+        val now = System.currentTimeMillis()
+
+        return chunks
+            .filter { it.embedding != null }
+            .map { chunk ->
+                val semanticSimilarity = cosineSimilarity(queryEmbedding, chunk.embedding!!)
+                val stageScores = ntsScoringEngine.scoreForRetrieval(chunk, semanticSimilarity, now)
+                RetrievalResult(chunk, stageScores.aggregate, RetrievalStrategy.NTS_CASCADE)
+            }
             .sortedByDescending { it.score }
             .take(topK)
     }

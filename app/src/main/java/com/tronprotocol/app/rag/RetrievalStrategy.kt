@@ -45,5 +45,16 @@ enum class RetrievalStrategy {
      *
      * @see <a href="https://github.com/strangehospital/Frontier-Dynamics-Project">Frontier Dynamics</a>
      */
-    FRONTIER_AWARE
+    FRONTIER_AWARE,
+
+    /**
+     * Neural Temporal Stack (NTS) cascade retrieval.
+     *
+     * Implements the layered memory cascade described in the TronProtocol
+     * architecture docs: sensory → working → episodic → semantic.
+     * Retrieval blends semantic relevance with stage durability, recency,
+     * and learned MemRL utility to better preserve identity over long-running
+     * sessions.
+     */
+    NTS_CASCADE
 }
