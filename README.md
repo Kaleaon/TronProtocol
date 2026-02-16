@@ -133,6 +133,29 @@ TronProtocol/
 
 ```
 
+## CI/CD and YAML Deployment
+
+This repository is pre-configured for Android deployment through GitHub Actions YAML workflows:
+
+- `.github/workflows/ci.yml`: compile, unit tests, and lint on every push/PR.
+- `.github/workflows/build-apk.yml`: builds debug APK plus release APK/AAB artifacts.
+- `.github/workflows/release.yml`: tag-based release pipeline for signed release assets and SHA256 checksums.
+- `.github/workflows/deploy-playstore.yml`: manual Google Play deployment using a signed release AAB.
+
+### Required GitHub Secrets for Signed Builds
+
+- `ANDROID_KEYSTORE_BASE64`: Base64-encoded keystore (`.jks`).
+- `ANDROID_KEYSTORE_PASSWORD`: Keystore password.
+- `ANDROID_KEY_ALIAS`: Signing key alias.
+- `ANDROID_KEY_PASSWORD`: Signing key password.
+
+### Additional Secrets for Google Play Deployment
+
+- `PLAY_CONFIG_JSON`: Google Play service account JSON (plain text).
+- `PLAY_PACKAGE_NAME`: Android package name, for example `com.tronprotocol.app`.
+
+If signing secrets are not provided, release builds fall back to the debug keystore and should not be used for Play Store production deployment.
+
 ## Building the App
 
 ### Prerequisites
