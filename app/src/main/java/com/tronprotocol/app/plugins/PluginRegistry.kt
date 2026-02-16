@@ -29,6 +29,7 @@ object PluginRegistry {
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140) { GuidanceRouterPlugin() },
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25) { FrontierDynamicsPlugin() },
         PluginConfig("takens_training", TakensTrainingPlugin::class.java, true, 145) { TakensTrainingPlugin() },
+        PluginConfig("continuity_bridge", ContinuityBridgePlugin::class.java, true, 146) { ContinuityBridgePlugin() },
     )
 
     val sortedConfigs: List<PluginConfig>

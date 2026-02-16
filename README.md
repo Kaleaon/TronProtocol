@@ -83,12 +83,25 @@ Extensible plugin architecture for adding functionality:
 - **Telegram via BotFather**: create/manage bot token at https://t.me/BotFather
 - **Telegram Bot API docs**: https://core.telegram.org/bots/api
 - **Ktheme (theme design/view)**: https://github.com/kaleaon/Ktheme
+- **OpenClaw (reference architecture)**: https://github.com/openclaw/openclaw
 - **In-app maintenance UI**: Main screen now includes quick actions to open BotFather and the plugin expansion guide, plus plugin toggles and diagnostics for live maintenance.
 
 #### Expanding Connections/Tools
 1. Implement `Plugin` in `app/src/main/java/com/tronprotocol/app/plugins/`.
 2. Register it in `PluginRegistry.kt` with ID, default state, and startup priority.
 3. Use MainActivity plugin toggles to enable/disable and validate behavior from diagnostics.
+
+#### Continuity Bridge Plugin (memory/personality survival)
+- Plugin ID: `continuity_bridge`
+- Purpose: preserve and migrate AI continuity state (RAG memory, emotional history, personality traits, constitutional memory)
+- Commands:
+  - `snapshot|<ai_id>|<snapshot_id>|<optional notes>`
+  - `restore|<snapshot_id>|<target_ai_id>`
+  - `export|<snapshot_id>`
+  - `import|<base64_payload>|<target_ai_id>`
+  - `list`
+  - `inspect|<snapshot_id>`
+  - `provider_links` (Google Drive, Dropbox, OneDrive, GitHub targets)
 
 #### Theme Design Hook (Ktheme)
 - `MainActivity` already applies themes through `ktheme-kotlin` (`ThemeEngine`).
