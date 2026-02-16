@@ -44,17 +44,19 @@ on:
     outputs:
       version-name:
         description: App version name.
-        value: ${{ jobs.android.outputs.version-name }}
+        value: ${{ jobs.android.outputs['version-name'] }}
       version-code:
         description: App version code.
-        value: ${{ jobs.android.outputs.version-code }}
+        value: ${{ jobs.android.outputs['version-code'] }}
 
 jobs:
   android:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
     outputs:
-      version-name: ${{ steps.version.outputs.version-name }}
-      version-code: ${{ steps.version.outputs.version-code }}
+      version-name: ${{ steps.version.outputs['version-name'] }}
+      version-code: ${{ steps.version.outputs['version-code'] }}
 
     steps:
       - name: Checkout code
@@ -63,8 +65,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: ${{ inputs.java-version }}
-          distribution: ${{ inputs.java-distribution }}
+          java-version: ${{ inputs['java-version'] }}
+          distribution: ${{ inputs['java-distribution'] }}
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -86,9 +88,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Decode Android signing keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release-keystore.jks"
 
@@ -102,16 +102,21 @@ jobs:
 
       - name: Run Gradle task
         env:
-          KEYSTORE_FILE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && format('{0}/release-keystore.jks', runner.temp) || '' }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew ${{ inputs.gradle-task }} ${{ inputs.gradle-args }}
+        run: |
+          if [[ -n "$ANDROID_KEYSTORE_BASE64" ]]; then
+            export KEYSTORE_FILE="$RUNNER_TEMP/release-keystore.jks"
+          else
+            unset KEYSTORE_FILE
+          fi
+          ./gradlew ${{ inputs['gradle-task'] }} ${{ inputs['gradle-args'] }}
 
       - name: Upload artifact
-        if: inputs.artifact-name != '' && inputs.artifact-path != ''
+        if: inputs['artifact-name'] != '' && inputs['artifact-path'] != ''
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.artifact-name }}
-          path: ${{ inputs.artifact-path }}
+          name: ${{ inputs['artifact-name'] }}
+          path: ${{ inputs['artifact-path'] }}
           if-no-files-found: error
