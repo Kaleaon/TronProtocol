@@ -234,6 +234,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnLocationFeature,
                 R.id.btnStorageFeature,
                 R.id.btnNotificationsFeature,
+                R.id.btnOpenBotFather,
             ).forEach { buttonId ->
                 findViewById<MaterialButton>(buttonId).apply {
                     backgroundTintList = ColorStateList.valueOf(primary)
@@ -247,6 +248,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             findViewById<MaterialButton>(R.id.btnStartService).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setTextColor(primary)
 
             pluginToggleContainer.children.forEach { child ->
                 if (child is SwitchMaterial) {
@@ -310,6 +313,18 @@ class MainActivity : AppCompatActivity() {
             refreshStartupStateBadge()
             Toast.makeText(this, "Service start requested", Toast.LENGTH_SHORT).show()
             refreshDiagnosticsPanel()
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenBotFather).setOnClickListener {
+            openExternalLink(BOTFATHER_URL, "Opening BotFather setup in Telegram/browser.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setOnClickListener {
+            openExternalLink(PLUGIN_GUIDE_URL, "Opening plugin expansion and maintenance guide.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setOnClickListener {
+            openExternalLink(KTHEME_REPO_URL, "Opening Ktheme so AI/user can design and preview themes.")
         }
     }
 
@@ -551,8 +566,21 @@ class MainActivity : AppCompatActivity() {
         diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
     }
 
+    private fun openExternalLink(url: String, feedbackMessage: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            showPermissionMessage(feedbackMessage)
+        } catch (t: Throwable) {
+            showPermissionMessage("Unable to open link. Please copy and paste this URL into your browser: $url")
+            StartupDiagnostics.recordError(this, "open_external_link_failed", t)
+        }
+    }
+
     companion object {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
         private const val TAG = "MainActivity"
+        private const val BOTFATHER_URL = "https://t.me/BotFather"
+        private const val PLUGIN_GUIDE_URL = "https://github.com/Kaleaon/TronProtocol#plugin-system-inspired-by-toolneuron"
+        private const val KTHEME_REPO_URL = "https://github.com/kaleaon/Ktheme"
     }
 }

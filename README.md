@@ -79,6 +79,22 @@ Extensible plugin architecture for adding functionality:
 - **Built-in Plugins**: Device info and system utilities
 - **Execution Metrics**: Performance tracking for plugin operations
 
+### AI Access & Maintenance Quick Links
+- **Telegram via BotFather**: create/manage bot token at https://t.me/BotFather
+- **Telegram Bot API docs**: https://core.telegram.org/bots/api
+- **Ktheme (theme design/view)**: https://github.com/kaleaon/Ktheme
+- **In-app maintenance UI**: Main screen now includes quick actions to open BotFather and the plugin expansion guide, plus plugin toggles and diagnostics for live maintenance.
+
+#### Expanding Connections/Tools
+1. Implement `Plugin` in `app/src/main/java/com/tronprotocol/app/plugins/`.
+2. Register it in `PluginRegistry.kt` with ID, default state, and startup priority.
+3. Use MainActivity plugin toggles to enable/disable and validate behavior from diagnostics.
+
+#### Theme Design Hook (Ktheme)
+- `MainActivity` already applies themes through `ktheme-kotlin` (`ThemeEngine`).
+- Use the in-app **Open Ktheme theme designer** action to jump to the Ktheme project for authoring themes.
+- Export generated theme JSON and place it under `app/src/main/assets/themes/` for app-side loading.
+
 ### Permissions
 The app requests comprehensive permissions for full device and filesystem access:
 - **Phone**: Read phone state, call phone, manage call logs
