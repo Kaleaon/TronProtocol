@@ -656,7 +656,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshDiagnosticsPanel() {
-        diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
+        val startupSummary = StartupDiagnostics.getEventsForDisplay(this)
+        val retrievalSummary = StartupDiagnostics.getRetrievalDiagnosticsSummary(this, RAG_DIAGNOSTICS_AI_ID)
+        diagnosticsText.text = "$startupSummary\n\n[RAG Telemetry]\n$retrievalSummary"
     }
 
     private fun startSharePicker(type: ShareType, mimeTypes: Array<String>) {
@@ -752,5 +754,6 @@ class MainActivity : AppCompatActivity() {
         private const val NOTE_SHARED_BY_USER = "shared by user"
         private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
+        private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
     }
 }

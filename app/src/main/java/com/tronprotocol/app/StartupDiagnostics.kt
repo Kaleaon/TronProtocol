@@ -2,6 +2,8 @@ package com.tronprotocol.app
 
 import android.content.Context
 import android.util.Log
+import com.tronprotocol.app.rag.LocalJsonlRetrievalMetricsSink
+import com.tronprotocol.app.rag.RetrievalTelemetryAnalytics
 import org.json.JSONObject
 import java.io.File
 import java.io.PrintWriter
@@ -74,6 +76,13 @@ object StartupDiagnostics {
                 }
             }
         }
+    }
+
+    @JvmStatic
+    fun getRetrievalDiagnosticsSummary(context: Context, aiId: String, limit: Int = 200): String {
+        val sink = LocalJsonlRetrievalMetricsSink(context.applicationContext, aiId)
+        val analytics = RetrievalTelemetryAnalytics(aiId, sink)
+        return analytics.buildDisplaySummary(limit)
     }
 
     private fun enqueueWrite(context: Context, event: JSONObject) {
