@@ -5,25 +5,6 @@ import kotlin.math.min
 
 /**
  * Configuration for an on-device LLM model loaded via MNN.
- *
- * Encapsulates all parameters needed to load and run inference:
- * - Model location and identity
- * - Hardware backend selection (CPU/GPU/NPU)
- * - Inference parameters (temperature, top-p, max tokens)
- * - Memory optimization settings (mmap, quantization)
- *
- * Models should be exported from HuggingFace using MNN's llmexport.py:
- *   python llmexport.py --path Qwen2.5-1.5B-Instruct --export mnn --quant_bit 4
- *
- * The model directory must contain:
- *   llm.mnn          - Compiled model graph
- *   llm.mnn.weight   - Quantized model weights
- *   config.json       - Runtime configuration
- *   llm_config.json   - Model architecture specs
- *   tokenizer.txt     - Token vocabulary
- *
- * @see OnDeviceLLMManager
- * @see [MNN GitHub](https://github.com/alibaba/MNN)
  */
 class LLMModelConfig private constructor(
     val modelId: String,
@@ -37,10 +18,28 @@ class LLMModelConfig private constructor(
     val threadCount: Int,
     val temperature: Float,
     val topP: Float,
-    val useMmap: Boolean
+    val useMmap: Boolean,
+    val artifacts: List<ModelArtifact>,
+    val integrityStatus: IntegrityStatus
 ) {
 
-    /** Human-readable backend name. */
+    data class SignatureMetadata(
+        val algorithm: String,
+        val signer: String? = null,
+        val signature: String
+    )
+
+    data class ModelArtifact(
+        val fileName: String,
+        val sha256: String,
+        val signature: SignatureMetadata? = null
+    )
+
+    enum class IntegrityStatus {
+        VERIFIED,
+        UNTRUSTED_MIGRATED
+    }
+
     val backendName: String
         get() = when (backend) {
             OnDeviceLLMManager.BACKEND_OPENCL -> "opencl"
@@ -50,9 +49,9 @@ class LLMModelConfig private constructor(
 
     override fun toString(): String =
         "LLMModelConfig{name='$modelName', params=$parameterCount, quant=$quantization, " +
-                "backend=$backendName, threads=$threadCount, maxTokens=$maxTokens, mmap=$useMmap}"
+                "backend=$backendName, threads=$threadCount, maxTokens=$maxTokens, mmap=$useMmap, " +
+                "artifacts=${artifacts.size}, integrity=$integrityStatus}"
 
-    /** Builder for [LLMModelConfig]. */
     class Builder(
         private val modelName: String,
         private val modelPath: String
@@ -69,16 +68,15 @@ class LLMModelConfig private constructor(
         private var temperature: Float = 0.7f
         private var topP: Float = 0.9f
         private var useMmap: Boolean = false
+        private val artifacts: MutableList<ModelArtifact> = mutableListOf()
+        private var integrityStatus: IntegrityStatus = IntegrityStatus.VERIFIED
 
         fun setModelId(modelId: String) = apply { this.modelId = modelId }
         fun setParameterCount(parameterCount: String) = apply { this.parameterCount = parameterCount }
         fun setQuantization(quantization: String) = apply { this.quantization = quantization }
         fun setContextWindow(contextWindow: Int) = apply { this.contextWindow = contextWindow }
         fun setMaxTokens(maxTokens: Int) = apply { this.maxTokens = maxTokens }
-
-        /** Set the MNN backend: [OnDeviceLLMManager.BACKEND_CPU], BACKEND_OPENCL, or BACKEND_VULKAN. */
         fun setBackend(backend: Int) = apply { this.backend = backend }
-
         fun setThreadCount(threadCount: Int) = apply {
             this.threadCount = max(1, min(threadCount, 8))
         }
@@ -91,42 +89,105 @@ class LLMModelConfig private constructor(
             this.topP = topP.coerceIn(0.0f, 1.0f)
         }
 
-        /** Enable memory-mapped weights to reduce DRAM usage. Recommended for models > 2GB. */
         fun setUseMmap(useMmap: Boolean) = apply { this.useMmap = useMmap }
 
-        fun build(): LLMModelConfig = LLMModelConfig(
-            modelId, modelName, modelPath, parameterCount, quantization,
-            contextWindow, maxTokens, backend, threadCount, temperature, topP, useMmap
-        )
+        fun addArtifact(
+            fileName: String,
+            sha256: String,
+            signature: SignatureMetadata? = null
+        ) = apply {
+            artifacts.add(ModelArtifact(fileName, sha256, signature))
+        }
+
+        fun setArtifacts(artifacts: List<ModelArtifact>) = apply {
+            this.artifacts.clear()
+            this.artifacts.addAll(artifacts)
+        }
+
+        fun setIntegrityStatus(status: IntegrityStatus) = apply { this.integrityStatus = status }
+
+        fun markMigratedWithoutChecksums() = apply {
+            artifacts.clear()
+            integrityStatus = IntegrityStatus.UNTRUSTED_MIGRATED
+        }
+
+        fun build(): LLMModelConfig {
+            if (integrityStatus == IntegrityStatus.VERIFIED) {
+                require(artifacts.isNotEmpty()) {
+                    "At least one model artifact checksum is required"
+                }
+                val required = REQUIRED_MODEL_ARTIFACTS.toSet()
+                val names = artifacts.map { it.fileName }.toSet()
+                require(required.subtract(names).isEmpty()) {
+                    "Missing checksums for required artifacts: ${required.subtract(names)}"
+                }
+                artifacts.forEach { artifact ->
+                    require(SHA256_REGEX.matches(artifact.sha256)) {
+                        "Invalid SHA-256 for ${artifact.fileName}: ${artifact.sha256}"
+                    }
+                }
+            }
+
+            return LLMModelConfig(
+                modelId, modelName, modelPath, parameterCount, quantization,
+                contextWindow, maxTokens, backend, threadCount, temperature, topP, useMmap,
+                artifacts.toList(), integrityStatus
+            )
+        }
     }
 
     companion object {
+        private val SHA256_REGEX = Regex("^[a-fA-F0-9]{64}$")
 
-        /** Qwen2.5-1.5B-Instruct Q4 — smallest recommended, runs on 3GB+ RAM (~1GB disk, ~1.5GB DRAM). */
+        val REQUIRED_MODEL_ARTIFACTS = listOf(
+            "llm.mnn",
+            "llm.mnn.weight",
+            "config.json",
+            "llm_config.json",
+            "tokenizer.txt"
+        )
+
+        fun migrateLegacyConfig(config: LLMModelConfig): LLMModelConfig {
+            if (config.artifacts.isNotEmpty()) return config
+            return Builder(config.modelName, config.modelPath)
+                .setModelId(config.modelId)
+                .setParameterCount(config.parameterCount)
+                .setQuantization(config.quantization)
+                .setContextWindow(config.contextWindow)
+                .setMaxTokens(config.maxTokens)
+                .setBackend(config.backend)
+                .setThreadCount(config.threadCount)
+                .setTemperature(config.temperature)
+                .setTopP(config.topP)
+                .setUseMmap(config.useMmap)
+                .markMigratedWithoutChecksums()
+                .build()
+        }
+
         @JvmStatic
-        fun qwen25_1_5b(modelPath: String): LLMModelConfig =
+        fun qwen25_1_5b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
             Builder("Qwen2.5-1.5B-Instruct", modelPath)
                 .setParameterCount("1.5B")
                 .setQuantization("Q4_K_M")
                 .setContextWindow(4096)
                 .setMaxTokens(512)
                 .setThreadCount(4)
+                .setArtifacts(artifacts)
                 .build()
 
-        /** Qwen3-1.7B Q4 — good balance of quality and speed (~1.2GB disk, ~1.7GB DRAM). */
         @JvmStatic
-        fun qwen3_1_7b(modelPath: String): LLMModelConfig =
+        fun qwen3_1_7b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
             Builder("Qwen3-1.7B", modelPath)
                 .setParameterCount("1.7B")
                 .setQuantization("Q4_K_M")
                 .setContextWindow(4096)
                 .setMaxTokens(512)
                 .setThreadCount(4)
+                .setArtifacts(artifacts)
                 .build()
 
-        /** Qwen2.5-3B-Instruct Q4 — higher quality, needs 6GB+ RAM (~2GB disk, ~2.5GB DRAM). */
         @JvmStatic
-        fun qwen25_3b(modelPath: String): LLMModelConfig =
+        fun qwen25_3b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
             Builder("Qwen2.5-3B-Instruct", modelPath)
                 .setParameterCount("3B")
                 .setQuantization("Q4_K_M")
@@ -134,28 +195,29 @@ class LLMModelConfig private constructor(
                 .setMaxTokens(512)
                 .setThreadCount(4)
                 .setUseMmap(true)
+                .setArtifacts(artifacts)
                 .build()
 
-        /** Gemma-2B Q4 — Google's lightweight model (~1.5GB disk, ~2GB DRAM). */
         @JvmStatic
-        fun gemma_2b(modelPath: String): LLMModelConfig =
+        fun gemma_2b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
             Builder("Gemma-2B", modelPath)
                 .setParameterCount("2B")
                 .setQuantization("Q4_K_M")
                 .setContextWindow(2048)
                 .setMaxTokens(256)
                 .setThreadCount(4)
+                .setArtifacts(artifacts)
                 .build()
 
-        /** DeepSeek-R1-1.5B Q4 — reasoning-focused model (~1GB disk, ~1.5GB DRAM). */
         @JvmStatic
-        fun deepseek_r1_1_5b(modelPath: String): LLMModelConfig =
+        fun deepseek_r1_1_5b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
             Builder("DeepSeek-R1-1.5B", modelPath)
                 .setParameterCount("1.5B")
                 .setQuantization("Q4_K_M")
                 .setContextWindow(4096)
                 .setMaxTokens(512)
                 .setThreadCount(4)
+                .setArtifacts(artifacts)
                 .build()
     }
 }
