@@ -31,9 +31,11 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.ktheme.core.ThemeEngine
 import com.ktheme.utils.ColorUtils
+import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
 import java.time.Instant
+import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
@@ -49,6 +51,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messageFormatText: TextView
     private lateinit var messageShareStatusText: TextView
     private lateinit var prefs: SharedPreferences
+    private lateinit var llmManager: OnDeviceLLMManager
+    private val llmSetupExecutor = Executors.newSingleThreadExecutor()
 
     private var activePermissionRequest: PermissionFeature? = null
     private var pendingShareType: ShareType? = null
@@ -171,6 +175,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
+        llmManager = OnDeviceLLMManager(this)
         pluginCountText = findViewById(R.id.pluginCountText)
         permissionStatusText = findViewById(R.id.permissionStatusText)
         pluginStatusText = findViewById(R.id.pluginStatusText)
@@ -297,6 +302,8 @@ class MainActivity : AppCompatActivity() {
             findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setTextColor(primary)
             findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setTextColor(primary)
             findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnDownloadInitModel).setTextColor(primary)
+            findViewById<MaterialButton>(R.id.btnExportDebugLog).setTextColor(primary)
             findViewById<MaterialButton>(R.id.btnClearConversation).apply {
                 strokeColor = ColorStateList.valueOf(primary)
                 setTextColor(primary)
@@ -413,6 +420,14 @@ class MainActivity : AppCompatActivity() {
             }
             messageShareStatusText.text = message
             showPermissionMessage("Runtime self-check completed.")
+        }
+
+        findViewById<MaterialButton>(R.id.btnDownloadInitModel).setOnClickListener {
+            promptModelDownloadAndInit()
+        }
+
+        findViewById<MaterialButton>(R.id.btnExportDebugLog).setOnClickListener {
+            exportDebugLog()
         }
     }
 
@@ -656,12 +671,80 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshDiagnosticsPanel() {
-        diagnosticsText.text = StartupDiagnostics.getEventsForDisplay(this)
+        val startupSummary = StartupDiagnostics.getEventsForDisplay(this)
+        val retrievalSummary = StartupDiagnostics.getRetrievalDiagnosticsSummary(this, RAG_DIAGNOSTICS_AI_ID)
+        diagnosticsText.text = "$startupSummary\n\n[RAG Telemetry]\n$retrievalSummary"
     }
 
     private fun startSharePicker(type: ShareType, mimeTypes: Array<String>) {
         pendingShareType = type
         shareDocumentLauncher.launch(mimeTypes)
+    }
+
+
+    private fun promptModelDownloadAndInit() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 20, 40, 0)
+        }
+
+        val modelNameInput = EditText(this).apply {
+            hint = "Qwen2.5-1.5B-Instruct"
+            setText("Qwen2.5-1.5B-Instruct")
+        }
+
+        val modelUrlInput = EditText(this).apply {
+            hint = "https://example.com/model.zip"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+
+        layout.addView(modelNameInput)
+        layout.addView(modelUrlInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Download & initialize LLM")
+            .setView(layout)
+            .setPositiveButton("Start") { _, _ ->
+                val modelName = modelNameInput.text?.toString()?.trim().orEmpty()
+                val modelUrl = modelUrlInput.text?.toString()?.trim().orEmpty()
+                if (modelName.isBlank() || modelUrl.isBlank()) {
+                    showPermissionMessage("Provide both model name and URL.")
+                    return@setPositiveButton
+                }
+
+                showPermissionMessage("Downloading model package. This can take a while...")
+                llmSetupExecutor.execute {
+                    val result = llmManager.downloadAndInitializeModel(modelName, modelUrl)
+                    runOnUiThread {
+                        if (result.success) {
+                            val sizeMb = result.downloadedBytes / (1024f * 1024f)
+                            showPermissionMessage(
+                                "Model ready: ${result.config?.modelName} (${String.format("%.1f", sizeMb)} MB downloaded)"
+                            )
+                        } else {
+                            showPermissionMessage("Model setup failed: ${result.error}")
+                        }
+                        refreshDiagnosticsPanel()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun exportDebugLog() {
+        llmSetupExecutor.execute {
+            val llmStats = llmManager.getStats().entries.joinToString(separator = "\n") { (key, value) ->
+                "$key=$value"
+            }
+            StartupDiagnostics.setDebugSection("llm_manager", llmStats)
+
+            val file = StartupDiagnostics.exportDebugLog(this)
+            runOnUiThread {
+                showPermissionMessage("Debug log exported: ${file.absolutePath}")
+                messageShareStatusText.text = "Debug log file: ${file.absolutePath}"
+            }
+        }
     }
 
     private fun promptAndShareLink() {
@@ -741,6 +824,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        llmSetupExecutor.shutdownNow()
+        llmManager.shutdown()
+    }
+
     companion object {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
         private const val TAG = "MainActivity"
@@ -752,5 +841,6 @@ class MainActivity : AppCompatActivity() {
         private const val NOTE_SHARED_BY_USER = "shared by user"
         private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
+        private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
     }
 }

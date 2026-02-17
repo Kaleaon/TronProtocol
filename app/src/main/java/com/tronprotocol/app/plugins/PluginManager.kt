@@ -157,6 +157,19 @@ class PluginManager private constructor() {
                     System.currentTimeMillis() - startTime
                 )
             }
+
+            val declaredCapabilities = plugin.requiredCapabilities().ifEmpty {
+                PluginRegistry.defaultCapabilitiesByPluginId[pluginId] ?: emptySet()
+            }
+            val capabilityDecision = engine.evaluateCapabilities(pluginId, declaredCapabilities)
+            if (!capabilityDecision.allowed) {
+                val missing = capabilityDecision.missingCapabilities.joinToString(",") { it.name }
+                auditLogger?.logCapabilityDenied(pluginId, missing)
+                return PluginResult.error(
+                    "Denied by capability policy. Missing: $missing",
+                    System.currentTimeMillis() - startTime
+                )
+            }
         }
 
         // Layer 2: Safety Scanner analysis (OpenClaw skill scanner)

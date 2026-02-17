@@ -14,6 +14,7 @@ class CodeModification(
 ) {
     var appliedTimestamp: Long = 0L
     var backupId: String? = null
+    var rollbackCheckpointId: String? = null
 
     override fun toString(): String {
         return "CodeModification{" +

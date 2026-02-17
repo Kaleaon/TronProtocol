@@ -8,47 +8,20 @@ import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
 
-/**
- * Code Modification Manager
- *
- * Inspired by landseek's free_will.py autonomous agency module
- *
- * Enables AI to:
- * 1. Reflect on its own behavior
- * 2. Identify areas for improvement
- * 3. Generate code modifications
- * 4. Safely apply changes with validation
- * 5. Rollback if needed
- *
- * Safety Features:
- * - Sandboxed modification area (writes to app-private sandbox directory)
- * - Validation before applying changes
- * - Full code backups in SecureStorage for reliable rollback
- * - Complete history persistence (including code)
- * - Change history tracking with statistics
- *
- * Enhanced with:
- * - Full code persistence in history (both original and modified)
- * - Actual sandbox directory for code staging
- * - Proper backup/restore with stored code content
- * - Reflection with additional metric types
- */
 class CodeModificationManager(private val context: Context) {
 
     private val storage = SecureStorage(context)
     private val modificationHistory = mutableListOf<CodeModification>()
+    private val auditHistory = mutableListOf<ModificationAuditRecord>()
     private val sandboxDir: File by lazy {
         File(context.filesDir, SANDBOX_DIR_NAME).also { it.mkdirs() }
     }
 
     init {
         loadHistory()
+        loadAuditHistory()
     }
 
-    /**
-     * Reflect on current behavior and identify improvement opportunities.
-     * Analyzes multiple metric types for comprehensive self-assessment.
-     */
     fun reflect(behaviorMetrics: Map<String, Any>): ReflectionResult {
         val result = ReflectionResult()
 
@@ -92,25 +65,18 @@ class CodeModificationManager(private val context: Context) {
             }
         }
 
-        Log.d(TAG, "Reflection complete: ${result.getInsights().size} insights, " +
-                "${result.getSuggestions().size} suggestions")
-
+        Log.d(TAG, "Reflection complete: ${result.getInsights().size} insights, ${result.getSuggestions().size} suggestions")
         return result
     }
 
-    /**
-     * Propose a code modification
-     */
     fun proposeModification(
         componentName: String,
         description: String,
         originalCode: String,
         modifiedCode: String
     ): CodeModification {
-        val modificationId = generateModificationId()
-
         val modification = CodeModification(
-            modificationId,
+            generateModificationId(),
             componentName,
             description,
             originalCode,
@@ -118,36 +84,263 @@ class CodeModificationManager(private val context: Context) {
             System.currentTimeMillis(),
             ModificationStatus.PROPOSED
         )
-
-        Log.d(TAG, "Proposed modification: $modificationId for $componentName")
-
+        Log.d(TAG, "Proposed modification: ${modification.id} for $componentName")
         return modification
     }
 
-    /**
-     * Validate a proposed modification
-     */
     fun validate(modification: CodeModification): ValidationResult {
         val result = ValidationResult()
+        result.setStage(ValidationResult.Stage.PROPOSED)
 
-        val modifiedCode = modification.modifiedCode
-
-        // Check 1: Not empty
-        if (modifiedCode.isBlank()) {
-            result.addError("Modified code is empty")
+        val syntaxPassed = runSyntaxStaticChecks(modification, result)
+        if (!syntaxPassed) {
             result.setValid(false)
             return result
         }
 
-        // Check 2: Basic syntax check (very simplified for Java)
+        val policyPassed = runPolicyChecks(modification, result)
+        if (!policyPassed) {
+            result.setValid(false)
+            return result
+        }
+
+        val sandboxPassed = runSandboxTest(modification, result)
+        if (!sandboxPassed) {
+            result.setValid(false)
+            return result
+        }
+
+        result.setStage(ValidationResult.Stage.PREFLIGHTED)
+        result.setValid(true)
+        return result
+    }
+
+    fun applyModification(
+        modification: CodeModification,
+        healthMetrics: Map<String, Double> = emptyMap()
+    ): Boolean {
+        return try {
+            val validation = validate(modification)
+            if (!validation.isValid()) {
+                addAuditRecord(
+                    modification,
+                    modification.status,
+                    ModificationStatus.ROLLED_BACK,
+                    "preflight",
+                    "failed",
+                    validation.getErrors().joinToString("; ")
+                )
+                modification.status = ModificationStatus.ROLLED_BACK
+                persistModification(modification)
+                return false
+            }
+
+            transitionStatus(modification, ModificationStatus.PREFLIGHTED, "preflight", "passed", "all gates passed")
+
+            val backupId = createBackup(modification)
+            modification.backupId = backupId
+            val checkpointId = createRollbackCheckpoint(modification)
+            modification.rollbackCheckpointId = checkpointId
+
+            if (checkpointId.isBlank()) {
+                transitionStatus(
+                    modification,
+                    ModificationStatus.ROLLED_BACK,
+                    "checkpoint",
+                    "failed",
+                    "rollback checkpoint required"
+                )
+                return false
+            }
+
+            writeCanaryCode(modification)
+            transitionStatus(modification, ModificationStatus.CANARY, "canary", "entered", "canary written to scoped path")
+
+            if (isHealthDegraded(healthMetrics)) {
+                Log.w(TAG, "Health degradation detected for ${modification.id}; triggering automatic rollback")
+                rollback(modification.id, "health_degradation")
+                return false
+            }
+
+            promoteCanary(modification)
+            modification.appliedTimestamp = System.currentTimeMillis()
+            transitionStatus(modification, ModificationStatus.PROMOTED, "promotion", "passed", "canary promoted to active runtime path")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error applying modification", e)
+            false
+        }
+    }
+
+    fun rollback(modificationId: String, reason: String = "manual"): Boolean {
+        return try {
+            val modification = findModification(modificationId)
+            if (modification == null) {
+                Log.e(TAG, "Modification not found: $modificationId")
+                return false
+            }
+
+            if (modification.rollbackCheckpointId.isNullOrBlank()) {
+                Log.e(TAG, "Rollback checkpoint missing for $modificationId")
+                return false
+            }
+
+            val backupId = modification.backupId
+            if (backupId != null) {
+                val restoredCode = restoreBackup(backupId)
+                if (restoredCode != null) {
+                    val restoreFile = File(sandboxDir, "runtime_active/${modification.componentName}_${modification.id}.txt")
+                    restoreFile.parentFile?.mkdirs()
+                    restoreFile.writeText(restoredCode)
+                }
+            }
+
+            File(sandboxDir, "canary/${modification.componentName}_${modification.id}.txt").delete()
+            File(sandboxDir, "runtime_active/${modification.componentName}_${modification.id}.txt").delete()
+
+            transitionStatus(modification, ModificationStatus.ROLLED_BACK, "rollback", "triggered", reason)
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error rolling back modification", e)
+            false
+        }
+    }
+
+    fun rejectModification(modificationId: String): Boolean {
+        val modification = findModification(modificationId) ?: return false
+        if (modification.status != ModificationStatus.PROPOSED) return false
+
+        transitionStatus(modification, ModificationStatus.REJECTED, "rejection", "manual", "manual rejection")
+        return true
+    }
+
+    fun getHistory(): List<CodeModification> = ArrayList(modificationHistory)
+
+    fun getAuditHistory(): List<ModificationAuditRecord> = ArrayList(auditHistory)
+
+    fun getStats(): Map<String, Any> {
+        val stats = mutableMapOf<String, Any>()
+        var proposed = 0
+        var preflighted = 0
+        var canary = 0
+        var promoted = 0
+        var rolledBack = 0
+        var rejected = 0
+
+        for (mod in modificationHistory) {
+            when (mod.status) {
+                ModificationStatus.PROPOSED -> proposed++
+                ModificationStatus.PREFLIGHTED -> preflighted++
+                ModificationStatus.CANARY -> canary++
+                ModificationStatus.PROMOTED -> promoted++
+                ModificationStatus.ROLLED_BACK -> rolledBack++
+                ModificationStatus.REJECTED -> rejected++
+            }
+        }
+
+        stats["total_modifications"] = modificationHistory.size
+        stats["proposed"] = proposed
+        stats["preflighted"] = preflighted
+        stats["canary"] = canary
+        stats["promoted"] = promoted
+        stats["rolled_back"] = rolledBack
+        stats["rejected"] = rejected
+        stats["success_rate"] = if (modificationHistory.isEmpty()) 0.0 else promoted.toDouble() / modificationHistory.size
+        stats["audit_events"] = auditHistory.size
+        stats["sandbox_dir"] = sandboxDir.absolutePath
+        return stats
+    }
+
+    private fun transitionStatus(
+        modification: CodeModification,
+        toStatus: ModificationStatus,
+        gate: String,
+        outcome: String,
+        details: String
+    ) {
+        val from = modification.status
+        modification.status = toStatus
+        addAuditRecord(modification, from, toStatus, gate, outcome, details)
+        persistModification(modification)
+    }
+
+    private fun addAuditRecord(
+        modification: CodeModification,
+        fromStatus: ModificationStatus,
+        toStatus: ModificationStatus,
+        gate: String,
+        outcome: String,
+        details: String
+    ) {
+        auditHistory.add(
+            ModificationAuditRecord(
+                modificationId = modification.id,
+                fromStatus = fromStatus,
+                toStatus = toStatus,
+                gate = gate,
+                outcome = outcome,
+                details = details
+            )
+        )
+        saveAuditHistory()
+    }
+
+    private fun persistModification(modification: CodeModification) {
+        val existing = findModification(modification.id)
+        if (existing == null) {
+            modificationHistory.add(modification)
+        }
+        saveHistory()
+    }
+
+    private fun generateModificationId(): String = "mod_${System.currentTimeMillis()}"
+
+    private fun findModification(id: String): CodeModification? = modificationHistory.find { it.id == id }
+
+    private fun createBackup(modification: CodeModification): String {
+        val backupId = "backup_${modification.id}"
+        storage.store(backupId, modification.originalCode)
+        return backupId
+    }
+
+    private fun createRollbackCheckpoint(modification: CodeModification): String {
+        val checkpointId = "checkpoint_${modification.id}_${System.currentTimeMillis()}"
+        storage.store(checkpointId, modification.originalCode)
+        return checkpointId
+    }
+
+    private fun restoreBackup(backupId: String): String? = storage.retrieve(backupId)
+
+    private fun runSyntaxStaticChecks(modification: CodeModification, result: ValidationResult): Boolean {
+        val modifiedCode = modification.modifiedCode
+
+        if (modifiedCode.isBlank()) {
+            result.addError("Modified code is empty")
+            result.addGateResult("syntax_static", false, "code is blank")
+            return false
+        }
+
         val openBraces = countOccurrences(modifiedCode, '{')
         val closeBraces = countOccurrences(modifiedCode, '}')
         if (openBraces != closeBraces) {
             result.addError("Unbalanced braces in modified code")
-            result.setValid(false)
+            result.addGateResult("syntax_static", false, "brace mismatch")
+            return false
         }
 
-        // Check 3: Check for dangerous operations
+        val changeSize = abs(modifiedCode.length - modification.originalCode.length)
+        if (changeSize > MAX_CHANGE_SIZE) {
+            result.addError("Change size too large: $changeSize")
+            result.addGateResult("syntax_static", false, "change size exceeds threshold")
+            return false
+        }
+
+        result.setStage(ValidationResult.Stage.SYNTAX_STATIC_CHECK)
+        result.addGateResult("syntax_static", true, "syntax/static checks passed")
+        return true
+    }
+
+    private fun runPolicyChecks(modification: CodeModification, result: ValidationResult): Boolean {
         val dangerousPatterns = arrayOf(
             "Runtime.getRuntime().exec",
             "System.exit",
@@ -156,236 +349,62 @@ class CodeModificationManager(private val context: Context) {
         )
 
         for (pattern in dangerousPatterns) {
-            if (modifiedCode.contains(pattern)) {
-                result.addWarning("Potentially dangerous operation detected: $pattern")
-            }
-        }
-
-        // Check 4: Ensure modification size is reasonable
-        val changeSize = abs(modifiedCode.length - modification.originalCode.length)
-        if (changeSize > MAX_CHANGE_SIZE) {
-            result.addWarning("Large modification detected: $changeSize bytes")
-        }
-
-        // Check 5: Check for balanced parentheses and brackets
-        val openParens = countOccurrences(modifiedCode, '(')
-        val closeParens = countOccurrences(modifiedCode, ')')
-        if (openParens != closeParens) {
-            result.addError("Unbalanced parentheses in modified code")
-            result.setValid(false)
-        }
-
-        val openBrackets = countOccurrences(modifiedCode, '[')
-        val closeBrackets = countOccurrences(modifiedCode, ']')
-        if (openBrackets != closeBrackets) {
-            result.addError("Unbalanced brackets in modified code")
-            result.setValid(false)
-        }
-
-        if (result.getErrors().isEmpty()) {
-            result.setValid(true)
-        }
-
-        Log.d(TAG, "Validation result for ${modification.id}: " +
-                if (result.isValid()) "VALID" else "INVALID")
-
-        return result
-    }
-
-    /**
-     * Apply a validated modification (sandbox mode)
-     *
-     * Workflow:
-     * 1. Validate the modification
-     * 2. Create a backup of the original code in SecureStorage
-     * 3. Write the modified code to a sandbox directory
-     * 4. Mark as APPLIED and persist in history with full code
-     *
-     * Rollback is possible via the stored backup.
-     */
-    fun applyModification(modification: CodeModification): Boolean {
-        return try {
-            // Validate first
-            val validation = validate(modification)
-            if (!validation.isValid()) {
-                Log.e(TAG, "Cannot apply invalid modification: ${validation.getErrors()}")
+            if (modification.modifiedCode.contains(pattern)) {
+                result.addError("Blocked policy operation detected: $pattern")
+                result.addGateResult("policy", false, "contains blocked pattern $pattern")
                 return false
             }
-
-            // Create backup with full original code
-            val backupId = createBackup(modification)
-            modification.backupId = backupId
-
-            // Write modified code to sandbox area for review
-            writeSandboxCode(modification)
-
-            modification.status = ModificationStatus.APPLIED
-            modification.appliedTimestamp = System.currentTimeMillis()
-
-            modificationHistory.add(modification)
-            saveHistory()
-
-            Log.d(TAG, "Applied modification: ${modification.id} for ${modification.componentName}")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error applying modification", e)
-            false
         }
-    }
 
-    /**
-     * Rollback a modification by restoring the original code from backup.
-     */
-    fun rollback(modificationId: String): Boolean {
-        return try {
-            val modification = findModification(modificationId)
-            if (modification == null) {
-                Log.e(TAG, "Modification not found: $modificationId")
-                return false
-            }
-
-            if (modification.status != ModificationStatus.APPLIED) {
-                Log.e(TAG, "Cannot rollback non-applied modification")
-                return false
-            }
-
-            // Restore from backup - retrieve the stored original code
-            val backupId = modification.backupId
-            if (backupId != null) {
-                val restoredCode = restoreBackup(backupId)
-                if (restoredCode != null) {
-                    // Write restored code to sandbox to replace the modified version
-                    val sandboxFile = File(sandboxDir, "${modification.componentName}_${modification.id}.txt")
-                    sandboxFile.writeText(restoredCode)
-                    Log.d(TAG, "Restored original code for ${modification.componentName}")
-                } else {
-                    Log.w(TAG, "Backup not found for $backupId, but marking as rolled back")
-                }
-            }
-
-            // Clean up sandbox file for the modification
-            val modSandboxFile = File(sandboxDir, "${modification.componentName}_${modification.id}_modified.txt")
-            if (modSandboxFile.exists()) {
-                modSandboxFile.delete()
-            }
-
-            modification.status = ModificationStatus.ROLLED_BACK
-            saveHistory()
-
-            Log.d(TAG, "Rolled back modification: $modificationId")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error rolling back modification", e)
-            false
-        }
-    }
-
-    /**
-     * Reject a proposed modification
-     */
-    fun rejectModification(modificationId: String): Boolean {
-        val modification = findModification(modificationId) ?: return false
-        if (modification.status != ModificationStatus.PROPOSED) return false
-
-        modification.status = ModificationStatus.REJECTED
-        saveHistory()
-
-        Log.d(TAG, "Rejected modification: $modificationId")
+        result.setStage(ValidationResult.Stage.POLICY_CHECK)
+        result.addGateResult("policy", true, "policy checks passed")
         return true
     }
 
-    /**
-     * Get modification history
-     */
-    fun getHistory(): List<CodeModification> = ArrayList(modificationHistory)
-
-    /**
-     * Get statistics about self-modifications
-     */
-    fun getStats(): Map<String, Any> {
-        val stats = mutableMapOf<String, Any>()
-
-        var proposed = 0
-        var applied = 0
-        var rolledBack = 0
-        var rejected = 0
-
-        for (mod in modificationHistory) {
-            when (mod.status) {
-                ModificationStatus.PROPOSED -> proposed++
-                ModificationStatus.APPLIED -> applied++
-                ModificationStatus.ROLLED_BACK -> rolledBack++
-                ModificationStatus.REJECTED -> rejected++
-            }
-        }
-
-        stats["total_modifications"] = modificationHistory.size
-        stats["proposed"] = proposed
-        stats["applied"] = applied
-        stats["rolled_back"] = rolledBack
-        stats["rejected"] = rejected
-        stats["success_rate"] = if (modificationHistory.isEmpty()) 0.0
-            else applied.toDouble() / modificationHistory.size
-        stats["sandbox_dir"] = sandboxDir.absolutePath
-
-        return stats
-    }
-
-    // Helper methods
-
-    private fun generateModificationId(): String = "mod_${System.currentTimeMillis()}"
-
-    private fun findModification(id: String): CodeModification? {
-        return modificationHistory.find { it.id == id }
-    }
-
-    private fun createBackup(modification: CodeModification): String {
-        val backupId = "backup_${modification.id}"
-        // Store the full original code for reliable restoration
-        storage.store(backupId, modification.originalCode)
-        Log.d(TAG, "Created backup: $backupId (${modification.originalCode.length} chars)")
-        return backupId
-    }
-
-    private fun restoreBackup(backupId: String): String? {
-        val backup = storage.retrieve(backupId)
-        if (backup != null) {
-            Log.d(TAG, "Restored backup: $backupId (${backup.length} chars)")
-        } else {
-            Log.w(TAG, "Backup not found: $backupId")
-        }
-        return backup
-    }
-
-    /**
-     * Write modified code to the sandbox directory for review.
-     */
-    private fun writeSandboxCode(modification: CodeModification) {
-        try {
-            val sandboxFile = File(
-                sandboxDir,
-                "${modification.componentName}_${modification.id}_modified.txt"
-            )
-            sandboxFile.writeText(modification.modifiedCode)
-            Log.d(TAG, "Wrote sandbox code: ${sandboxFile.name}")
+    private fun runSandboxTest(modification: CodeModification, result: ValidationResult): Boolean {
+        return try {
+            val sandboxProbeFile = File(sandboxDir, "preflight/${modification.componentName}_${modification.id}.txt")
+            sandboxProbeFile.parentFile?.mkdirs()
+            sandboxProbeFile.writeText(modification.modifiedCode)
+            result.setStage(ValidationResult.Stage.SANDBOX_TEST)
+            result.addGateResult("sandbox_test", true, "sandbox write/read probe passed")
+            true
         } catch (e: Exception) {
-            Log.w(TAG, "Could not write to sandbox", e)
+            result.addError("Sandbox test failed: ${e.message}")
+            result.addGateResult("sandbox_test", false, "sandbox probe failed")
+            false
         }
     }
 
-    private fun countOccurrences(text: String, ch: Char): Int {
-        return text.count { it == ch }
+    private fun writeCanaryCode(modification: CodeModification) {
+        val canaryFile = File(sandboxDir, "canary/${modification.componentName}_${modification.id}.txt")
+        canaryFile.parentFile?.mkdirs()
+        canaryFile.writeText(modification.modifiedCode)
     }
 
-    /**
-     * Save full modification history including code content.
-     * Code is stored for reliable rollback capability.
-     */
+    private fun promoteCanary(modification: CodeModification) {
+        val canaryFile = File(sandboxDir, "canary/${modification.componentName}_${modification.id}.txt")
+        val activeFile = File(sandboxDir, "runtime_active/${modification.componentName}_${modification.id}.txt")
+        activeFile.parentFile?.mkdirs()
+        activeFile.writeText(canaryFile.readText())
+    }
+
+    private fun isHealthDegraded(healthMetrics: Map<String, Double>): Boolean {
+        if (healthMetrics.isEmpty()) return false
+        val errorRate = healthMetrics["error_rate"] ?: 0.0
+        val latencyRegression = healthMetrics["latency_regression"] ?: 0.0
+        val crashRate = healthMetrics["crash_rate"] ?: 0.0
+        return errorRate > MAX_CANARY_ERROR_RATE ||
+                latencyRegression > MAX_CANARY_LATENCY_REGRESSION ||
+                crashRate > MAX_CANARY_CRASH_RATE
+    }
+
+    private fun countOccurrences(text: String, ch: Char): Int = text.count { it == ch }
+
     private fun saveHistory() {
         val historyArray = JSONArray()
-
         for (mod in modificationHistory) {
-            val modObj = JSONObject().apply {
+            historyArray.put(JSONObject().apply {
                 put("id", mod.id)
                 put("componentName", mod.componentName)
                 put("description", mod.description)
@@ -393,27 +412,20 @@ class CodeModificationManager(private val context: Context) {
                 put("modifiedCode", mod.modifiedCode)
                 put("timestamp", mod.timestamp)
                 put("status", mod.status.name)
-                if (mod.appliedTimestamp != 0L) {
-                    put("appliedTimestamp", mod.appliedTimestamp)
-                }
-                if (mod.backupId != null) {
-                    put("backupId", mod.backupId)
-                }
-            }
-            historyArray.put(modObj)
+                put("appliedTimestamp", mod.appliedTimestamp)
+                put("backupId", mod.backupId)
+                put("rollbackCheckpointId", mod.rollbackCheckpointId)
+            })
         }
-
         storage.store(MODIFICATIONS_KEY, historyArray.toString())
     }
 
     private fun loadHistory() {
         try {
             val data = storage.retrieve(MODIFICATIONS_KEY) ?: return
-
             val historyArray = JSONArray(data)
             for (i in 0 until historyArray.length()) {
                 val modObj = historyArray.getJSONObject(i)
-
                 val mod = CodeModification(
                     modObj.getString("id"),
                     modObj.getString("componentName"),
@@ -423,26 +435,63 @@ class CodeModificationManager(private val context: Context) {
                     modObj.getLong("timestamp"),
                     ModificationStatus.valueOf(modObj.getString("status"))
                 )
-
-                mod.appliedTimestamp = if (modObj.has("appliedTimestamp")) {
-                    modObj.getLong("appliedTimestamp")
-                } else 0L
-
+                mod.appliedTimestamp = modObj.optLong("appliedTimestamp", 0L)
                 mod.backupId = modObj.optString("backupId", null)
-
+                mod.rollbackCheckpointId = modObj.optString("rollbackCheckpointId", null)
                 modificationHistory.add(mod)
             }
-
-            Log.d(TAG, "Loaded ${modificationHistory.size} modifications from history")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading modification history", e)
+        }
+    }
+
+    private fun saveAuditHistory() {
+        val events = JSONArray()
+        for (event in auditHistory) {
+            events.put(JSONObject().apply {
+                put("modificationId", event.modificationId)
+                put("fromStatus", event.fromStatus.name)
+                put("toStatus", event.toStatus.name)
+                put("gate", event.gate)
+                put("outcome", event.outcome)
+                put("details", event.details)
+                put("timestamp", event.timestamp)
+            })
+        }
+        storage.store(AUDIT_LOG_KEY, events.toString())
+    }
+
+    private fun loadAuditHistory() {
+        try {
+            val data = storage.retrieve(AUDIT_LOG_KEY) ?: return
+            val historyArray = JSONArray(data)
+            for (i in 0 until historyArray.length()) {
+                val event = historyArray.getJSONObject(i)
+                auditHistory.add(
+                    ModificationAuditRecord(
+                        modificationId = event.getString("modificationId"),
+                        fromStatus = ModificationStatus.valueOf(event.getString("fromStatus")),
+                        toStatus = ModificationStatus.valueOf(event.getString("toStatus")),
+                        gate = event.getString("gate"),
+                        outcome = event.getString("outcome"),
+                        details = event.getString("details"),
+                        timestamp = event.getLong("timestamp")
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading audit history", e)
         }
     }
 
     companion object {
         private const val TAG = "CodeModificationManager"
         private const val MODIFICATIONS_KEY = "code_modifications_history"
+        private const val AUDIT_LOG_KEY = "code_modifications_audit_history"
         private const val SANDBOX_DIR_NAME = "selfmod_sandbox"
         private const val MAX_CHANGE_SIZE = 10000
+        private const val MAX_CANARY_ERROR_RATE = 0.15
+        private const val MAX_CANARY_LATENCY_REGRESSION = 0.25
+        private const val MAX_CANARY_CRASH_RATE = 0.01
     }
 }

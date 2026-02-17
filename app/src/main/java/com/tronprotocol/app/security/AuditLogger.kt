@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -190,6 +191,19 @@ class AuditLogger(private val context: Context) {
             action = action,
             outcome = outcome,
             details = details
+        )
+    }
+
+    fun logCapabilityDenied(pluginId: String, missingCapability: String) {
+        logSecurityEvent(
+            actor = pluginId,
+            action = "capability_denied",
+            outcome = "blocked",
+            details = mapOf(
+                "plugin_id" to pluginId,
+                "missing_capability" to missingCapability,
+                "timestamp" to ISO_FORMAT.get()!!.format(Date())
+            )
         )
     }
 
@@ -452,7 +466,9 @@ class AuditLogger(private val context: Context) {
         private const val FLUSH_INTERVAL_MS = 10_000L
 
         val ISO_FORMAT: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
     }
 }
