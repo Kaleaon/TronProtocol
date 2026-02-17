@@ -7,11 +7,15 @@ import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
+import java.util.zip.ZipInputStream
 
 /**
  * On-Device LLM Manager — MNN-powered local inference for small language models.
@@ -90,6 +94,15 @@ class OnDeviceLLMManager(context: Context) {
                 GenerationResult(false, null, 0, 0, 0f, error, null)
         }
     }
+
+    /** Result of downloading and initializing a model package. */
+    data class ModelSetupResult(
+        val success: Boolean,
+        val config: LLMModelConfig?,
+        val modelDirectory: File?,
+        val downloadedBytes: Long,
+        val error: String?
+    )
 
     /** Device capability assessment for LLM inference. */
     data class DeviceCapability(
@@ -420,6 +433,66 @@ class OnDeviceLLMManager(context: Context) {
             .build()
     }
 
+    /**
+     * Download a model archive and initialize it for inference.
+     *
+     * Expected archive format: zip containing llm.mnn and supporting files.
+     */
+    fun downloadAndInitializeModel(modelName: String, downloadUrl: String): ModelSetupResult {
+        if (modelName.isBlank()) {
+            return ModelSetupResult(false, null, null, 0, "Model name is required")
+        }
+        if (downloadUrl.isBlank()) {
+            return ModelSetupResult(false, null, null, 0, "Download URL is required")
+        }
+
+        currentModelState.set(ModelState.DOWNLOADING)
+        val safeDirName = modelName.lowercase()
+            .replace(Regex("[^a-z0-9._-]"), "_")
+            .replace(Regex("_+"), "_")
+            .trim('_')
+            .ifBlank { "downloaded_model" }
+
+        val modelDir = File(File(context.filesDir, "mnn_models"), safeDirName)
+        if (modelDir.exists()) {
+            modelDir.deleteRecursively()
+        }
+        modelDir.mkdirs()
+
+        val downloadedBytes = try {
+            downloadToDirectory(downloadUrl, modelDir)
+        } catch (e: Exception) {
+            currentModelState.set(ModelState.ERROR)
+            return ModelSetupResult(false, null, modelDir, 0, "Download failed: ${e.message}")
+        }
+
+        if (!File(modelDir, "llm.mnn").exists()) {
+            currentModelState.set(ModelState.ERROR)
+            return ModelSetupResult(
+                false,
+                null,
+                modelDir,
+                downloadedBytes,
+                "Model package is missing llm.mnn. Expected a valid MNN LLM export package"
+            )
+        }
+
+        val config = createConfigFromDirectory(modelDir)
+        val loaded = loadModel(config)
+        if (!loaded) {
+            currentModelState.set(ModelState.ERROR)
+            return ModelSetupResult(
+                false,
+                config,
+                modelDir,
+                downloadedBytes,
+                "Model downloaded but failed to initialize"
+            )
+        }
+
+        return ModelSetupResult(true, config, modelDir, downloadedBytes, null)
+    }
+
     // ---- Internal helpers ----
 
     private fun scanModelDir(baseDir: File?, results: MutableList<File>) {
@@ -427,6 +500,67 @@ class OnDeviceLLMManager(context: Context) {
         baseDir.listFiles()?.forEach { child ->
             if (child.isDirectory && File(child, "llm.mnn").exists()) {
                 results.add(child)
+            }
+        }
+    }
+
+    private fun downloadToDirectory(downloadUrl: String, modelDir: File): Long {
+        val tempFile = File.createTempFile("mnn_model", ".pkg", context.cacheDir)
+        var totalBytes = 0L
+
+        var connection: HttpURLConnection? = null
+        try {
+            connection = URL(downloadUrl).openConnection() as HttpURLConnection
+            connection.connectTimeout = NETWORK_TIMEOUT_MS
+            connection.readTimeout = NETWORK_TIMEOUT_MS
+            connection.instanceFollowRedirects = true
+
+            connection.inputStream.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    val buffer = ByteArray(IO_BUFFER_SIZE)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer, 0, read)
+                        totalBytes += read
+                    }
+                }
+            }
+
+            if (downloadUrl.lowercase().endsWith(".zip")) {
+                unzipToDirectory(tempFile, modelDir)
+            } else {
+                tempFile.copyTo(File(modelDir, "llm.mnn"), overwrite = true)
+            }
+
+            Log.d(TAG, "Downloaded model package to ${modelDir.absolutePath} (${totalBytes} bytes)")
+            return totalBytes
+        } finally {
+            connection?.disconnect()
+            tempFile.delete()
+        }
+    }
+
+    private fun unzipToDirectory(zipFile: File, destinationDir: File) {
+        ZipInputStream(FileInputStream(zipFile)).use { zipInput ->
+            var entry = zipInput.nextEntry
+            while (entry != null) {
+                val outputFile = File(destinationDir, entry.name)
+                if (!outputFile.canonicalPath.startsWith(destinationDir.canonicalPath + File.separator)) {
+                    throw SecurityException("Blocked zip-slip entry: ${entry.name}")
+                }
+
+                if (entry.isDirectory) {
+                    outputFile.mkdirs()
+                } else {
+                    outputFile.parentFile?.mkdirs()
+                    FileOutputStream(outputFile).use { output ->
+                        zipInput.copyTo(output)
+                    }
+                }
+
+                zipInput.closeEntry()
+                entry = zipInput.nextEntry
             }
         }
     }
@@ -471,6 +605,8 @@ class OnDeviceLLMManager(context: Context) {
         private const val DEFAULT_MAX_TOKENS = 512
         private const val DEFAULT_TEMPERATURE = 0.7f
         private const val DEFAULT_TOP_P = 0.9f
+        private const val NETWORK_TIMEOUT_MS = 30_000
+        private const val IO_BUFFER_SIZE = 8 * 1024
 
         // Native library availability
         private val nativeAvailable = AtomicBoolean(false)
