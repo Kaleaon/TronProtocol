@@ -3,6 +3,7 @@ package com.tronprotocol.app.plugins
 import android.content.Context
 import android.content.SharedPreferences
 import android.text.TextUtils
+import android.util.Log
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -76,8 +77,33 @@ class CommunicationHubPlugin : Plugin {
             put("content", message)
         }
 
-        val response = postJson(url!!, payload.toString())
+        enforceOutboundGuardrails(url!!)
+        val response = postJson(url, payload.toString())
         return PluginResult.success("Sent to $channelName: $response", elapsed(start))
+    }
+
+    private fun enforceOutboundGuardrails(endpoint: String) {
+        val parsed = URL(endpoint)
+        val host = parsed.host.lowercase()
+
+        if (parsed.protocol.lowercase() != "https") {
+            Log.w(ID, "Blocked outbound request with non-HTTPS protocol: ${parsed.protocol}")
+            throw SecurityException("Outbound request blocked: HTTPS is required")
+        }
+
+        if (isBlockedHost(host)) {
+            Log.w(ID, "Blocked outbound request to restricted host: $host")
+            throw SecurityException("Outbound request blocked: restricted host")
+        }
+    }
+
+    internal fun isBlockedHost(host: String): Boolean {
+        val normalized = host.lowercase().trim()
+        if (normalized.isEmpty()) return true
+        if (normalized == "localhost" || normalized.endsWith(".local")) return true
+        if (normalized in setOf("0.0.0.0", "127.0.0.1")) return true
+        if (normalized.startsWith("10.") || normalized.startsWith("192.168.")) return true
+        return normalized.matches(Regex("172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))
     }
 
     private fun postJson(endpoint: String, body: String): String {

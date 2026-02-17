@@ -23,6 +23,7 @@ class WebSearchPlugin : Plugin {
         private const val ID = "web_search"
         private const val DEFAULT_RESULTS = 5
         private const val MAX_RESULTS = 20
+        private const val MAX_QUERY_LENGTH = 4096
         private const val TIMEOUT_MS = 10000
         private const val CACHE_TTL_MS = 5 * 60 * 1000L // 5 minutes
         private const val MAX_CACHE_SIZE = 50
@@ -51,6 +52,9 @@ class WebSearchPlugin : Plugin {
 
         if (query.isEmpty()) {
             return PluginResult.error("Search query cannot be empty.", System.currentTimeMillis() - startTime)
+        }
+        if (query.length > MAX_QUERY_LENGTH) {
+            return PluginResult.error("Search query too large.", System.currentTimeMillis() - startTime)
         }
 
         val maxResults = if (parts.size > 1) {
@@ -95,6 +99,7 @@ class WebSearchPlugin : Plugin {
     private fun searchDuckDuckGo(query: String, maxResults: Int): String {
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
         val searchUrl = "https://html.duckduckgo.com/html/?q=$encodedQuery"
+        enforceOutboundGuardrails(searchUrl)
 
         val result = StringBuilder()
         result.append("Web Search Results for: $query\n\n")
@@ -206,6 +211,33 @@ class WebSearchPlugin : Plugin {
         matcher.appendTail(sb2)
 
         return sb2.toString().trim()
+    }
+
+    internal fun isHostBlocked(host: String): Boolean {
+        val normalized = host.lowercase().trim()
+        if (normalized.isEmpty()) return true
+        if (normalized == "localhost") return true
+        if (normalized.endsWith(".local")) return true
+        if (normalized in setOf("0.0.0.0", "127.0.0.1")) return true
+        if (normalized.startsWith("10.") || normalized.startsWith("192.168.")) return true
+        if (normalized.matches(Regex("172\\.(1[6-9]|2[0-9]|3[0-1])\\..*"))) return true
+        return false
+    }
+
+    private fun enforceOutboundGuardrails(url: String) {
+        val parsed = URL(url)
+        if (parsed.protocol.lowercase() != "https") {
+            Log.w(TAG, "Blocked outbound request with non-HTTPS protocol: ${parsed.protocol}")
+            throw SecurityException("Outbound request blocked: HTTPS is required")
+        }
+        if (parsed.host != "html.duckduckgo.com") {
+            Log.w(TAG, "Blocked outbound request to unauthorized host: ${parsed.host}")
+            throw SecurityException("Outbound request blocked: unauthorized host")
+        }
+        if (isHostBlocked(parsed.host)) {
+            Log.w(TAG, "Blocked outbound request to restricted host: ${parsed.host}")
+            throw SecurityException("Outbound request blocked: restricted host")
+        }
     }
 
     override fun initialize(context: Context) {
