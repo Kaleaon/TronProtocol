@@ -11,7 +11,7 @@
 
 ## CI enforcement
 - CI enforces `LockMode.STRICT` so dependency graph drift without lockfile updates fails fast.
-- CI regenerates lockfiles and fails if any Gradle dependency lockfile changes are uncommitted (for example, `*gradle.lockfile` and `**/gradle.lockfile`).
+- CI regenerates lockfiles and fails if any Gradle dependency lockfile changes are uncommitted (for example, `**/gradle.lockfile`, `**/buildscript-gradle.lockfile`, `**/settings-gradle.lockfile`).
 - CI runs `scripts/check_direct_vulns.py` and fails on any known **CRITICAL** CVE affecting direct Maven dependencies.
 
 ## Scheduled audit/update workflow
