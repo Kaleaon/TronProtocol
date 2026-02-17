@@ -1,0 +1,30 @@
+[versions]
+appcompat = "1.6.1"
+material = "1.9.0"
+constraintlayout = "2.1.4"
+work = "2.9.1"
+mlkitTextRecognition = "19.0.0"
+tensorflowLite = "2.13.0"
+tensorflowLiteSupport = "0.4.4"
+mnn = "0.0.8"
+playServicesBase = "18.2.0"
+junit4 = "4.13.2"
+mockito = "5.5.0"
+json = "20230227"
+robolectric = "4.10.3"
+
+[libraries]
+androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }
+google-material = { module = "com.google.android.material:material", version.ref = "material" }
+androidx-constraintlayout = { module = "androidx.constraintlayout:constraintlayout", version.ref = "constraintlayout" }
+androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
+gms-mlkit-text-recognition = { module = "com.google.android.gms:play-services-mlkit-text-recognition", version.ref = "mlkitTextRecognition" }
+tensorflow-lite = { module = "org.tensorflow:tensorflow-lite", version.ref = "tensorflowLite" }
+tensorflow-lite-gpu = { module = "org.tensorflow:tensorflow-lite-gpu", version.ref = "tensorflowLite" }
+tensorflow-lite-support = { module = "org.tensorflow:tensorflow-lite-support", version.ref = "tensorflowLiteSupport" }
+alibaba-mnn = { module = "com.alibaba.android:mnn", version.ref = "mnn" }
+gms-play-services-base = { module = "com.google.android.gms:play-services-base", version.ref = "playServicesBase" }
+junit4 = { module = "junit:junit", version.ref = "junit4" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+json = { module = "org.json:json", version.ref = "json" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }

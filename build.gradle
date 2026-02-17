@@ -16,6 +16,17 @@ allprojects {
         google()
         mavenCentral()
     }
+
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode = LockMode.STRICT
+    }
+}
+
+buildscript {
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
 }
 
 task clean(type: Delete) {
