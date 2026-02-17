@@ -3,6 +3,7 @@ package com.tronprotocol.app.plugins
 import android.content.Context
 import android.util.Base64
 import com.tronprotocol.app.rag.ContinuitySnapshotCodec
+import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
 
@@ -31,9 +32,11 @@ class ContinuityBridgePlugin : Plugin {
     override var isEnabled: Boolean = true
 
     private lateinit var storage: SecureStorage
+    private lateinit var auditLogger: AuditLogger
 
     override fun initialize(context: Context) {
         storage = SecureStorage(context)
+        auditLogger = AuditLogger(context)
     }
 
     override fun destroy() {
@@ -102,8 +105,13 @@ class ContinuityBridgePlugin : Plugin {
         val targetAiId = ContinuitySnapshotCodec.sanitizeIdentifier(parts[2], "default")
         val encoded = storage.retrieve(snapshotStorageKey(snapshotId))
             ?: return PluginResult.error("Snapshot not found: $snapshotId", elapsed(start))
-        val snapshot = ContinuitySnapshotCodec.decode(encoded)
-            ?: return PluginResult.error("Snapshot is corrupted: $snapshotId", elapsed(start))
+        val decodeResult = decodeSnapshotPayload(encoded, "restore", snapshotId)
+            ?: return PluginResult.error("Snapshot is corrupted or invalid: $snapshotId", elapsed(start))
+        val snapshot = decodeResult.snapshot
+
+        if (decodeResult.wasMigrated) {
+            storage.store(snapshotStorageKey(snapshotId), decodeResult.normalizedPayload)
+        }
 
         snapshot.ragChunksJson?.let { storage.store("rag_chunks_$targetAiId", it) }
         snapshot.emotionalHistoryJson?.let { storage.store(KEY_EMOTIONAL_HISTORY, it) }
@@ -141,8 +149,13 @@ class ContinuityBridgePlugin : Plugin {
 
         val encoded = storage.retrieve(snapshotStorageKey(snapshotId))
             ?: return PluginResult.error("Snapshot not found: $snapshotId", elapsed(start))
-        val snapshot = ContinuitySnapshotCodec.decode(encoded)
-            ?: return PluginResult.error("Snapshot is corrupted: $snapshotId", elapsed(start))
+        val decodeResult = decodeSnapshotPayload(encoded, "inspect", snapshotId)
+            ?: return PluginResult.error("Snapshot is corrupted or invalid: $snapshotId", elapsed(start))
+        val snapshot = decodeResult.snapshot
+
+        if (decodeResult.wasMigrated) {
+            storage.store(snapshotStorageKey(snapshotId), decodeResult.normalizedPayload)
+        }
 
         return PluginResult.success(
             """
@@ -169,7 +182,14 @@ class ContinuityBridgePlugin : Plugin {
         }
         val encoded = storage.retrieve(snapshotStorageKey(snapshotId))
             ?: return PluginResult.error("Snapshot not found: $snapshotId", elapsed(start))
-        val payload = Base64.encodeToString(encoded.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val decodeResult = decodeSnapshotPayload(encoded, "export", snapshotId)
+            ?: return PluginResult.error("Snapshot is corrupted or invalid: $snapshotId", elapsed(start))
+
+        if (decodeResult.wasMigrated) {
+            storage.store(snapshotStorageKey(snapshotId), decodeResult.normalizedPayload)
+        }
+
+        val payload = Base64.encodeToString(decodeResult.normalizedPayload.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
         return PluginResult.success(
             "EXPORT_PAYLOAD_BASE64:$payload",
             elapsed(start)
@@ -190,11 +210,12 @@ class ContinuityBridgePlugin : Plugin {
         } catch (_: Exception) {
             return PluginResult.error("Invalid base64 payload", elapsed(start))
         }
-        val snapshot = ContinuitySnapshotCodec.decode(decodedJson)
+        val decodeResult = decodeSnapshotPayload(decodedJson, "import", "inline_payload")
             ?: return PluginResult.error("Payload does not contain a valid continuity snapshot", elapsed(start))
+        val snapshot = decodeResult.snapshot
 
         val importedSnapshotId = buildImportedSnapshotId(snapshot.snapshotId)
-        storage.store(snapshotStorageKey(importedSnapshotId), decodedJson)
+        storage.store(snapshotStorageKey(importedSnapshotId), decodeResult.normalizedPayload)
         persistSnapshotIndex(addSnapshotId(importedSnapshotId))
 
         snapshot.ragChunksJson?.let { storage.store("rag_chunks_$targetAiId", it) }
@@ -255,6 +276,35 @@ class ContinuityBridgePlugin : Plugin {
         val safeSourceId = ContinuitySnapshotCodec.sanitizeIdentifier(sourceSnapshotId, "snapshot")
             .take(MAX_SOURCE_ID_SEGMENT)
         return "imported_${safeSourceId}_${System.currentTimeMillis()}"
+    }
+
+    private fun decodeSnapshotPayload(
+        payload: String,
+        operation: String,
+        target: String
+    ): ContinuitySnapshotCodec.DecodeResult? {
+        val result = ContinuitySnapshotCodec.decodeWithMigration(payload)
+        if (result == null) {
+            auditLogger.logSnapshotMigration(
+                operation = operation,
+                target = target,
+                success = false,
+                message = "invalid_or_corrupted_snapshot"
+            )
+            return null
+        }
+
+        auditLogger.logSnapshotMigration(
+            operation = operation,
+            target = target,
+            success = true,
+            message = if (result.wasMigrated) "migrated" else "no_migration_needed",
+            details = mapOf(
+                "migration_path" to result.migrationPath,
+                "schema_version" to result.schemaVersion
+            )
+        )
+        return result
     }
 
     companion object {
