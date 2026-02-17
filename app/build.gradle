@@ -58,17 +58,17 @@ android {
 
 
 dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'com.google.android.material:material:1.9.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
-    implementation 'androidx.work:work-runtime-ktx:2.9.1'
+    implementation libs.androidx.appcompat
+    implementation libs.google.material
+    implementation libs.androidx.constraintlayout
+    implementation libs.androidx.work.runtime.ktx
     implementation project(':ktheme-kotlin')
 
     // NPU/AI Core dependencies
-    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:19.0.0'
-    implementation 'org.tensorflow:tensorflow-lite:2.13.0'
-    implementation 'org.tensorflow:tensorflow-lite-gpu:2.13.0'
-    implementation 'org.tensorflow:tensorflow-lite-support:0.4.4'
+    implementation libs.gms.mlkit.text.recognition
+    implementation libs.tensorflow.lite
+    implementation libs.tensorflow.lite.gpu
+    implementation libs.tensorflow.lite.support
 
     // NNAPI routing is enabled at runtime through TensorFlow Lite's built-in NNAPI delegate APIs.
     // There is no standalone Maven artifact named tensorflow-lite-nnapi.
@@ -78,14 +78,14 @@ dependencies {
     // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true
     // and placed in app/src/main/jniLibs/arm64-v8a/ (libMNN.so, libMNN_Express.so, libmnnllm.so).
     // See: https://github.com/alibaba/MNN
-    implementation 'com.alibaba.android:mnn:0.0.8'
+    implementation libs.alibaba.mnn
 
     // For neural network acceleration
-    implementation 'com.google.android.gms:play-services-base:18.2.0'
+    implementation libs.gms.play.services.base
 
     // Unit testing
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.mockito:mockito-core:5.5.0'
-    testImplementation 'org.json:json:20230227'
-    testImplementation 'org.robolectric:robolectric:4.10.3'
+    testImplementation libs.junit4
+    testImplementation libs.mockito.core
+    testImplementation libs.json
+    testImplementation libs.robolectric
 }

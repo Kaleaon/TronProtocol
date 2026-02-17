@@ -12,8 +12,36 @@ permissions:
   contents: read
 
 jobs:
+  lockfile-integrity:
+    name: Lockfile Integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/setup-gradle@v4
+      - run: chmod +x gradlew
+      - name: Regenerate lockfiles
+        run: ./gradlew help --write-locks --stacktrace --warning-mode all
+      - name: Verify lockfiles are committed
+        run: git diff --exit-code -- '**/gradle.lockfile'
+
+  vulnerability-gate:
+    name: Direct Dependency Vulnerability Gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Run direct dependency vulnerability check
+        run: python3 scripts/check_direct_vulns.py
+
   compile:
     name: Compile
+    needs:
+      - lockfile-integrity
+      - vulnerability-gate
     uses: ./.github/workflows/android-common.yml
     secrets: inherit
     with:
