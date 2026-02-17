@@ -28,7 +28,8 @@ import kotlin.math.sqrt
  */
 class RAGStore @Throws(Exception::class) constructor(
     private val context: Context,
-    private val aiId: String
+    private val aiId: String,
+    private val telemetrySink: RetrievalTelemetrySink = LocalJsonlRetrievalMetricsSink(context, aiId)
 ) {
     private val storage: SecureStorage = SecureStorage(context)
     private val chunks: MutableList<TextChunk> = mutableListOf()
@@ -136,7 +137,9 @@ class RAGStore @Throws(Exception::class) constructor(
      * Retrieve relevant chunks using specified strategy
      */
     fun retrieve(query: String, strategy: RetrievalStrategy, topK: Int): List<RetrievalResult> =
-        when (strategy) {
+        run {
+            val start = System.currentTimeMillis()
+            val rawResults = when (strategy) {
             RetrievalStrategy.SEMANTIC -> retrieveSemantic(query, topK)
             RetrievalStrategy.KEYWORD -> retrieveKeyword(query, topK)
             RetrievalStrategy.HYBRID -> retrieveHybrid(query, topK)
@@ -146,7 +149,63 @@ class RAGStore @Throws(Exception::class) constructor(
             RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
             RetrievalStrategy.FRONTIER_AWARE -> retrieveFrontierAware(query, topK)
             RetrievalStrategy.NTS_CASCADE -> retrieveNtsCascade(query, topK)
+            }
+
+            val elapsed = System.currentTimeMillis() - start
+            val enriched = enrichResultsWithDiagnostics(rawResults, strategy)
+
+            recordTelemetry(strategy, elapsed, topK, enriched)
+            enriched
         }
+
+    private fun recordTelemetry(
+        strategy: RetrievalStrategy,
+        latencyMs: Long,
+        topK: Int,
+        results: List<RetrievalResult>
+    ) {
+        try {
+            telemetrySink.record(
+                RetrievalTelemetryEvent(
+                    timestampMs = System.currentTimeMillis(),
+                    aiId = aiId,
+                    strategy = strategy.name,
+                    latencyMs = latencyMs,
+                    resultCount = results.size,
+                    topK = topK,
+                    topScore = results.maxOfOrNull { it.score } ?: 0.0f,
+                    avgScore = if (results.isNotEmpty()) results.map { it.score }.average().toFloat() else 0.0f
+                )
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "Telemetry capture failed for strategy=${strategy.name}", t)
+        }
+    }
+
+    private fun enrichResultsWithDiagnostics(
+        rawResults: List<RetrievalResult>,
+        strategy: RetrievalStrategy
+    ): List<RetrievalResult> {
+        val distribution = computeDistribution(rawResults.map { it.score })
+        return rawResults.map { result ->
+            result.copy(
+                strategyId = strategy.name,
+                scoreDistribution = distribution,
+                stageSource = result.chunk.metadata["nts_stage"]?.toString() ?: result.chunk.sourceType
+            )
+        }
+    }
+
+    private fun computeDistribution(scores: List<Float>): ScoreDistribution? {
+        if (scores.isEmpty()) {
+            return null
+        }
+        val minScore = scores.minOrNull() ?: 0.0f
+        val maxScore = scores.maxOrNull() ?: 0.0f
+        val mean = scores.average().toFloat()
+        val variance = scores.map { (it - mean) * (it - mean) }.average().toFloat()
+        return ScoreDistribution(minScore, maxScore, mean, sqrt(variance))
+    }
 
     /**
      * MemRL: Two-phase retrieval with Q-value ranking (arXiv:2601.03192)
@@ -478,6 +537,13 @@ class RAGStore @Throws(Exception::class) constructor(
      * Get a read-only view of all chunks in this store.
      */
     fun getChunks(): List<TextChunk> = chunks.toList()
+
+    fun getAiId(): String = aiId
+
+    @Throws(Exception::class)
+    fun addStoreMetadata(key: String, value: String) {
+        storage.store("rag_store_meta_${aiId}_$key", value)
+    }
 
     /**
      * Remove a specific chunk by ID.

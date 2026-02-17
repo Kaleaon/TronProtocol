@@ -1,11 +1,13 @@
 package com.tronprotocol.app.selfmod
 
 /**
- * Status of a code modification
+ * Status of a code modification lifecycle.
  */
 enum class ModificationStatus {
-    PROPOSED,      // Modification has been proposed but not applied
-    APPLIED,       // Modification has been applied
-    ROLLED_BACK,   // Modification was applied but then rolled back
-    REJECTED       // Modification was rejected (failed validation or manual rejection)
+    PROPOSED,
+    PREFLIGHTED,
+    CANARY,
+    PROMOTED,
+    ROLLED_BACK,
+    REJECTED
 }

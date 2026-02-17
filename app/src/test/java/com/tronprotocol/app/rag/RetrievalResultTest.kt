@@ -16,6 +16,23 @@ class RetrievalResultTest {
         assertEquals(chunk, result.chunk)
         assertEquals(0.85f, result.score, 0.001f)
         assertEquals(RetrievalStrategy.SEMANTIC, result.strategy)
+        assertEquals("SEMANTIC", result.strategyId)
+    }
+
+    @Test
+    fun testScoreDistributionAndStageSource() {
+        val chunk = createChunk().apply { addMetadata("nts_stage", "EPISODIC") }
+        val distribution = ScoreDistribution(min = 0.2f, max = 0.9f, mean = 0.5f, stdDev = 0.1f)
+        val result = RetrievalResult(
+            chunk = chunk,
+            score = 0.75f,
+            strategy = RetrievalStrategy.NTS_CASCADE,
+            scoreDistribution = distribution,
+            stageSource = "EPISODIC"
+        )
+
+        assertEquals(distribution, result.scoreDistribution)
+        assertEquals("EPISODIC", result.stageSource)
     }
 
     @Test

@@ -23,6 +23,11 @@ import org.json.JSONObject
  */
 class ToolPolicyEngine {
 
+    data class CapabilityDecision(
+        val allowed: Boolean,
+        val missingCapabilities: Set<Capability>
+    )
+
     /** A policy rule at a specific layer. */
     data class PolicyRule(
         val layer: PolicyLayer,
@@ -59,12 +64,43 @@ class ToolPolicyEngine {
 
     // Persistence
     private var preferences: SharedPreferences? = null
+    private val grantedCapabilitiesByPlugin = mutableMapOf<String, MutableSet<Capability>>()
 
     fun initialize(context: Context) {
         preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         loadDefaultGroups()
         loadDefaultPolicies()
+        loadDefaultCapabilities()
         loadPersistedPolicies()
+    }
+
+    fun evaluateCapabilities(
+        pluginId: String,
+        requiredCapabilities: Set<Capability>
+    ): CapabilityDecision {
+        if (requiredCapabilities.isEmpty()) {
+            return CapabilityDecision(allowed = true, missingCapabilities = emptySet())
+        }
+
+        val granted = grantedCapabilitiesByPlugin[pluginId] ?: mutableSetOf()
+        val missing = requiredCapabilities.filterNot { granted.contains(it) }.toSet()
+
+        if (missing.isNotEmpty()) {
+            Log.d(TAG, "DENIED plugin=$pluginId missing_capabilities=$missing")
+        }
+
+        return CapabilityDecision(
+            allowed = missing.isEmpty(),
+            missingCapabilities = missing
+        )
+    }
+
+    fun setGrantedCapabilities(pluginId: String, capabilities: Set<Capability>) {
+        grantedCapabilitiesByPlugin[pluginId] = capabilities.toMutableSet()
+    }
+
+    fun getGrantedCapabilities(pluginId: String): Set<Capability> {
+        return grantedCapabilitiesByPlugin[pluginId]?.toSet() ?: emptySet()
     }
 
     /**
@@ -235,6 +271,13 @@ class ToolPolicyEngine {
             "Global default: all plugins allowed"))
         rules.add(PolicyRule(PolicyLayer.GLOBAL, "policy_guardrail", Action.ALLOW,
             "Policy guardrail always allowed"))
+    }
+
+    private fun loadDefaultCapabilities() {
+        grantedCapabilitiesByPlugin.clear()
+        for ((pluginId, capabilities) in PluginRegistry.defaultCapabilitiesByPluginId) {
+            grantedCapabilitiesByPlugin[pluginId] = capabilities.toMutableSet()
+        }
     }
 
     // -- Persistence --

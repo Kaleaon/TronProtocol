@@ -76,6 +76,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
             // Phase 6: Maintain knowledge graph connections
             result.graphEdgesUpdated = maintainKnowledgeGraph(ragStore)
 
+            // Phase 7: Aggregate retrieval telemetry metrics by strategy
+            result.telemetryStrategies = aggregateTelemetry(ragStore)
+
             totalConsolidations++
             result.duration = System.currentTimeMillis() - startTime
             result.success = true
@@ -281,6 +284,19 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     }
 
     /**
+     * Phase 7: Build telemetry aggregation snapshots for strategy diagnostics.
+     */
+    private fun aggregateTelemetry(ragStore: RAGStore): Int {
+        val analytics = RetrievalTelemetryAnalytics(
+            aiId = ragStore.getAiId(),
+            sink = LocalJsonlRetrievalMetricsSink(context, ragStore.getAiId())
+        )
+        val summary = analytics.buildSummary()
+        analytics.appendSummaryToStore(ragStore)
+        return summary.size
+    }
+
+    /**
      * Get consolidation statistics
      */
     fun getStats(): Map<String, Any> {
@@ -380,6 +396,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         @JvmField var connections: Int = 0
         @JvmField var optimized: Int = 0
         @JvmField var graphEdgesUpdated: Int = 0
+        @JvmField var telemetryStrategies: Int = 0
         @JvmField var duration: Long = 0
 
         override fun toString(): String =
@@ -391,6 +408,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
                     ", connections=" + connections +
                     ", optimized=" + optimized +
                     ", graphEdges=" + graphEdgesUpdated +
+                    ", telemetryStrategies=" + telemetryStrategies +
                     ", duration=" + duration + "ms" +
                     '}'
     }

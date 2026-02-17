@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -45,7 +46,8 @@ class AuditLogger(private val context: Context) {
         SUB_AGENT,
         MEMORY_OPERATION,
         FAILOVER_EVENT,
-        POLICY_DECISION
+        POLICY_DECISION,
+        MODEL_INTEGRITY
     }
 
     /** A single audit log entry. */
@@ -192,6 +194,19 @@ class AuditLogger(private val context: Context) {
         )
     }
 
+    fun logCapabilityDenied(pluginId: String, missingCapability: String) {
+        logSecurityEvent(
+            actor = pluginId,
+            action = "capability_denied",
+            outcome = "blocked",
+            details = mapOf(
+                "plugin_id" to pluginId,
+                "missing_capability" to missingCapability,
+                "timestamp" to ISO_FORMAT.get()!!.format(Date())
+            )
+        )
+    }
+
     fun logConstitutionalViolation(
         actor: String,
         action: String,
@@ -218,6 +233,24 @@ class AuditLogger(private val context: Context) {
             actor = "code_mod_manager",
             action = action,
             outcome = if (success) "success" else "failure",
+            details = details
+        )
+    }
+
+
+
+    fun logModelIntegrityVerification(
+        modelId: String,
+        success: Boolean,
+        details: Map<String, Any>
+    ) {
+        logSync(
+            severity = if (success) Severity.INFO else Severity.ERROR,
+            category = AuditCategory.MODEL_INTEGRITY,
+            actor = "on_device_llm",
+            action = "verify_model_integrity",
+            target = modelId,
+            outcome = if (success) "verified" else "blocked",
             details = details
         )
     }
@@ -433,7 +466,9 @@ class AuditLogger(private val context: Context) {
         private const val FLUSH_INTERVAL_MS = 10_000L
 
         val ISO_FORMAT: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
-            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
         }
     }
 }
