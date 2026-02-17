@@ -21,6 +21,14 @@ interface Plugin {
     var isEnabled: Boolean
 
     /**
+     * Capabilities required by this plugin in order to execute.
+     *
+     * Implementations can override this if they need a dynamic capability set,
+     * but built-in plugin defaults are declared in [PluginRegistry].
+     */
+    fun requiredCapabilities(): Set<Capability> = emptySet()
+
+    /**
      * Execute the plugin's main functionality
      * @param input Input data for the plugin
      * @return Result of plugin execution
