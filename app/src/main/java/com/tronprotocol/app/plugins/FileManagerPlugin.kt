@@ -2,6 +2,7 @@ package com.tronprotocol.app.plugins
 
 import android.content.Context
 import android.os.Environment
+import android.util.Log
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
@@ -29,6 +30,8 @@ class FileManagerPlugin : Plugin {
     }
 
     private var context: Context? = null
+
+    private val protectedWritePrefixes = listOf("/proc", "/sys", "/dev", "/system", "/vendor", "/data")
 
     override val id: String = ID
 
@@ -136,6 +139,7 @@ class FileManagerPlugin : Plugin {
     /** Write content to file (overwrites existing) */
     private fun writeFile(path: String, content: String): String {
         val file = resolveFile(path)
+        enforceWriteAllowed(file)
 
         file.parentFile?.let { parent ->
             if (!parent.exists()) parent.mkdirs()
@@ -151,6 +155,7 @@ class FileManagerPlugin : Plugin {
     /** Append content to file */
     private fun appendFile(path: String, content: String): String {
         val file = resolveFile(path)
+        enforceWriteAllowed(file)
 
         if (!file.exists()) throw IOException("File not found: $path")
 
@@ -164,6 +169,7 @@ class FileManagerPlugin : Plugin {
     /** Create empty file */
     private fun createFile(path: String): String {
         val file = resolveFile(path)
+        enforceWriteAllowed(file)
 
         if (file.exists()) throw IOException("File already exists: $path")
 
@@ -181,6 +187,7 @@ class FileManagerPlugin : Plugin {
     /** Delete file or directory */
     private fun deleteFile(path: String): String {
         val file = resolveFile(path)
+        enforceWriteAllowed(file)
 
         if (!file.exists()) throw IOException("File not found: $path")
 
@@ -224,6 +231,7 @@ class FileManagerPlugin : Plugin {
     /** Create directory */
     private fun createDirectory(path: String): String {
         val dir = resolveFile(path)
+        enforceWriteAllowed(dir)
 
         if (dir.exists()) throw IOException("Directory already exists: $path")
         if (!dir.mkdirs()) throw IOException("Failed to create directory: $path")
@@ -235,6 +243,7 @@ class FileManagerPlugin : Plugin {
     private fun moveFile(from: String, to: String): String {
         val source = resolveFile(from)
         val dest = resolveFile(to)
+        enforceWriteAllowed(dest)
 
         if (!source.exists()) throw IOException("Source not found: $from")
         if (dest.exists()) throw IOException("Destination already exists: $to")
@@ -253,6 +262,7 @@ class FileManagerPlugin : Plugin {
     private fun copyFile(from: String, to: String): String {
         val source = resolveFile(from)
         val dest = resolveFile(to)
+        enforceWriteAllowed(dest)
 
         if (!source.exists()) throw IOException("Source not found: $from")
         if (!source.isFile) throw IOException("Can only copy files, not directories: $from")
@@ -349,15 +359,42 @@ class FileManagerPlugin : Plugin {
 
     /** Resolve file path (supports relative and absolute paths) */
     private fun resolveFile(path: String): File {
-        var file = File(path)
+        val decodedPath = decodePath(path)
+        if (containsTraversal(decodedPath)) {
+            Log.w(TAG, "Denied path traversal attempt: $path")
+            throw SecurityException("Access denied: path traversal detected")
+        }
+
+        var file = File(decodedPath)
 
         // If relative path, resolve from external storage
         if (!file.isAbsolute) {
             val externalStorage = Environment.getExternalStorageDirectory()
-            file = File(externalStorage, path)
+            file = File(externalStorage, decodedPath)
         }
 
-        return file
+        return file.canonicalFile
+    }
+
+    private fun enforceWriteAllowed(file: File) {
+        val absolutePath = file.absolutePath.lowercase()
+        if (protectedWritePrefixes.any { absolutePath == it || absolutePath.startsWith("$it/") }) {
+            Log.w(TAG, "Denied write attempt to protected path: $absolutePath")
+            throw SecurityException("Access denied: write to protected path")
+        }
+    }
+
+    private fun decodePath(path: String): String {
+        var decoded = path
+        repeat(2) {
+            decoded = java.net.URLDecoder.decode(decoded, Charsets.UTF_8.name())
+        }
+        return decoded
+    }
+
+    private fun containsTraversal(path: String): Boolean {
+        val normalized = path.replace('\\', '/')
+        return normalized == ".." || normalized.contains("../")
     }
 
     /** Format file size */

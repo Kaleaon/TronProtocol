@@ -89,3 +89,16 @@ dependencies {
     testImplementation 'org.json:json:20230227'
     testImplementation 'org.robolectric:robolectric:4.10.3'
 }
+
+
+// Security regression suite (path traversal, outbound guardrails, policy-denial observability)
+tasks.register("securityRegressionTest", Test) {
+    description = "Runs security regression tests for plugin guardrails"
+    group = "verification"
+    useJUnit()
+    include "**/plugins/security/**"
+}
+
+tasks.named("check") {
+    dependsOn("securityRegressionTest")
+}

@@ -108,7 +108,7 @@ class ToolPolicyEngine {
                 val allowed = decidingRule.action == Action.ALLOW
 
                 if (!allowed) {
-                    Log.d(TAG, "DENIED plugin=$pluginId at layer=${layer.name}: ${decidingRule.reason}")
+                    Log.w(TAG, "POLICY_DENIED plugin=$pluginId layer=${layer.name} reason=${decidingRule.reason}")
                 }
 
                 return PolicyDecision(
