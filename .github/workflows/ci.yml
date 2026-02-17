@@ -26,7 +26,7 @@ jobs:
       - name: Regenerate lockfiles
         run: ./gradlew help --write-locks --stacktrace --warning-mode all
       - name: Verify lockfiles are committed
-        run: git diff --exit-code -- '**/gradle.lockfile'
+        run: git diff --exit-code -- '*gradle.lockfile' '**/gradle.lockfile'
 
   vulnerability-gate:
     name: Direct Dependency Vulnerability Gate
