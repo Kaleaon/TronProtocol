@@ -7,11 +7,11 @@
 
 ## Source of truth
 - Version catalog: `gradle/libs.versions.toml`.
-- Lockfiles: each Gradle project must commit `gradle.lockfile` generated via `./gradlew help --write-locks`.
+- Lockfiles: each Gradle project must commit all Gradle dependency lockfiles (`gradle.lockfile`, `buildscript-gradle.lockfile`, `settings-gradle.lockfile`) generated via `./gradlew help --write-locks`.
 
 ## CI enforcement
 - CI enforces `LockMode.STRICT` so dependency graph drift without lockfile updates fails fast.
-- CI regenerates lockfiles and fails if `**/gradle.lockfile` changes are uncommitted.
+- CI regenerates lockfiles and fails if any Gradle dependency lockfile changes are uncommitted (for example, `*gradle.lockfile` and `**/gradle.lockfile`).
 - CI runs `scripts/check_direct_vulns.py` and fails on any known **CRITICAL** CVE affecting direct Maven dependencies.
 
 ## Scheduled audit/update workflow
