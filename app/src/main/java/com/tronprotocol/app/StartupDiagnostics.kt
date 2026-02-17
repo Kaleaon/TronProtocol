@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 
 object StartupDiagnostics {
     private const val TAG = "StartupDiagnostics"
@@ -21,6 +22,7 @@ object StartupDiagnostics {
     private val displayDateFormat: DateTimeFormatter = DateTimeFormatter
         .ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
         .withZone(ZoneId.systemDefault())
+    private val debugSections = ConcurrentHashMap<String, String>()
 
     @JvmStatic
     fun recordMilestone(context: Context, milestone: String, details: String = "") {
@@ -74,6 +76,42 @@ object StartupDiagnostics {
                 }
             }
         }
+    }
+
+    @JvmStatic
+    fun setDebugSection(sectionName: String, value: String) {
+        if (sectionName.isBlank()) return
+        debugSections[sectionName] = value
+    }
+
+    @JvmStatic
+    fun exportDebugLog(context: Context): File {
+        val events = readEvents(context.applicationContext)
+        val timestamp = Instant.now().toEpochMilli()
+        val outFile = File(context.cacheDir, "tron_debug_log_$timestamp.txt")
+
+        outFile.bufferedWriter().use { writer ->
+            writer.appendLine("Tron Protocol Debug Log")
+            writer.appendLine("Generated: ${displayDateFormat.format(Instant.now())}")
+            writer.appendLine("Events captured: ${events.size}")
+            writer.appendLine()
+
+            if (debugSections.isNotEmpty()) {
+                writer.appendLine("=== Runtime Sections ===")
+                debugSections.toSortedMap().forEach { (name, value) ->
+                    writer.appendLine("[$name]")
+                    writer.appendLine(value)
+                    writer.appendLine()
+                }
+            }
+
+            writer.appendLine("=== Startup Diagnostics ===")
+            events.forEach { event ->
+                writer.appendLine(event.toString())
+            }
+        }
+
+        return outFile
     }
 
     private fun enqueueWrite(context: Context, event: JSONObject) {
