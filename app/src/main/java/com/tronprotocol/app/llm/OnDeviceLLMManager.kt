@@ -4,6 +4,7 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.tronprotocol.app.security.AuditLogger
 import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
@@ -45,7 +46,11 @@ import java.util.zip.ZipInputStream
  * @see [MNN GitHub](https://github.com/alibaba/MNN)
  * @see [MNN-LLM Paper](https://arxiv.org/html/2506.10443v1)
  */
-class OnDeviceLLMManager(context: Context) {
+class OnDeviceLLMManager(
+    context: Context,
+    private val auditLogger: AuditLogger? = null,
+    private val integrityVerifier: ModelIntegrityVerifier = ModelIntegrityVerifier()
+) {
 
     private val context: Context = context.applicationContext
     private val inferenceExecutor = Executors.newSingleThreadExecutor { r ->
@@ -211,6 +216,11 @@ class OnDeviceLLMManager(context: Context) {
             return false
         }
 
+        if (!verifyModelIntegrity(config, "load_model")) {
+            currentModelState.set(ModelState.ERROR)
+            return false
+        }
+
         // Unload any existing model
         if (isModelLoaded) {
             unloadModel()
@@ -260,6 +270,12 @@ class OnDeviceLLMManager(context: Context) {
         }
         if (prompt.isBlank()) {
             return GenerationResult.error("Prompt is empty")
+        }
+
+        val config = activeConfig
+        if (config == null || !verifyModelIntegrity(config, "generate")) {
+            currentModelState.set(ModelState.ERROR)
+            return GenerationResult.error("Model integrity verification failed")
         }
 
         currentModelState.set(ModelState.GENERATING)
@@ -430,6 +446,7 @@ class OnDeviceLLMManager(context: Context) {
             .setBackend(backend)
             .setThreadCount(threads)
             .setUseMmap(useMmap)
+            .markMigratedWithoutChecksums()
             .build()
     }
 
@@ -494,6 +511,26 @@ class OnDeviceLLMManager(context: Context) {
     }
 
     // ---- Internal helpers ----
+
+    private fun verifyModelIntegrity(config: LLMModelConfig, action: String): Boolean {
+        val result = integrityVerifier.verifyModel(config)
+        auditLogger?.logModelIntegrityVerification(
+            modelId = config.modelId,
+            success = result.success,
+            details = mapOf(
+                "action" to action,
+                "message" to result.message,
+                "verified_artifacts" to result.verifiedArtifacts,
+                "failure_reason" to (result.failureReason?.name ?: "NONE"),
+                "failed_artifact" to (result.failedArtifact ?: "")
+            )
+        )
+
+        if (!result.success) {
+            Log.e(TAG, "Model integrity verification failed for ${config.modelName}: ${result.message}")
+        }
+        return result.success
+    }
 
     private fun scanModelDir(baseDir: File?, results: MutableList<File>) {
         if (baseDir == null || !baseDir.exists() || !baseDir.isDirectory) return

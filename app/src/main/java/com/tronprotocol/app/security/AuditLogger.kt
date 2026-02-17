@@ -46,7 +46,8 @@ class AuditLogger(private val context: Context) {
         SUB_AGENT,
         MEMORY_OPERATION,
         FAILOVER_EVENT,
-        POLICY_DECISION
+        POLICY_DECISION,
+        MODEL_INTEGRITY
     }
 
     /** A single audit log entry. */
@@ -232,6 +233,24 @@ class AuditLogger(private val context: Context) {
             actor = "code_mod_manager",
             action = action,
             outcome = if (success) "success" else "failure",
+            details = details
+        )
+    }
+
+
+
+    fun logModelIntegrityVerification(
+        modelId: String,
+        success: Boolean,
+        details: Map<String, Any>
+    ) {
+        logSync(
+            severity = if (success) Severity.INFO else Severity.ERROR,
+            category = AuditCategory.MODEL_INTEGRITY,
+            actor = "on_device_llm",
+            action = "verify_model_integrity",
+            target = modelId,
+            outcome = if (success) "verified" else "blocked",
             details = details
         )
     }
