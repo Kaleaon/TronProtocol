@@ -21,6 +21,14 @@ interface Plugin {
     var isEnabled: Boolean
 
     /**
+     * Preferred typed execution entrypoint.
+     */
+    @Throws(Exception::class)
+    fun execute(request: PluginRequest): PluginResponse {
+        return PluginResponse.fromResult(execute(request.rawInput))
+    }
+
+    /**
      * Execute the plugin's main functionality
      * @param input Input data for the plugin
      * @return Result of plugin execution

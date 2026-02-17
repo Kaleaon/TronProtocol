@@ -43,50 +43,43 @@ class WebSearchPlugin : Plugin {
 
     override var isEnabled: Boolean = true
 
-    override fun execute(input: String): PluginResult {
+    override fun execute(request: PluginRequest): PluginResponse {
         val startTime = System.currentTimeMillis()
-
-        val parts = input.split("\\|".toRegex(), 2)
-        val query = parts[0].trim()
-
+        val legacyParts = if (request.rawInput.contains("|")) request.rawInput.split("|", limit = 2) else emptyList()
+        val query = (request.args["query"] as? String ?: legacyParts.firstOrNull() ?: request.command).trim()
         if (query.isEmpty()) {
-            return PluginResult.error("Search query cannot be empty.", System.currentTimeMillis() - startTime)
+            return PluginResponse.error("Search query cannot be empty.", System.currentTimeMillis() - startTime)
+        }
+        PluginRequestValidator.enforceSizeLimit(query, 512, "query")?.let {
+            return PluginResponse.error(it, System.currentTimeMillis() - startTime)
         }
 
-        val maxResults = if (parts.size > 1) {
-            val parsed = parts[1].trim().toIntOrNull()
-            if (parsed == null || parsed < 1) DEFAULT_RESULTS
-            else parsed.coerceAtMost(MAX_RESULTS)
-        } else {
-            DEFAULT_RESULTS
-        }
+        val maxResults = (request.args["max_results"] as? Number)?.toInt()
+            ?: legacyParts.getOrNull(1)?.trim()?.toIntOrNull()
+            ?: DEFAULT_RESULTS
+        val boundedResults = maxResults.coerceIn(1, MAX_RESULTS)
 
-        Log.d(TAG, "Searching for: $query (max $maxResults results)")
+        Log.d(TAG, "Searching for: $query (max $boundedResults results)")
 
         return try {
-            val cacheKey = "$query|$maxResults"
+            val cacheKey = "$query|$boundedResults"
             val cached = cache[cacheKey]
             if (cached != null && (System.currentTimeMillis() - cached.timestamp) < CACHE_TTL_MS) {
-                Log.d(TAG, "Returning cached result for: $query")
-                val duration = System.currentTimeMillis() - startTime
-                return PluginResult.success(cached.data, duration)
+                return PluginResponse.success(cached.data, System.currentTimeMillis() - startTime)
             }
-
-            val results = searchDuckDuckGo(query, maxResults)
-            val duration = System.currentTimeMillis() - startTime
-
-            // Evict old entries if cache is full
+            val results = searchDuckDuckGo(query, boundedResults)
             if (cache.size >= MAX_CACHE_SIZE) {
-                val oldest = cache.entries.minByOrNull { it.value.timestamp }
-                if (oldest != null) cache.remove(oldest.key)
+                cache.entries.minByOrNull { it.value.timestamp }?.let { cache.remove(it.key) }
             }
             cache[cacheKey] = CachedResult(results, System.currentTimeMillis())
-
-            PluginResult.success(results, duration)
+            PluginResponse.success(results, System.currentTimeMillis() - startTime)
         } catch (e: Exception) {
-            val duration = System.currentTimeMillis() - startTime
-            PluginResult.error("Web search failed: ${e.message}", duration)
+            PluginResponse.error("Web search failed: ${e.message}", System.currentTimeMillis() - startTime)
         }
+    }
+
+    override fun execute(input: String): PluginResult {
+        return execute(PluginRequest.fromLegacyInput(input)).toPluginResult()
     }
 
     /**

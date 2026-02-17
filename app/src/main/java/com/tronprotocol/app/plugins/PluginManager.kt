@@ -121,7 +121,12 @@ class PluginManager private constructor() {
      * 5. Audit logging
      */
     fun executePlugin(pluginId: String, input: String): PluginResult {
-        return executePlugin(pluginId, input, isSubAgent = false, isSandboxed = false)
+        return executePlugin(
+            pluginId,
+            PluginRequest.fromLegacyInput(input),
+            isSubAgent = false,
+            isSandboxed = false
+        ).toPluginResult()
     }
 
     /**
@@ -134,11 +139,30 @@ class PluginManager private constructor() {
         isSandboxed: Boolean = false,
         sessionId: String? = null
     ): PluginResult {
+        return executePlugin(
+            pluginId,
+            PluginRequest.fromLegacyInput(input),
+            isSubAgent,
+            isSandboxed,
+            sessionId
+        ).toPluginResult()
+    }
+
+    /**
+     * Typed request execution entrypoint.
+     */
+    fun executePlugin(
+        pluginId: String,
+        request: PluginRequest,
+        isSubAgent: Boolean = false,
+        isSandboxed: Boolean = false,
+        sessionId: String? = null
+    ): PluginResponse {
         val plugin = plugins[pluginId]
-            ?: return PluginResult.error("Plugin not found: $pluginId", 0)
+            ?: return PluginResponse.error("Plugin not found: $pluginId", 0)
 
         if (!plugin.isEnabled) {
-            return PluginResult.error("Plugin is disabled: $pluginId", 0)
+            return PluginResponse.error("Plugin is disabled: $pluginId", 0)
         }
 
         val startTime = System.currentTimeMillis()
@@ -152,7 +176,7 @@ class PluginManager private constructor() {
                     "blocked",
                     mapOf("layer" to decision.decidingLayer.name, "reason" to decision.reason)
                 )
-                return PluginResult.error(
+                return PluginResponse.error(
                     "Denied by ${decision.decidingLayer.name} policy: ${decision.reason}",
                     System.currentTimeMillis() - startTime
                 )
@@ -161,7 +185,7 @@ class PluginManager private constructor() {
 
         // Layer 2: Safety Scanner analysis (OpenClaw skill scanner)
         safetyScanner?.let { scanner ->
-            val scanResult = scanner.scan(pluginId, input)
+            val scanResult = scanner.scan(pluginId, request.rawInput)
             if (!scanResult.allowed) {
                 auditLogger?.logSecurityEvent(
                     pluginId, "safety_blocked",
@@ -172,7 +196,7 @@ class PluginManager private constructor() {
                         "recommendation" to scanResult.recommendation
                     )
                 )
-                return PluginResult.error(
+                return PluginResponse.error(
                     "Blocked by safety scanner: ${scanResult.recommendation}",
                     System.currentTimeMillis() - startTime
                 )
@@ -182,9 +206,9 @@ class PluginManager private constructor() {
         // Layer 3: Legacy PolicyGuardrailPlugin check (backward compatibility)
         val guardrail = getGuardrailPlugin()
         if (guardrail != null && PolicyGuardrailPlugin::class.java.name != plugin.javaClass.name) {
-            val policy = guardrail.evaluate(pluginId, input)
+            val policy = guardrail.evaluate(pluginId, request.rawInput)
             if (!policy.isSuccess) {
-                return PluginResult.error(
+                return PluginResponse.error(
                     policy.errorMessage,
                     System.currentTimeMillis() - startTime
                 )
@@ -200,7 +224,7 @@ class PluginManager private constructor() {
                 "blocked",
                 mapOf("reason" to autonomyDecision.reason)
             )
-            return PluginResult.error(
+            return PluginResponse.error(
                 "Blocked by runtime autonomy policy: ${autonomyDecision.reason}",
                 System.currentTimeMillis() - startTime
             )
@@ -208,11 +232,11 @@ class PluginManager private constructor() {
 
         // Layer 4: Execute plugin
         return try {
-            val result = plugin.execute(input)
+            val result = plugin.execute(request)
             val duration = System.currentTimeMillis() - startTime
 
             // Layer 5: Audit logging
-            auditLogger?.logPluginExecution(pluginId, input, result.isSuccess, duration)
+            auditLogger?.logPluginExecution(pluginId, request.rawInput, result.success, duration)
 
             Log.d(TAG, "Executed plugin ${plugin.name}: $result")
             result
@@ -220,9 +244,9 @@ class PluginManager private constructor() {
             val duration = System.currentTimeMillis() - startTime
             Log.e(TAG, "Plugin execution failed: ${plugin.name}", e)
 
-            auditLogger?.logPluginExecution(pluginId, input, false, duration)
+            auditLogger?.logPluginExecution(pluginId, request.rawInput, false, duration)
 
-            PluginResult.error("Execution failed: ${e.message}", duration)
+            PluginResponse.error("Execution failed: ${e.message}", duration)
         }
     }
 

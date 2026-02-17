@@ -33,42 +33,62 @@ class CommunicationHubPlugin : Plugin {
 
     override var isEnabled: Boolean = true
 
-    override fun execute(input: String): PluginResult {
+    override fun execute(request: PluginRequest): PluginResponse {
         val start = System.currentTimeMillis()
         return try {
-            if (TextUtils.isEmpty(input)) {
-                return PluginResult.error("No command provided", elapsed(start))
+            val command = request.command.trim().lowercase()
+            if (command.isEmpty()) {
+                return PluginResponse.error("No command provided", elapsed(start))
             }
-            val parts = input.split("\\|".toRegex(), 3)
-            val command = parts[0].trim().lowercase()
-
+            val legacy = if (request.rawInput.contains("|")) request.rawInput.split("|", limit = 3) else emptyList()
             when (command) {
                 "add_channel" -> {
-                    if (parts.size < 3) return PluginResult.error("Usage: add_channel|name|url", elapsed(start))
-                    preferences.edit().putString(parts[1].trim(), parts[2].trim()).apply()
-                    PluginResult.success("Added channel: ${parts[1].trim()}", elapsed(start))
+                    val name = request.args["name"] as? String ?: legacy.getOrNull(1)
+                    val url = request.args["url"] as? String ?: legacy.getOrNull(2)
+                    if (name.isNullOrBlank() || url.isNullOrBlank()) {
+                        return PluginResponse.error("Usage: add_channel|name|url", elapsed(start))
+                    }
+                    PluginRequestValidator.requireAllowedUri(
+                        url,
+                        allowedSchemes = setOf("https"),
+                        allowedHosts = emptySet()
+                    )?.let { return PluginResponse.error(it, elapsed(start)) }
+                    preferences.edit().putString(name.trim(), url.trim()).apply()
+                    PluginResponse.success("Added channel: ${name.trim()}", elapsed(start))
                 }
                 "remove_channel" -> {
-                    if (parts.size < 2) return PluginResult.error("Usage: remove_channel|name", elapsed(start))
-                    preferences.edit().remove(parts[1].trim()).apply()
-                    PluginResult.success("Removed channel: ${parts[1].trim()}", elapsed(start))
+                    val name = request.args["name"] as? String ?: legacy.getOrNull(1)
+                    if (name.isNullOrBlank()) return PluginResponse.error("Usage: remove_channel|name", elapsed(start))
+                    preferences.edit().remove(name.trim()).apply()
+                    PluginResponse.success("Removed channel: ${name.trim()}", elapsed(start))
                 }
-                "list_channels" -> PluginResult.success(preferences.all.keys.toString(), elapsed(start))
+                "list_channels" -> PluginResponse.success(preferences.all.keys.toString(), elapsed(start))
                 "send" -> {
-                    if (parts.size < 3) return PluginResult.error("Usage: send|name|message", elapsed(start))
-                    sendToChannel(parts[1].trim(), parts[2].trim(), start)
+                    val channelName = request.args["name"] as? String ?: legacy.getOrNull(1)
+                    val message = request.args["message"] as? String ?: legacy.getOrNull(2)
+                    if (channelName.isNullOrBlank() || message.isNullOrBlank()) {
+                        return PluginResponse.error("Usage: send|name|message", elapsed(start))
+                    }
+                    PluginRequestValidator.enforceSizeLimit(message, 4096, "message")?.let {
+                        return PluginResponse.error(it, elapsed(start))
+                    }
+                    sendToChannel(channelName.trim(), message, start)
                 }
-                else -> PluginResult.error("Unknown command: $command", elapsed(start))
+                else -> PluginResponse.error("Unknown command: $command", elapsed(start))
             }
         } catch (e: Exception) {
-            PluginResult.error("Communication hub failed: ${e.message}", elapsed(start))
+            PluginResponse.error("Communication hub failed: ${e.message}", elapsed(start))
         }
     }
 
-    private fun sendToChannel(channelName: String, message: String, start: Long): PluginResult {
+    override fun execute(input: String): PluginResult {
+        return execute(PluginRequest.fromLegacyInput(input)).toPluginResult()
+    }
+
+    private fun sendToChannel(channelName: String, message: String, start: Long): PluginResponse {
         val url = preferences.getString(channelName, null)
         if (TextUtils.isEmpty(url)) {
-            return PluginResult.error("Unknown channel: $channelName", elapsed(start))
+            return PluginResponse.error("Unknown channel: $channelName", elapsed(start))
         }
 
         val payload = JSONObject().apply {
@@ -77,7 +97,7 @@ class CommunicationHubPlugin : Plugin {
         }
 
         val response = postJson(url!!, payload.toString())
-        return PluginResult.success("Sent to $channelName: $response", elapsed(start))
+        return PluginResponse.success("Sent to $channelName: $response", elapsed(start))
     }
 
     private fun postJson(endpoint: String, body: String): String {

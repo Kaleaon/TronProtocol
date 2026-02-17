@@ -41,74 +41,59 @@ class FileManagerPlugin : Plugin {
 
     override var isEnabled: Boolean = true
 
-    override fun execute(input: String): PluginResult {
+    override fun execute(request: PluginRequest): PluginResponse {
         val startTime = System.currentTimeMillis()
-
         return try {
-            val parts = input.split("\\|".toRegex())
-            if (parts.isEmpty()) {
-                throw Exception("No command specified")
-            }
-
-            val command = parts[0].trim().lowercase()
+            val command = request.command.trim().lowercase()
+            val legacyParts = if (request.rawInput.contains("|")) request.rawInput.split("|") else emptyList()
             val result = when (command) {
                 "read" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    readFile(parts[1])
+                    val path = request.args["path"] as? String ?: legacyParts.getOrNull(1)
+                    if (path.isNullOrBlank()) throw Exception("Path required")
+                    readFile(path)
                 }
-                "write" -> {
-                    if (parts.size < 3) throw Exception("Path and content required")
-                    writeFile(parts[1], parts[2])
+                "write", "append" -> {
+                    val missing = PluginRequestValidator.requireFields(request, "path", "content")
+                    val path = request.args["path"] as? String ?: legacyParts.getOrNull(1)
+                    val content = request.args["content"] as? String ?: legacyParts.getOrNull(2)
+                    if (missing != null && (path == null || content == null)) throw Exception(missing)
+                    PluginRequestValidator.enforceSizeLimit(content ?: "", MAX_FILE_SIZE, "content")?.let { throw Exception(it) }
+                    if (command == "write") writeFile(path!!, content!!) else appendFile(path!!, content!!)
                 }
-                "append" -> {
-                    if (parts.size < 3) throw Exception("Path and content required")
-                    appendFile(parts[1], parts[2])
+                "create", "delete", "mkdir", "exists", "info" -> {
+                    val path = request.args["path"] as? String ?: legacyParts.getOrNull(1)
+                    if (path.isNullOrBlank()) throw Exception("Path required")
+                    when (command) {
+                        "create" -> createFile(path)
+                        "delete" -> deleteFile(path)
+                        "mkdir" -> createDirectory(path)
+                        "exists" -> checkExists(path)
+                        else -> getFileInfo(path)
+                    }
                 }
-                "create" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    createFile(parts[1])
-                }
-                "delete" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    deleteFile(parts[1])
-                }
-                "list" -> {
-                    val path = if (parts.size > 1) parts[1] else "."
-                    listFiles(path)
-                }
-                "mkdir" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    createDirectory(parts[1])
-                }
-                "move" -> {
-                    if (parts.size < 3) throw Exception("Source and destination required")
-                    moveFile(parts[1], parts[2])
-                }
-                "copy" -> {
-                    if (parts.size < 3) throw Exception("Source and destination required")
-                    copyFile(parts[1], parts[2])
-                }
-                "exists" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    checkExists(parts[1])
-                }
-                "info" -> {
-                    if (parts.size < 2) throw Exception("Path required")
-                    getFileInfo(parts[1])
+                "list" -> listFiles((request.args["path"] as? String) ?: legacyParts.getOrNull(1) ?: ".")
+                "move", "copy" -> {
+                    val from = request.args["from"] as? String ?: legacyParts.getOrNull(1)
+                    val to = request.args["to"] as? String ?: legacyParts.getOrNull(2)
+                    if (from.isNullOrBlank() || to.isNullOrBlank()) throw Exception("Source and destination required")
+                    if (command == "move") moveFile(from, to) else copyFile(from, to)
                 }
                 "search" -> {
-                    if (parts.size < 3) throw Exception("Directory and pattern required")
-                    searchFiles(parts[1], parts[2])
+                    val dir = request.args["directory"] as? String ?: legacyParts.getOrNull(1)
+                    val pattern = request.args["pattern"] as? String ?: legacyParts.getOrNull(2)
+                    if (dir.isNullOrBlank() || pattern.isNullOrBlank()) throw Exception("Directory and pattern required")
+                    searchFiles(dir, pattern)
                 }
                 else -> throw Exception("Unknown command: $command")
             }
-
-            val duration = System.currentTimeMillis() - startTime
-            PluginResult.success(result, duration)
+            PluginResponse.success(result, System.currentTimeMillis() - startTime)
         } catch (e: Exception) {
-            val duration = System.currentTimeMillis() - startTime
-            PluginResult.error("File operation failed: ${e.message}", duration)
+            PluginResponse.error("File operation failed: ${e.message}", System.currentTimeMillis() - startTime)
         }
+    }
+
+    override fun execute(input: String): PluginResult {
+        return execute(PluginRequest.fromLegacyInput(input)).toPluginResult()
     }
 
     /** Read file contents */
