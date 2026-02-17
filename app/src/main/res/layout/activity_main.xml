@@ -237,6 +237,20 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Open Ktheme theme designer" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnDownloadInitModel"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Download &amp; initialize LLM model" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnExportDebugLog"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Export debug log" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
