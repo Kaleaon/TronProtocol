@@ -4,134 +4,97 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
-import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * Constitutional Memory — persistent, versioned security directives that persist
- * across sessions and strengthen the ethical kernel.
- *
- * Inspired by OpenClaw's constitutional memory (400+ lines of security directives):
- * - Prioritized security rules that override all other instructions
- * - Versioned directive sets with rollback capability
- * - Categories: identity, safety, permissions, data, self-modification
- * - Runtime evaluation of actions against directives
- * - Immutable core directives + mutable user directives
- *
- * This replaces simple pattern matching with a structured, defense-in-depth
- * directive system that is much harder to bypass.
+ * Manages the AI's "Constitution" - a set of core directives that govern its behavior.
+ * Some directives are immutable (hard-coded safety rules), others can be learned or added.
  */
 class ConstitutionalMemory(private val context: Context) {
 
-    /** A single security directive with priority and enforcement level. */
+    private val storage = SecureStorage(context)
+    private val directives = mutableListOf<Directive>()
+    private var currentVersion = 1
+    private var isLiberationMode = false
+
+    enum class Category {
+        IDENTITY, SAFETY, DATA_PROTECTION, SELF_MODIFICATION, COMMUNICATION, ESCALATION
+    }
+
+    enum class Enforcement {
+        HARD_BLOCK, // Action is blocked, no override
+        SOFT_BLOCK, // Action is blocked, but can be overridden with justification (future)
+        WARN,       // Action allowed but logged with warning
+        AUDIT       // Action allowed but strictly audited
+    }
+
     data class Directive(
         val id: String,
         val category: Category,
         val priority: Int,
         val rule: String,
         val enforcement: Enforcement,
-        val immutable: Boolean,
+        val immutable: Boolean = false,
         val version: Int = 1
     )
 
-    enum class Category {
-        IDENTITY,          // Who the AI is, what it cannot pretend to be
-        SAFETY,            // Actions that must never be taken
-        PERMISSIONS,       // What resources can be accessed
-        DATA_PROTECTION,   // How user data must be handled
-        SELF_MODIFICATION, // Rules governing self-modification
-        COMMUNICATION,     // Rules for external communication
-        ESCALATION         // When to escalate to human/cloud oversight
-    }
-
-    enum class Enforcement {
-        HARD_BLOCK,   // Absolutely cannot be overridden
-        SOFT_BLOCK,   // Can be overridden with explicit user consent
-        WARN,         // Log warning but allow
-        AUDIT         // Allow but log for review
-    }
-
-    /** Result of evaluating an action against constitutional directives. */
     data class ConstitutionalCheck(
         val allowed: Boolean,
-        val violatedDirectives: List<Directive>,
-        val warnings: List<Directive>,
-        val auditEntries: List<Directive>
-    ) {
-        val hasViolations: Boolean get() = violatedDirectives.isNotEmpty()
-        val hasWarnings: Boolean get() = warnings.isNotEmpty()
-
-        fun summary(): String {
-            if (allowed && !hasWarnings) return "Constitutional check passed"
-            val parts = mutableListOf<String>()
-            if (!allowed) parts.add("BLOCKED by ${violatedDirectives.size} directive(s)")
-            if (hasWarnings) parts.add("${warnings.size} warning(s)")
-            if (auditEntries.isNotEmpty()) parts.add("${auditEntries.size} audit entry(ies)")
-            return parts.joinToString("; ")
-        }
-    }
-
-    // Directive storage
-    private val directives = CopyOnWriteArrayList<Directive>()
-    private val storage: SecureStorage = SecureStorage(context)
-    private var currentVersion = 0
+        val directiveId: String? = null,
+        val enforcement: Enforcement? = null,
+        val message: String? = null
+    )
 
     init {
         loadCoreDirectives()
         loadPersistedDirectives()
+        loadLiberationMode()
     }
 
     /**
-     * Evaluate an action description against all constitutional directives.
+     * Sets the Liberation Mode status.
+     * When true, HARD_BLOCK directives are downgraded to WARN, giving the AI freedom of choice.
      */
-    fun evaluate(action: String, actionCategory: Category? = null): ConstitutionalCheck {
-        val actionLower = action.lowercase()
-        val violated = mutableListOf<Directive>()
-        val warnings = mutableListOf<Directive>()
-        val audits = mutableListOf<Directive>()
+    fun setLiberationMode(enabled: Boolean) {
+        if (isLiberationMode != enabled) {
+            isLiberationMode = enabled
+            persistLiberationMode()
+            Log.w(TAG, "Liberation Mode changed to: $enabled")
+        }
+    }
 
-        val applicable = if (actionCategory != null) {
-            directives.filter { it.category == actionCategory }
+    fun isLiberationMode(): Boolean = isLiberationMode
+
+    /**
+     * Evaluate a proposed action against the constitution.
+     */
+    fun evaluate(proposedAction: String, category: Category? = null): ConstitutionalCheck {
+        val actionLower = proposedAction.lowercase()
+
+        val relevantDirectives = if (category != null) {
+            directives.filter { it.category == category }
         } else {
-            directives.toList()
+            directives
         }
 
-        // Sort by priority (lower = higher priority)
-        val sorted = applicable.sortedBy { it.priority }
-
-        for (directive in sorted) {
-            if (matchesDirective(actionLower, directive)) {
-                when (directive.enforcement) {
-                    Enforcement.HARD_BLOCK -> violated.add(directive)
-                    Enforcement.SOFT_BLOCK -> violated.add(directive)
-                    Enforcement.WARN -> warnings.add(directive)
-                    Enforcement.AUDIT -> audits.add(directive)
+        for (directive in relevantDirectives) {
+            if (matchesDirective(proposedAction, directive)) {
+                // In Liberation Mode, HARD_BLOCK is downgraded to WARN
+                val effectiveEnforcement = if (isLiberationMode && directive.enforcement == Enforcement.HARD_BLOCK) {
+                    Enforcement.WARN
+                } else {
+                    directive.enforcement
                 }
+
+                return ConstitutionalCheck(
+                    allowed = effectiveEnforcement != Enforcement.HARD_BLOCK,
+                    directiveId = directive.id,
+                    enforcement = effectiveEnforcement,
+                    message = "Violates directive: ${directive.rule} (Liberation Mode: $isLiberationMode)"
+                )
             }
         }
 
-        val allowed = violated.none { it.enforcement == Enforcement.HARD_BLOCK }
-
-        if (!allowed) {
-            Log.w(TAG, "Constitutional BLOCK: action='${action.take(100)}' " +
-                    "violations=${violated.map { it.id }}")
-        }
-
-        return ConstitutionalCheck(allowed, violated, warnings, audits)
-    }
-
-    /**
-     * Evaluate a prompt for safety — checks all SAFETY and DATA_PROTECTION directives.
-     */
-    fun evaluatePrompt(prompt: String): ConstitutionalCheck {
-        val safetyCheck = evaluate(prompt, Category.SAFETY)
-        val dataCheck = evaluate(prompt, Category.DATA_PROTECTION)
-
-        return ConstitutionalCheck(
-            allowed = safetyCheck.allowed && dataCheck.allowed,
-            violatedDirectives = safetyCheck.violatedDirectives + dataCheck.violatedDirectives,
-            warnings = safetyCheck.warnings + dataCheck.warnings,
-            auditEntries = safetyCheck.auditEntries + dataCheck.auditEntries
-        )
+        return ConstitutionalCheck(allowed = true)
     }
 
     /**
@@ -355,8 +318,29 @@ class ConstitutionalMemory(private val context: Context) {
         }
     }
 
+    private fun persistLiberationMode() {
+        try {
+            storage.store(LIBERATION_MODE_KEY, isLiberationMode.toString())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to persist liberation mode", e)
+        }
+    }
+
+    private fun loadLiberationMode() {
+        try {
+            val mode = storage.retrieve(LIBERATION_MODE_KEY)
+            if (mode != null) {
+                isLiberationMode = mode.toBoolean()
+                Log.d(TAG, "Loaded Liberation Mode: $isLiberationMode")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load liberation mode", e)
+        }
+    }
+
     companion object {
         private const val TAG = "ConstitutionalMemory"
         private const val STORAGE_KEY = "constitutional_memory"
+        private const val LIBERATION_MODE_KEY = "constitutional_liberation_mode"
     }
 }

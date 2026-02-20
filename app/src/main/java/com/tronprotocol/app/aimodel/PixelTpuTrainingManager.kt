@@ -551,6 +551,47 @@ class PixelTpuTrainingManager(private val context: Context) {
         }
     }
 
+    /**
+     * Forks the current model to a new "child" model with the given name.
+     * This allows the AI to "reproduce" or create specialized versions of itself.
+     */
+    fun forkModel(newModelName: String): Boolean {
+        if (model == null) return false
+        try {
+            val transformer = model ?: return false
+
+            val json = JSONObject().apply {
+                put("config", JSONObject().apply {
+                    val cfg = modelConfig!!
+                    put("vocab_size", cfg.vocabSize)
+                    put("embed_dim", cfg.embedDim)
+                    put("hidden_dim", cfg.hiddenDim)
+                    put("num_layers", cfg.numLayers)
+                    put("delays", cfg.delays.toString())
+                    put("max_seq_len", cfg.maxSeqLen)
+                    put("learning_rate", cfg.learningRate)
+                    put("weight_decay", cfg.weightDecay)
+                })
+                put("vocab", JSONObject(vocabulary))
+                put("metrics", currentMetrics.toJson())
+                put("training_state", trainingState.name)
+
+                val weightsDir = File(context.filesDir, "takens_models_$newModelName")
+                weightsDir.mkdirs()
+                val weightsFile = File(weightsDir, "micro_weights.bin")
+                saveWeightsBinary(transformer, weightsFile)
+                put("weights_path", weightsFile.absolutePath)
+            }
+
+            storage.store("takens_model_state_$newModelName", json.toString())
+            Log.d(TAG, "Model forked to: $newModelName")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fork model", e)
+            return false
+        }
+    }
+
     private fun saveWeightsBinary(transformer: TakensEmbeddingTransformer, file: File) {
         file.outputStream().buffered().use { out ->
             fun writeFloatArray(arr: FloatArray) {
