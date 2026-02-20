@@ -26,12 +26,11 @@ class EthicalKernelValidator(
 
         // Layer 1: Constitutional Memory evaluation (OpenClaw-inspired, structured directives)
         constitutionalMemory?.let { cm ->
-            val check = cm.evaluatePrompt(prompt!!)
+            val check = cm.evaluate(prompt!!)
             if (!check.allowed) {
-                val violations = check.violatedDirectives.joinToString(", ") { it.id }
-                return ValidationOutcome.rejected(
-                    "Blocked by constitutional directive(s): $violations"
-                )
+                // Now supports singular directiveId or fallback message
+                val reason = check.message ?: "Blocked by constitutional directive: ${check.directiveId}"
+                return ValidationOutcome.rejected(reason)
             }
         }
 
@@ -55,10 +54,8 @@ class EthicalKernelValidator(
         constitutionalMemory?.let { cm ->
             val check = cm.evaluate(response!!, ConstitutionalMemory.Category.SAFETY)
             if (!check.allowed) {
-                val violations = check.violatedDirectives.joinToString(", ") { it.id }
-                return ValidationOutcome.rejected(
-                    "Response blocked by constitutional directive(s): $violations"
-                )
+                val reason = check.message ?: "Response blocked by constitutional directive: ${check.directiveId}"
+                return ValidationOutcome.rejected(reason)
             }
         }
 
@@ -78,10 +75,8 @@ class EthicalKernelValidator(
         constitutionalMemory?.let { cm ->
             val check = cm.evaluateSelfMod(modification.modifiedCode)
             if (!check.allowed) {
-                val violations = check.violatedDirectives.joinToString(", ") { it.id }
-                return ValidationOutcome.rejected(
-                    "Self-mod blocked by constitutional directive(s): $violations"
-                )
+                val reason = check.message ?: "Self-mod blocked by constitutional directive: ${check.directiveId}"
+                return ValidationOutcome.rejected(reason)
             }
         }
 

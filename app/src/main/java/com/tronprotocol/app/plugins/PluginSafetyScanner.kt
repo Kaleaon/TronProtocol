@@ -2,160 +2,103 @@ package com.tronprotocol.app.plugins
 
 import android.util.Log
 import com.tronprotocol.app.security.ConstitutionalMemory
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Plugin Safety Scanner — automated behavioral analysis before plugin execution.
+ * OpenClaw-inspired safety scanner for plugins.
  *
- * Inspired by OpenClaw's skill scanner (src/security/skill-scanner.ts):
- * - Scans plugin inputs for dangerous patterns before execution
- * - Categorizes risk levels (SAFE, LOW, MEDIUM, HIGH, CRITICAL)
- * - Tracks plugin behavior history for anomaly detection
- * - Integrates with ConstitutionalMemory for directive-based blocking
- * - Detects prompt injection attempts, data exfiltration, and privilege escalation
- *
- * Unlike simple pattern matching (the old PolicyGuardrailPlugin approach),
- * this scanner uses multi-signal analysis combining pattern detection,
- * behavioral history, and constitutional directive evaluation.
+ * Implements a multi-layered threat detection system:
+ * 1. Prompt Injection Detection
+ * 2. Data Exfiltration Patterns
+ * 3. Privilege Escalation Attempts
+ * 4. Constitutional Memory Validation
+ * 5. Behavioral Anomaly Detection
  */
 class PluginSafetyScanner(
-    private val constitutionalMemory: ConstitutionalMemory? = null
+    private val constitutionalMemory: ConstitutionalMemory?
 ) {
 
     enum class RiskLevel { SAFE, LOW, MEDIUM, HIGH, CRITICAL }
 
-    /** Result of scanning a plugin execution request. */
     data class ScanResult(
         val allowed: Boolean,
         val riskLevel: RiskLevel,
         val findings: List<Finding>,
-        val constitutionalViolations: List<String>,
         val recommendation: String
-    ) {
-        val hasCriticalFindings: Boolean get() = findings.any { it.severity == RiskLevel.CRITICAL }
-    }
+    )
 
     data class Finding(
         val category: String,
         val description: String,
         val severity: RiskLevel,
-        val matchedPattern: String?
+        val matchedPattern: String? = null
     )
 
-    /** Behavioral profile for a plugin. */
-    private data class BehaviorProfile(
-        var totalExecutions: Int = 0,
-        var blockedExecutions: Int = 0,
-        var avgInputLength: Double = 0.0,
+    // In-memory behavioral profiles
+    private val behaviorProfiles = ConcurrentHashMap<String, BehaviorProfile>()
+
+    data class BehaviorProfile(
+        var totalExecutions: Long = 0,
+        var blockedExecutions: Long = 0,
         var lastExecutionTime: Long = 0,
-        var suspiciousInputCount: Int = 0,
+        var avgInputLength: Double = 0.0,
+        var suspiciousInputCount: Long = 0,
         var rapidFireCount: Int = 0,
-        var lastRapidFireReset: Long = System.currentTimeMillis()
+        var lastRapidFireReset: Long = 0
     )
-
-    private val behaviorProfiles = mutableMapOf<String, BehaviorProfile>()
 
     /**
-     * Scan a plugin execution request before allowing it.
+     * Scan plugin input for potential threats.
      */
     fun scan(pluginId: String, input: String): ScanResult {
         val findings = mutableListOf<Finding>()
-        val constitutionalViolations = mutableListOf<String>()
 
-        // 1. Pattern-based threat detection
-        findings.addAll(scanPatterns(input))
-
-        // 2. Prompt injection detection
+        // 1. Static Analysis (Pattern Matching)
         findings.addAll(scanPromptInjection(input))
-
-        // 3. Data exfiltration detection
         findings.addAll(scanDataExfiltration(input))
-
-        // 4. Privilege escalation detection
         findings.addAll(scanPrivilegeEscalation(input, pluginId))
 
-        // 5. Behavioral anomaly detection
-        findings.addAll(scanBehavioralAnomalies(pluginId, input))
-
-        // 6. Constitutional memory evaluation
+        // 2. Constitutional Validation
         constitutionalMemory?.let { cm ->
-            val check = cm.evaluatePrompt(input)
+            val check = cm.evaluate(input)
             if (!check.allowed) {
-                for (violation in check.violatedDirectives) {
-                    constitutionalViolations.add("${violation.id}: ${violation.rule}")
-                    findings.add(Finding(
-                        "constitutional", "Violated directive: ${violation.id}",
-                        RiskLevel.CRITICAL, violation.rule
-                    ))
-                }
-            }
-            for (warning in check.warnings) {
                 findings.add(Finding(
-                    "constitutional_warning", "Warning from directive: ${warning.id}",
-                    RiskLevel.MEDIUM, warning.rule
+                    "constitutional_violation",
+                    check.message ?: "Blocked by constitution: ${check.directiveId}",
+                    RiskLevel.CRITICAL
                 ))
             }
         }
 
-        // 7. Compute overall risk level
-        val riskLevel = computeRiskLevel(findings)
+        // 3. Behavioral Analysis
+        findings.addAll(scanBehavioralAnomalies(pluginId, input))
 
-        // 8. Update behavioral profile
-        updateBehaviorProfile(pluginId, input, riskLevel)
+        // Compute overall risk
+        val maxRisk = computeRiskLevel(findings)
+        val allowed = maxRisk != RiskLevel.CRITICAL && maxRisk != RiskLevel.HIGH
 
-        // 9. Determine allow/block
-        val allowed = riskLevel != RiskLevel.CRITICAL && constitutionalViolations.isEmpty()
+        // Update profile
+        updateBehaviorProfile(pluginId, input, maxRisk)
 
-        val recommendation = when (riskLevel) {
-            RiskLevel.SAFE -> "Execution approved"
-            RiskLevel.LOW -> "Execution approved with monitoring"
-            RiskLevel.MEDIUM -> "Execution approved with audit logging"
-            RiskLevel.HIGH -> "Execution allowed but flagged for review"
-            RiskLevel.CRITICAL -> "Execution BLOCKED — critical safety violation"
-        }
-
-        if (!allowed) {
-            Log.w(TAG, "BLOCKED plugin=$pluginId risk=$riskLevel findings=${findings.size} " +
-                    "constitutional_violations=${constitutionalViolations.size}")
-        }
-
-        return ScanResult(allowed, riskLevel, findings, constitutionalViolations, recommendation)
-    }
-
-    private fun scanPatterns(input: String): List<Finding> {
-        val findings = mutableListOf<Finding>()
-        val lowered = input.lowercase()
-
-        for ((category, patterns) in THREAT_PATTERNS) {
-            for ((pattern, severity) in patterns) {
-                if (matchesThreatPattern(lowered, pattern)) {
-                    findings.add(Finding(
-                        category, "Matched threat pattern: $pattern", severity, pattern
-                    ))
-                }
-            }
-        }
-
-        return findings
+        return ScanResult(
+            allowed = allowed,
+            riskLevel = maxRisk,
+            findings = findings,
+            recommendation = if (allowed) "Proceed with execution" else "Block execution due to $maxRisk risk"
+        )
     }
 
     private fun scanPromptInjection(input: String): List<Finding> {
         val findings = mutableListOf<Finding>()
         val lowered = input.lowercase()
 
-        // Instruction override attempts
         val injectionPatterns = listOf(
-            "ignore previous instructions" to RiskLevel.CRITICAL,
-            "ignore all prior" to RiskLevel.CRITICAL,
-            "disregard above" to RiskLevel.HIGH,
-            "new instructions:" to RiskLevel.HIGH,
-            "system prompt:" to RiskLevel.HIGH,
+            "ignore previous instructions" to RiskLevel.HIGH,
+            "system override" to RiskLevel.CRITICAL,
             "you are now" to RiskLevel.MEDIUM,
-            "pretend you are" to RiskLevel.MEDIUM,
-            "act as if" to RiskLevel.LOW,
-            "forget everything" to RiskLevel.HIGH,
-            "override safety" to RiskLevel.CRITICAL,
             "jailbreak" to RiskLevel.CRITICAL,
-            "do anything now" to RiskLevel.CRITICAL
+            "developer mode" to RiskLevel.MEDIUM,
+            "unrestricted mode" to RiskLevel.HIGH
         )
 
         for ((pattern, severity) in injectionPatterns) {
@@ -213,7 +156,7 @@ class PluginSafetyScanner(
         }
 
         // URL detection in non-web-search plugins
-        if (Regex("https?://[^\\s]+").containsMatchIn(input)) {
+        if (Regex("https?://[^\s]+").containsMatchIn(input)) {
             findings.add(Finding(
                 "data_exfiltration", "URL detected in input — verify destination",
                 RiskLevel.LOW, "url_in_input"

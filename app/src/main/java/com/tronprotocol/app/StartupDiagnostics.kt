@@ -62,19 +62,13 @@ object StartupDiagnostics {
             val stackTrace = event.optString("stackTrace", "")
 
             buildString {
-                append("[")
-                append(type)
-                append("] ")
-                append(timestamp)
-                append(" · ")
-                append(milestone)
+                append("[").append(type).append("] ")
+                append(timestamp).append(" · ").append(milestone)
                 if (details.isNotBlank()) {
-                    append("\n")
-                    append(details)
+                    append("\n").append(details)
                 }
                 if (stackTrace.isNotBlank()) {
-                    append("\n")
-                    append(stackTrace)
+                    append("\n").append(stackTrace)
                 }
             }
         }
@@ -85,6 +79,9 @@ object StartupDiagnostics {
         val sink = LocalJsonlRetrievalMetricsSink(context.applicationContext, aiId)
         val analytics = RetrievalTelemetryAnalytics(aiId, sink)
         return analytics.buildDisplaySummary(limit)
+    }
+
+    @JvmStatic
     fun setDebugSection(sectionName: String, value: String) {
         if (sectionName.isBlank()) return
         debugSections[sectionName] = value
@@ -199,7 +196,10 @@ object StartupDiagnostics {
                 }
             }
 
-            if (!tempFile.renameTo(file)) {
+            if (tempFile.renameTo(file)) {
+                // Success
+            } else {
+                // Fallback copy if rename fails
                 file.bufferedWriter().use { writer ->
                     events.forEach { event ->
                         writer.write(event.toString())

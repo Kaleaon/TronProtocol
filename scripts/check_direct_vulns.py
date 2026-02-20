@@ -61,7 +61,6 @@ def load_catalog() -> dict[str, str]:
                 else:
                     libs[re.sub(r"[-_.]+", ".", alias)] = module
                     libs[normalize_alias(alias)] = f"{module}:{versions[version_ref]}"
-                else:
                     libs[normalize_alias(alias)] = module
 
     return libs
