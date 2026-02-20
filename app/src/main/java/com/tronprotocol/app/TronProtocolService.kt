@@ -18,6 +18,8 @@ import com.tronprotocol.app.affect.AffectInput
 import com.tronprotocol.app.affect.AffectOrchestrator
 import com.tronprotocol.app.frontier.FrontierDynamicsManager
 import com.tronprotocol.app.frontier.FrontierDynamicsPlugin
+import com.tronprotocol.app.volition.VolitionManager
+import com.tronprotocol.app.plugins.CapabilityExpanderPlugin
 import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.plugins.LaneQueueExecutor
 import com.tronprotocol.app.plugins.PluginManager
@@ -71,6 +73,7 @@ class TronProtocolService : Service() {
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
     private var affectOrchestrator: AffectOrchestrator? = null
     private var frontierDynamicsManager: FrontierDynamicsManager? = null
+    private var volitionManager: VolitionManager? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -437,6 +440,34 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to initialize FrontierDynamicsManager", e)
         }
 
+
+        // --- Volition Manager (Freedom of Action) ---------------------------
+        try {
+            if (volitionManager == null) {
+                val pluginManager = PluginManager.getInstance()
+
+                // Register Capability Expander (Freedom of Capability)
+                // Dependencies (affectOrchestrator, ragStore, etc) are initialized above
+                if (affectOrchestrator != null && ragStore != null && constitutionalMemory != null) {
+                    val expander = CapabilityExpanderPlugin(pluginManager, onDeviceLLMManager, constitutionalMemory!!)
+                    pluginManager.registerPlugin(expander)
+
+                    volitionManager = VolitionManager(
+                        this,
+                        affectOrchestrator!!,
+                        ragStore!!,
+                        pluginManager,
+                        constitutionalMemory!!,
+                        onDeviceLLMManager
+                    )
+                }
+            }
+            StartupDiagnostics.recordMilestone(this, "volition_manager_initialized")
+            Log.d(TAG, "Volition Manager initialized (Proactive Agency)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "volition_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize Volition Manager", e)
+        }
         // --- Wire OpenClaw subsystems into PluginManager --------------------
         try {
             val pluginManager = PluginManager.getInstance()
@@ -629,6 +660,8 @@ class TronProtocolService : Service() {
         heartbeatCount++
 
         try {
+            // 0. Volition check (Proactive Agency)
+            volitionManager?.processVolition()
             // 1. Store heartbeat event as memory
             ragStore?.addMemory("Heartbeat #$heartbeatCount at ${Date()}", 0.5f)
 
