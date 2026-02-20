@@ -156,7 +156,7 @@ class PluginSafetyScanner(
         }
 
         // URL detection in non-web-search plugins
-        if (Regex("https?://[^\s]+").containsMatchIn(input)) {
+        if (Regex("https?://[^\\s]+").containsMatchIn(input)) {
             findings.add(Finding(
                 "data_exfiltration", "URL detected in input — verify destination",
                 RiskLevel.LOW, "url_in_input"
