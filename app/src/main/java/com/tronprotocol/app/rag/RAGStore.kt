@@ -614,12 +614,10 @@ class RAGStore @Throws(Exception::class) constructor(
 
         if (words.isEmpty()) return embedding
 
-        // IDF approximation: down-weight very common short words
-        val stopWords = setOf("the", "a", "an", "is", "it", "in", "on", "to", "of", "and", "or", "for", "at", "by")
-
+        // IDF approximation: down-weight very common short words using shared stop words set
         // Unigrams with multiple hashes for better distribution
         for (word in words) {
-            val weight = if (word in stopWords) 0.3f else 1.0f
+            val weight = if (word in STOP_WORDS) 0.3f else 1.0f
             val h1 = abs(word.hashCode())
             val h2 = abs(word.hashCode() * 31 + 17)
             val h3 = abs(word.hashCode() * 37 + 53)
@@ -759,6 +757,7 @@ class RAGStore @Throws(Exception::class) constructor(
 
     companion object {
         private const val TAG = "RAGStore"
+        private val STOP_WORDS = setOf("the", "a", "an", "is", "it", "in", "on", "to", "of", "and", "or", "for", "at", "by")
         private const val DEFAULT_TOP_K = 10
         private const val DEFAULT_LEARNING_RATE = 0.1f
         private const val MAX_CHUNK_SIZE = 512  // tokens

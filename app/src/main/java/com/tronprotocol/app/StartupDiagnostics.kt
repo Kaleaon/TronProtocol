@@ -15,6 +15,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 object StartupDiagnostics {
     private const val TAG = "StartupDiagnostics"
@@ -25,6 +26,7 @@ object StartupDiagnostics {
         .ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
         .withZone(ZoneId.systemDefault())
     private val debugSections = ConcurrentHashMap<String, String>()
+    private val eventCount = AtomicInteger(-1)
 
     @JvmStatic
     fun recordMilestone(context: Context, milestone: String, details: String = "") {
@@ -85,6 +87,8 @@ object StartupDiagnostics {
         val sink = LocalJsonlRetrievalMetricsSink(context.applicationContext, aiId)
         val analytics = RetrievalTelemetryAnalytics(aiId, sink)
         return analytics.buildDisplaySummary(limit)
+    }
+
     fun setDebugSection(sectionName: String, value: String) {
         if (sectionName.isBlank()) return
         debugSections[sectionName] = value
@@ -123,18 +127,34 @@ object StartupDiagnostics {
     private fun enqueueWrite(context: Context, event: JSONObject) {
         ioExecutor.execute {
             try {
-                val events = readEvents(context).toMutableList()
-                events.add(event)
-
-                val trimmed = if (events.size > MAX_EVENTS) {
-                    events.takeLast(MAX_EVENTS)
-                } else {
-                    events
+                val file = diagnosticsFile(context)
+                if (eventCount.get() == -1) {
+                    val count = if (file.exists()) {
+                        var c = 0
+                        file.forEachLine { if (it.isNotBlank()) c++ }
+                        c
+                    } else {
+                        0
+                    }
+                    eventCount.set(count)
                 }
 
-                persistEvents(context, trimmed)
+                file.appendText(event.toString() + "\n")
+                val currentCount = eventCount.incrementAndGet()
+
+                if (currentCount >= MAX_EVENTS * 2) {
+                    val events = readEvents(context)
+                    if (events.size > MAX_EVENTS) {
+                        val trimmed = events.takeLast(MAX_EVENTS)
+                        persistEvents(context, trimmed)
+                        eventCount.set(trimmed.size)
+                    } else {
+                        eventCount.set(events.size)
+                    }
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to persist diagnostics event", t)
+                eventCount.set(-1)
             }
         }
     }
