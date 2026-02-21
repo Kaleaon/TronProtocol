@@ -108,8 +108,11 @@ class AnthropicApiClient(
         synchronized(rateLock) {
             var now = System.currentTimeMillis()
 
-            while (requestTimes.isNotEmpty() && now - requestTimes.peekFirst() > 60000) {
+            while (requestTimes.isNotEmpty()) {
+                val oldest = requestTimes.peekFirst() ?: break
+                if (now - oldest <= 60000) break
                 requestTimes.pollFirst()
+                now = System.currentTimeMillis()
             }
 
             if (requestTimes.size >= maxRequestsPerMinute) {

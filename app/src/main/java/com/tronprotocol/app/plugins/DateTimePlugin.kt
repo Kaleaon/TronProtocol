@@ -115,7 +115,7 @@ class DateTimePlugin : Plugin {
         }
 
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val targetDate = sdf.parse(parts[1])
+        val targetDate = requireNotNull(sdf.parse(parts[1])) { "Invalid date: ${parts[1]}" }
         val now = Date()
 
         val diffMs = targetDate.time - now.time
