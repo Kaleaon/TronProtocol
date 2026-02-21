@@ -122,11 +122,11 @@ class PolicyGuardrailPlugin : Plugin {
     }
 
     private fun getDeniedPlugins(): MutableSet<String> =
-        HashSet(preferences.getStringSet(KEY_DENIED, HashSet<String>()))
+        HashSet(preferences.getStringSet(KEY_DENIED, emptySet()) ?: emptySet())
 
     private fun getBlockedPatterns(): MutableSet<String> {
         val defaults = hashSetOf("rm -rf", "drop table", "format /", "shutdown")
-        return HashSet(preferences.getStringSet(KEY_BLOCKED_PATTERNS, defaults))
+        return HashSet(preferences.getStringSet(KEY_BLOCKED_PATTERNS, defaults) ?: defaults)
     }
 
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start

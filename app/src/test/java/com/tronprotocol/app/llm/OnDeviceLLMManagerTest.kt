@@ -3,10 +3,13 @@ package com.tronprotocol.app.llm
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import java.io.File
 import java.util.UUID
 
+@RunWith(RobolectricTestRunner::class)
 class OnDeviceLLMManagerTest {
 
     @Test
