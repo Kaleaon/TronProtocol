@@ -1,0 +1,11 @@
+{
+  "snapshotId": "legacy_snap_01",
+  "aiId": "legacy-ai",
+  "createdAtMs": 1711111111111,
+  "ragChunksJson": "[{\"chunkId\":\"legacy\"}]",
+  "emotionalHistoryJson": "[{\"emotion\":\"CALM\"}]",
+  "personalityTraitsJson": "{\"resilience\":0.8}",
+  "consolidationStatsJson": "{\"total\":9}",
+  "constitutionalMemoryJson": "{\"policy\":\"v1\"}",
+  "snapshotNotes": "migrated from legacy fixture"
+}
