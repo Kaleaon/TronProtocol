@@ -31,7 +31,11 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.ktheme.core.ThemeEngine
 import com.ktheme.utils.ColorUtils
+import com.tronprotocol.app.llm.ModelCatalog
+import com.tronprotocol.app.llm.ModelDownloadManager
+import com.tronprotocol.app.llm.ModelRepository
 import com.tronprotocol.app.llm.OnDeviceLLMManager
+import com.tronprotocol.app.plugins.OnDeviceLLMPlugin
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
 import java.time.Instant
@@ -52,6 +56,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messageShareStatusText: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var llmManager: OnDeviceLLMManager
+    private var downloadManager: ModelDownloadManager? = null
+    private var modelRepository: ModelRepository? = null
+    private lateinit var modelHubStatusText: TextView
     private val llmSetupExecutor = Executors.newSingleThreadExecutor()
 
     private var activePermissionRequest: PermissionFeature? = null
@@ -188,6 +195,9 @@ class MainActivity : AppCompatActivity() {
         messageFormatText = findViewById(R.id.messageFormatText)
         messageShareStatusText = findViewById(R.id.messageShareStatusText)
         messageShareStatusText.text = "Ready to share docs, pictures, music, and links with AI."
+        modelHubStatusText = findViewById(R.id.modelHubStatusText)
+        downloadManager = ModelDownloadManager(this)
+        modelRepository = ModelRepository(this)
 
         runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
@@ -207,6 +217,7 @@ class MainActivity : AppCompatActivity() {
         runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
         refreshStartupStateBadge()
         refreshDiagnosticsPanel()
+        runStartupBlock("refresh_model_hub") { refreshModelHubCard() }
     }
 
     override fun onStart() {
@@ -252,6 +263,7 @@ class MainActivity : AppCompatActivity() {
             listOf(
                 R.id.headerCard,
                 R.id.conversationCard,
+                R.id.modelHubCard,
                 R.id.actionCard,
                 R.id.messageCard,
                 R.id.pluginManagementCard,
@@ -270,6 +282,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.conversationTranscriptText,
                 R.id.messageFormatText,
                 R.id.messageShareStatusText,
+                R.id.modelHubStatusText,
             ).forEach { textId ->
                 findViewById<TextView>(textId).setTextColor(onSurface)
             }
@@ -424,6 +437,23 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnDownloadInitModel).setOnClickListener {
             promptModelDownloadAndInit()
+        }
+
+        // Model Hub buttons
+        findViewById<MaterialButton>(R.id.btnModelBrowse).setOnClickListener {
+            showModelCatalogDialog()
+        }
+
+        findViewById<MaterialButton>(R.id.btnModelSelect).setOnClickListener {
+            showDownloadedModelsDialog()
+        }
+
+        findViewById<MaterialButton>(R.id.btnModelRecommend).setOnClickListener {
+            showModelRecommendation()
+        }
+
+        findViewById<MaterialButton>(R.id.btnModelStatus).setOnClickListener {
+            showModelStatus()
         }
 
         findViewById<MaterialButton>(R.id.btnExportDebugLog).setOnClickListener {
@@ -732,6 +762,457 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ---- Model Hub ----
+
+    private fun refreshModelHubCard() {
+        val repo = modelRepository ?: return
+        val dm = downloadManager ?: return
+        val downloaded = repo.getAvailableModels()
+        val selectedModel = repo.getSelectedModel()
+
+        val selectedContainer = findViewById<LinearLayout>(R.id.modelSelectedContainer)
+        val selectedNameText = findViewById<TextView>(R.id.modelSelectedNameText)
+        val selectedDetailsText = findViewById<TextView>(R.id.modelSelectedDetailsText)
+
+        if (selectedModel != null) {
+            selectedContainer.visibility = android.view.View.VISIBLE
+            selectedNameText.text = selectedModel.name
+            selectedDetailsText.text = buildString {
+                append("${selectedModel.family} | ${selectedModel.parameterCount} | ${selectedModel.quantization}")
+                append(" | ${selectedModel.diskUsageMb} MB on disk")
+            }
+            modelHubStatusText.text = "Selected: ${selectedModel.name} | ${downloaded.size} model(s) on device"
+        } else if (downloaded.isNotEmpty()) {
+            selectedContainer.visibility = android.view.View.GONE
+            modelHubStatusText.text = "${downloaded.size} model(s) available. Select one for inference."
+        } else {
+            selectedContainer.visibility = android.view.View.GONE
+            modelHubStatusText.text = "No models downloaded. Browse the catalog to get started."
+        }
+    }
+
+    private fun showModelCatalogDialog() {
+        val dm = downloadManager ?: return
+        val entries = ModelCatalog.entries
+        val cap = llmManager.assessDevice()
+
+        val items = entries.map { entry ->
+            val downloaded = dm.isModelDownloaded(entry.id)
+            val fits = entry.ramRequirement.minRamMb <= cap.availableRamMb
+            val status = when {
+                downloaded -> "[Downloaded]"
+                !fits -> "[Needs more RAM]"
+                else -> "[${entry.sizeMb} MB]"
+            }
+            "$status ${entry.name} (${entry.parameterCount}, ${entry.quantization})"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Model Catalog (${entries.size} models)")
+            .setItems(items) { _, which ->
+                val entry = entries[which]
+                showCatalogEntryDialog(entry)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showCatalogEntryDialog(entry: ModelCatalog.CatalogEntry) {
+        val dm = downloadManager ?: return
+        val downloaded = dm.isModelDownloaded(entry.id)
+
+        val message = buildString {
+            append("${entry.description}\n\n")
+            append("Family: ${entry.family}\n")
+            append("Parameters: ${entry.parameterCount}\n")
+            append("Quantization: ${entry.quantization}\n")
+            append("Size: ${entry.sizeMb} MB\n")
+            append("Context: ${entry.contextWindow} tokens\n")
+            append("RAM: ${entry.ramRequirement.minRamMb} MB min, ${entry.ramRequirement.recommendedRamMb} MB recommended\n")
+            append("GPU: ${if (entry.supportsGpu) "Yes" else "No"}\n")
+            append("Source: ${entry.source}\n")
+            if (downloaded) append("\nStatus: Downloaded")
+        }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle(entry.name)
+            .setMessage(message)
+
+        if (downloaded) {
+            builder.setPositiveButton("Select") { _, _ ->
+                selectAndLoadModel(entry.id)
+            }
+            builder.setNeutralButton("Delete") { _, _ ->
+                confirmDeleteModel(entry.id, entry.name)
+            }
+        } else {
+            builder.setPositiveButton("Download") { _, _ ->
+                startModelDownload(entry)
+            }
+        }
+
+        builder.setNegativeButton("Close", null)
+        builder.show()
+    }
+
+    private fun showDownloadedModelsDialog() {
+        val repo = modelRepository ?: return
+        val models = repo.getAvailableModels()
+        val selectedId = repo.getSelectedModelId()
+
+        if (models.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("My Models")
+                .setMessage("No models downloaded yet. Use 'Browse Models' to download one.")
+                .setPositiveButton("Browse") { _, _ -> showModelCatalogDialog() }
+                .setNegativeButton("Close", null)
+                .show()
+            return
+        }
+
+        val items = models.map { model ->
+            val isSelected = model.id == selectedId
+            val marker = if (isSelected) " [Active]" else ""
+            "${model.name}$marker (${model.parameterCount}, ${model.diskUsageMb} MB)"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("My Models (${models.size})")
+            .setItems(items) { _, which ->
+                val model = models[which]
+                showDownloadedModelDialog(model)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showDownloadedModelDialog(model: ModelRepository.AvailableModel) {
+        val repo = modelRepository ?: return
+        val isSelected = model.id == repo.getSelectedModelId()
+        val config = repo.getModelConfig(model.id)
+
+        val message = buildString {
+            append("Family: ${model.family}\n")
+            append("Parameters: ${model.parameterCount}\n")
+            append("Quantization: ${model.quantization}\n")
+            append("Disk usage: ${model.diskUsageMb} MB\n")
+            append("Context: ${model.contextWindow} tokens\n")
+            append("Source: ${model.source}\n")
+            append("Path: ${model.directory.absolutePath}\n")
+            if (isSelected) append("\nCurrently selected for inference")
+            if (config != null) {
+                append("\n\nCustom config: temp=${config.temperature}, " +
+                        "tokens=${config.maxTokens}, threads=${config.threadCount}")
+            }
+        }
+
+        val items = mutableListOf<String>()
+        if (!isSelected) items.add("Select for inference")
+        items.add("Configure")
+        items.add("Delete")
+
+        AlertDialog.Builder(this)
+            .setTitle(model.name)
+            .setMessage(message)
+            .setItems(items.toTypedArray()) { _, which ->
+                val adjustedIndex = if (isSelected) which + 1 else which
+                when (adjustedIndex) {
+                    0 -> selectAndLoadModel(model.id)
+                    1 -> showModelConfigDialog(model)
+                    2 -> confirmDeleteModel(model.id, model.name)
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showModelRecommendation() {
+        val cap = llmManager.assessDevice()
+        val recommended = ModelCatalog.recommendForDevice(cap.availableRamMb)
+        val dm = downloadManager
+
+        val message = buildString {
+            append("Device RAM: ${cap.availableRamMb} MB available / ${cap.totalRamMb} MB total\n")
+            append("SoC: ${ModelCatalog.DeviceSocInfo.getDeviceSoc()}\n\n")
+
+            if (recommended != null) {
+                val downloaded = dm?.isModelDownloaded(recommended.id) == true
+                append("Recommended: ${recommended.name}\n")
+                append("${recommended.parameterCount} params, ${recommended.quantization} quantization\n")
+                append("${recommended.sizeMb} MB download\n")
+                append("${recommended.description}\n")
+                if (downloaded) {
+                    append("\nThis model is already downloaded.")
+                }
+            } else {
+                append("No model recommended for this device (insufficient RAM).\n")
+                append("Minimum requirement: 2 GB available RAM.")
+            }
+        }
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle("Model Recommendation")
+            .setMessage(message)
+
+        if (recommended != null) {
+            val downloaded = dm?.isModelDownloaded(recommended.id) == true
+            if (downloaded) {
+                builder.setPositiveButton("Select") { _, _ ->
+                    selectAndLoadModel(recommended.id)
+                }
+            } else {
+                builder.setPositiveButton("Download") { _, _ ->
+                    startModelDownload(recommended)
+                }
+            }
+        }
+
+        builder.setNegativeButton("Close", null)
+        builder.show()
+    }
+
+    private fun showModelStatus() {
+        val repo = modelRepository
+        val dm = downloadManager
+        val cap = llmManager.assessDevice()
+        val hfToken = dm?.getHuggingFaceToken()
+
+        val message = buildString {
+            append("=== On-Device LLM Status ===\n\n")
+            append("MNN Libraries: ${if (OnDeviceLLMManager.isNativeAvailable()) "Installed" else "Not installed"}\n")
+            append("Catalog: ${ModelCatalog.entries.size} models\n")
+
+            if (repo != null) {
+                val downloaded = repo.getAvailableModels()
+                append("Downloaded: ${downloaded.size} model(s)\n")
+                val selected = repo.getSelectedModel()
+                if (selected != null) {
+                    append("Selected: ${selected.name}\n")
+                }
+                val totalDiskMb = downloaded.sumOf { it.diskUsageBytes } / (1024 * 1024)
+                append("Disk usage: $totalDiskMb MB\n")
+            }
+
+            append("HF Token: ${if (hfToken != null) "Set (${hfToken.take(8)}...)" else "Not set"}\n")
+
+            append("\n=== Device ===\n")
+            append("RAM: ${cap.availableRamMb}/${cap.totalRamMb} MB\n")
+            append("CPU: ${cap.cpuArch}\n")
+            append("ARM64: ${cap.supportsArm64}\n")
+            append("FP16: ${cap.supportsFp16}\n")
+            append("GPU: ${cap.hasGpu}\n")
+            append("Threads: ${cap.recommendedThreads}\n")
+            append("Can run LLM: ${cap.canRunLLM}\n")
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Model Hub Status")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .setNeutralButton("HF Token") { _, _ ->
+                showHfTokenDialog()
+            }
+            .show()
+    }
+
+    private fun showHfTokenDialog() {
+        val dm = downloadManager ?: return
+        val currentToken = dm.getHuggingFaceToken()
+
+        val input = EditText(this).apply {
+            hint = "hf_xxxxxxxxxxxx"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            if (currentToken != null) setText(currentToken)
+            setPadding(40, 20, 40, 0)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("HuggingFace API Token")
+            .setMessage("Set your HuggingFace token to download gated models.\n" +
+                    "Get one at: huggingface.co/settings/tokens")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val token = input.text?.toString()?.trim()
+                dm.setHuggingFaceToken(if (token.isNullOrBlank()) null else token)
+                showPermissionMessage(if (token.isNullOrBlank()) "HF token cleared" else "HF token saved")
+            }
+            .setNeutralButton("Clear") { _, _ ->
+                dm.setHuggingFaceToken(null)
+                showPermissionMessage("HF token cleared")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showModelConfigDialog(model: ModelRepository.AvailableModel) {
+        val repo = modelRepository ?: return
+        val config = repo.getModelConfig(model.id) ?: ModelRepository.ModelConfigOverrides()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 20, 40, 0)
+        }
+
+        val maxTokensInput = EditText(this).apply {
+            hint = "Max tokens (default: 512)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(config.maxTokens.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Max Tokens:" })
+        layout.addView(maxTokensInput)
+
+        val tempInput = EditText(this).apply {
+            hint = "Temperature (default: 0.7)"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(config.temperature.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Temperature:" })
+        layout.addView(tempInput)
+
+        val topPInput = EditText(this).apply {
+            hint = "Top-P (default: 0.9)"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(config.topP.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Top-P:" })
+        layout.addView(topPInput)
+
+        val threadsInput = EditText(this).apply {
+            hint = "Thread count (default: 4)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(config.threadCount.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Threads:" })
+        layout.addView(threadsInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Configure: ${model.name}")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val newConfig = ModelRepository.ModelConfigOverrides(
+                    maxTokens = maxTokensInput.text.toString().toIntOrNull() ?: 512,
+                    temperature = tempInput.text.toString().toFloatOrNull() ?: 0.7f,
+                    topP = topPInput.text.toString().toFloatOrNull() ?: 0.9f,
+                    threadCount = threadsInput.text.toString().toIntOrNull() ?: 4,
+                    backend = config.backend,
+                    useMmap = config.useMmap
+                )
+                repo.setModelConfig(model.id, newConfig)
+                showPermissionMessage("Configuration saved for ${model.name}")
+            }
+            .setNeutralButton("Reset") { _, _ ->
+                repo.removeModelConfig(model.id)
+                showPermissionMessage("Configuration reset to defaults for ${model.name}")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun startModelDownload(entry: ModelCatalog.CatalogEntry) {
+        val dm = downloadManager ?: return
+
+        val progressContainer = findViewById<LinearLayout>(R.id.modelDownloadProgressContainer)
+        val progressBar = findViewById<android.widget.ProgressBar>(R.id.modelDownloadProgressBar)
+        val downloadStatusText = findViewById<TextView>(R.id.modelDownloadStatusText)
+
+        progressContainer.visibility = android.view.View.VISIBLE
+        downloadStatusText.text = "Starting download: ${entry.name}..."
+        progressBar.progress = 0
+
+        showPermissionMessage("Downloading ${entry.name} (${entry.sizeMb} MB)...")
+
+        val started = dm.downloadModel(entry) { progress ->
+            runOnUiThread {
+                when (progress.state) {
+                    ModelDownloadManager.DownloadState.DOWNLOADING -> {
+                        progressBar.progress = progress.progressPercent
+                        val speedMb = progress.speedBytesPerSec / (1024f * 1024f)
+                        val downloadedMb = progress.downloadedBytes / (1024f * 1024f)
+                        val totalMb = progress.totalBytes / (1024f * 1024f)
+                        downloadStatusText.text = String.format(
+                            "Downloading %s: %.1f / %.1f MB (%.1f MB/s)",
+                            entry.name, downloadedMb, totalMb, speedMb
+                        )
+                    }
+                    ModelDownloadManager.DownloadState.EXTRACTING -> {
+                        downloadStatusText.text = "Extracting ${entry.name}..."
+                        progressBar.isIndeterminate = true
+                    }
+                    ModelDownloadManager.DownloadState.COMPLETED -> {
+                        progressContainer.visibility = android.view.View.GONE
+                        progressBar.isIndeterminate = false
+                        showPermissionMessage("Download complete: ${entry.name}")
+                        refreshModelHubCard()
+                    }
+                    ModelDownloadManager.DownloadState.ERROR -> {
+                        progressContainer.visibility = android.view.View.GONE
+                        progressBar.isIndeterminate = false
+                        showPermissionMessage("Download failed: ${progress.errorMessage ?: "Unknown error"}")
+                    }
+                    ModelDownloadManager.DownloadState.CANCELLED -> {
+                        progressContainer.visibility = android.view.View.GONE
+                        progressBar.isIndeterminate = false
+                    }
+                    else -> { }
+                }
+            }
+        }
+
+        if (!started) {
+            progressContainer.visibility = android.view.View.GONE
+            showPermissionMessage("Download already in progress for ${entry.name}")
+        }
+    }
+
+    private fun selectAndLoadModel(modelId: String) {
+        val repo = modelRepository ?: return
+        repo.setSelectedModelId(modelId)
+        refreshModelHubCard()
+
+        val model = repo.getSelectedModel()
+        if (model != null) {
+            showPermissionMessage("Selected: ${model.name}")
+
+            if (OnDeviceLLMManager.isNativeAvailable()) {
+                llmSetupExecutor.execute {
+                    try {
+                        val config = llmManager.createConfigFromDirectory(model.directory)
+                        val loaded = llmManager.loadModel(config)
+                        runOnUiThread {
+                            if (loaded) {
+                                showPermissionMessage("Loaded: ${model.name} (${config.backendName})")
+                            } else {
+                                showPermissionMessage("Selected ${model.name} but failed to load model")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            showPermissionMessage("Selected ${model.name} but error loading: ${e.message}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun confirmDeleteModel(modelId: String, modelName: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete model")
+            .setMessage("Delete '$modelName' from device? This cannot be undone.")
+            .setPositiveButton("Delete") { _, _ ->
+                downloadManager?.deleteModel(modelId)
+                modelRepository?.removeImportedModel(modelId)
+                val repo = modelRepository
+                if (repo?.getSelectedModelId() == modelId) {
+                    repo.setSelectedModelId(null)
+                }
+                refreshModelHubCard()
+                showPermissionMessage("Deleted: $modelName")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun exportDebugLog() {
         llmSetupExecutor.execute {
             val llmStats = llmManager.getStats().entries.joinToString(separator = "\n") { (key, value) ->
@@ -828,6 +1309,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
         llmSetupExecutor.shutdownNow()
         llmManager.shutdown()
+        downloadManager?.shutdown()
     }
 
     companion object {
