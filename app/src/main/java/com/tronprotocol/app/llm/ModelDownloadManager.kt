@@ -100,12 +100,10 @@ class ModelDownloadManager(context: Context) {
         entry: ModelCatalog.CatalogEntry,
         listener: DownloadListener? = null
     ): Boolean {
-        if (activeDownloads.containsKey(entry.id)) {
-            val existing = activeDownloads[entry.id]!!
-            if (!existing.cancelled.get() && !existing.paused.get()) {
-                Log.w(TAG, "Download already active for ${entry.id}")
-                return false
-            }
+        val existing = activeDownloads[entry.id]
+        if (existing != null && !existing.cancelled.get() && !existing.paused.get()) {
+            Log.w(TAG, "Download already active for ${entry.id}")
+            return false
         }
 
         val task = DownloadTask(entry.id, entry, listener)

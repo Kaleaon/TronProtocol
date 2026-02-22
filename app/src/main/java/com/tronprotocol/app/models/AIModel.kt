@@ -31,7 +31,7 @@ class AIModel(
 
     private fun formatSize(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
-        val exp = (ln(bytes.toDouble()) / ln(1024.0)).toInt()
+        val exp = (ln(bytes.toDouble()) / ln(1024.0)).toInt().coerceIn(1, 6)
         val pre = "${"KMGTPE"[exp - 1]}B"
         return String.format("%.1f %s", bytes / 1024.0.pow(exp.toDouble()), pre)
     }

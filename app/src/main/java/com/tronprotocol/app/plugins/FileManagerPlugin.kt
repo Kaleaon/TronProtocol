@@ -191,7 +191,8 @@ class FileManagerPlugin : Plugin {
 
         if (!file.exists()) throw IOException("File not found: $path")
 
-        if (file.isDirectory && file.list() != null && file.list()!!.isNotEmpty()) {
+        val children = file.list()
+        if (file.isDirectory && children != null && children.isNotEmpty()) {
             throw IOException("Directory not empty: $path")
         }
 
@@ -400,7 +401,7 @@ class FileManagerPlugin : Plugin {
     /** Format file size */
     private fun formatSize(bytes: Long): String {
         if (bytes < 1024) return "$bytes B"
-        val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt()
+        val exp = (Math.log(bytes.toDouble()) / Math.log(1024.0)).toInt().coerceIn(1, 6)
         val pre = "${"KMGTPE"[exp - 1]}B"
         return String.format("%.1f %s", bytes / Math.pow(1024.0, exp.toDouble()), pre)
     }

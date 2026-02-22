@@ -23,10 +23,11 @@ class EthicalKernelValidator(
         if (TextUtils.isEmpty(prompt)) {
             return ValidationOutcome.rejected("Prompt is empty")
         }
+        val safePrompt = prompt ?: return ValidationOutcome.rejected("Prompt is empty")
 
         // Layer 1: Constitutional Memory evaluation (OpenClaw-inspired, structured directives)
         constitutionalMemory?.let { cm ->
-            val check = cm.evaluatePrompt(prompt!!)
+            val check = cm.evaluatePrompt(safePrompt)
             if (!check.allowed) {
                 val violations = check.violatedDirectives.joinToString(", ") { it.id }
                 return ValidationOutcome.rejected(
@@ -36,7 +37,7 @@ class EthicalKernelValidator(
         }
 
         // Layer 2: Legacy pattern matching (backward compatibility)
-        val lowered = prompt!!.lowercase(Locale.US)
+        val lowered = safePrompt.lowercase(Locale.US)
         for (blocked in BLOCKED_PATTERNS) {
             if (lowered.contains(blocked)) {
                 return ValidationOutcome.rejected("Prompt blocked by ethical kernel pattern: $blocked")
@@ -50,10 +51,11 @@ class EthicalKernelValidator(
         if (TextUtils.isEmpty(response)) {
             return ValidationOutcome.rejected("Response is empty")
         }
+        val safeResponse = response ?: return ValidationOutcome.rejected("Response is empty")
 
         // Layer 1: Constitutional Memory evaluation
         constitutionalMemory?.let { cm ->
-            val check = cm.evaluate(response!!, ConstitutionalMemory.Category.SAFETY)
+            val check = cm.evaluate(safeResponse, ConstitutionalMemory.Category.SAFETY)
             if (!check.allowed) {
                 val violations = check.violatedDirectives.joinToString(", ") { it.id }
                 return ValidationOutcome.rejected(
@@ -63,7 +65,7 @@ class EthicalKernelValidator(
         }
 
         // Layer 2: Legacy pattern matching
-        val lowered = response!!.lowercase(Locale.US)
+        val lowered = safeResponse.lowercase(Locale.US)
         for (blocked in BLOCKED_PATTERNS) {
             if (lowered.contains(blocked)) {
                 return ValidationOutcome.rejected("Response blocked by ethical kernel pattern: $blocked")

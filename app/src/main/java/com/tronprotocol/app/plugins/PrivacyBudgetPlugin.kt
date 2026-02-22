@@ -146,10 +146,11 @@ class PrivacyBudgetPlugin : Plugin {
         addHistory(category, amount, reason, blocked = false)
         save()
 
-        val newRemaining = budget - spending[category]!!
+        val currentSpent = spending[category] ?: 0.0
+        val newRemaining = budget - currentSpent
         val thresholdPct = alertThresholds[category]
         val alertMsg = if (thresholdPct != null) {
-            val usedPct = ((spending[category]!! / budget) * 100).toInt()
+            val usedPct = ((currentSpent / budget) * 100).toInt()
             if (usedPct >= thresholdPct) {
                 " ALERT: ${usedPct}% of budget used (threshold: ${thresholdPct}%)."
             } else ""

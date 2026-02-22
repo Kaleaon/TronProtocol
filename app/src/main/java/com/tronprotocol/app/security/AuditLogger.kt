@@ -67,7 +67,7 @@ class AuditLogger(private val context: Context) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id)
             put("timestamp", timestamp)
-            put("datetime", ISO_FORMAT.get()!!.format(Date(timestamp)))
+            put("datetime", ISO_FORMAT.get().format(Date(timestamp)))
             put("severity", severity.name)
             put("category", category.name)
             put("actor", actor)
@@ -209,7 +209,7 @@ class AuditLogger(private val context: Context) {
             details = mapOf(
                 "plugin_id" to pluginId,
                 "missing_capability" to missingCapability,
-                "timestamp" to ISO_FORMAT.get()!!.format(Date())
+                "timestamp" to ISO_FORMAT.get().format(Date())
             )
         )
     }

@@ -6,6 +6,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import kotlin.math.abs
 
 /**
  * DateTime Plugin.
@@ -123,8 +124,8 @@ class DateTimePlugin : Plugin {
         var diffHours = (diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)
 
         val direction = if (diffMs >= 0) "from now" else "ago"
-        diffDays = Math.abs(diffDays)
-        diffHours = Math.abs(diffHours)
+        diffDays = abs(diffDays)
+        diffHours = abs(diffHours)
 
         return "$diffDays days and $diffHours hours $direction"
     }
