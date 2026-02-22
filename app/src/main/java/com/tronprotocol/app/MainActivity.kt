@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import java.io.File
 import android.os.Bundle
 import android.os.Environment
 import android.os.PowerManager
@@ -118,10 +119,18 @@ class MainActivity : AppCompatActivity() {
         ),
         STORAGE(
             title = "Storage",
-            permissions = arrayOf(
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ),
+            permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_IMAGES,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_AUDIO
+                )
+            } else {
+                arrayOf(
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+                )
+            },
             rationale = "Storage permission is required to read, save, and organize files requested by the user.",
             deniedGuidance = "File operations are unavailable. Grant Storage permissions (and All Files access on Android 11+)."
         ),
@@ -161,6 +170,14 @@ class MainActivity : AppCompatActivity() {
             updatePermissionUi()
             refreshStartupStateBadge()
             refreshDiagnosticsPanel()
+
+            // If notification permission was just granted, start the service now
+            if (feature == PermissionFeature.NOTIFICATIONS && denied.isEmpty()) {
+                runStartupBlock("start_service_after_notification_grant") {
+                    startTronProtocolService()
+                }
+                refreshStartupStateBadge()
+            }
         }
 
     private val shareDocumentLauncher =
@@ -175,6 +192,12 @@ class MainActivity : AppCompatActivity() {
             val formatted = formatShareMessage(type.name, displayName, uri.toString(), NOTE_SHARED_FROM_DEVICE_PICKER)
             messageShareStatusText.text = formatted
             showPermissionMessage("Shared ${type.name.lowercase()} context with AI message format.")
+        }
+
+    private val personalityImportLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            handlePersonalityImport(uri)
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,7 +237,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
-        runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
+
+        // Only start the service if notification permission is already granted.
+        // On Android 13+ the first launch will request POST_NOTIFICATIONS via
+        // requestInitialAccess() and start the service in the permission callback.
+        if (canStartForegroundService()) {
+            runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
+        } else {
+            Log.i(TAG, "Deferring service start until POST_NOTIFICATIONS is granted")
+        }
         refreshStartupStateBadge()
         refreshDiagnosticsPanel()
         runStartupBlock("refresh_model_hub") { refreshModelHubCard() }
@@ -439,6 +470,16 @@ class MainActivity : AppCompatActivity() {
             promptModelDownloadAndInit()
         }
 
+        findViewById<MaterialButton>(R.id.btnImportPersonality).setOnClickListener {
+            personalityImportLauncher.launch(arrayOf(
+                "application/json",
+                "text/plain",
+                "text/markdown",
+                "text/csv",
+                "*/*"
+            ))
+        }
+
         // Model Hub buttons
         findViewById<MaterialButton>(R.id.btnModelBrowse).setOnClickListener {
             showModelCatalogDialog()
@@ -539,8 +580,26 @@ class MainActivity : AppCompatActivity() {
     private fun pluginPreferenceKey(pluginId: String): String = "plugin_enabled_$pluginId"
 
     private fun requestInitialAccess() {
-        showPermissionMessage("Permissions are requested on demand when you use telephony, SMS, contacts, location, storage, or notification features.")
         updatePermissionUi()
+
+        // On Android 13+ the foreground service REQUIRES POST_NOTIFICATIONS.
+        // Request it immediately so the service can start without crashing.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val notifPerms = PermissionFeature.NOTIFICATIONS.permissions
+            val missing = notifPerms.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                activePermissionRequest = PermissionFeature.NOTIFICATIONS
+                permissionLauncher.launch(missing.toTypedArray())
+                showPermissionMessage("Notification permission is required for the background service to run.")
+                return
+            }
+        }
+
+        // On older Android versions (or if notification permission is already granted),
+        // just display guidance. Other permissions are requested on demand.
+        showPermissionMessage("Notifications enabled. Other permissions are requested on demand when you use telephony, SMS, contacts, location, or storage features.")
     }
 
     private fun executeFeatureWithPermissions(feature: PermissionFeature, onGranted: () -> Unit) {
@@ -681,6 +740,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        if (!canStartForegroundService()) {
+            Log.i(TAG, "Deferred service start skipped — POST_NOTIFICATIONS not granted yet")
+            return
+        }
+
         try {
             startTronProtocolService()
             prefs.edit().putBoolean(BootReceiver.DEFERRED_SERVICE_START_KEY, false).apply()
@@ -689,6 +753,19 @@ class MainActivity : AppCompatActivity() {
             StartupDiagnostics.recordError(this, "deferred_service_start_failed", t)
             Log.w(TAG, "Deferred service start failed", t)
         }
+    }
+
+    /**
+     * Check whether the foreground service can be started right now.
+     * On Android 13+ this requires POST_NOTIFICATIONS to be granted.
+     */
+    private fun canStartForegroundService(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            return ContextCompat.checkSelfPermission(
+                this, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        }
+        return true
     }
 
     private fun startTronProtocolService() {
@@ -1220,6 +1297,48 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    private fun handlePersonalityImport(uri: Uri) {
+        llmSetupExecutor.execute {
+            try {
+                // Copy the URI content to a temp file so the plugin can read it
+                val displayName = resolveDisplayName(uri) ?: "import_file"
+                val tempFile = File(cacheDir, "personality_import_$displayName")
+                contentResolver.openInputStream(uri)?.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: run {
+                    runOnUiThread { showPermissionMessage("Failed to read file.") }
+                    return@execute
+                }
+
+                val manager = PluginManager.getInstance()
+                val plugin = manager.getPlugin("personality_import")
+                if (plugin == null) {
+                    runOnUiThread { showPermissionMessage("Personality Import plugin not available.") }
+                    tempFile.delete()
+                    return@execute
+                }
+
+                val result = plugin.execute("import|${tempFile.absolutePath}")
+                tempFile.delete()
+
+                runOnUiThread {
+                    if (result.isSuccess) {
+                        showPermissionMessage("Import successful!")
+                        messageShareStatusText.text = result.data ?: "Import completed"
+                    } else {
+                        showPermissionMessage("Import failed: ${result.errorMessage}")
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    showPermissionMessage("Import error: ${e.message}")
+                }
+            }
+        }
     }
 
     private fun exportDebugLog() {

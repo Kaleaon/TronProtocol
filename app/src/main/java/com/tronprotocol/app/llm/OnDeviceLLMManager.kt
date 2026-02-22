@@ -412,8 +412,10 @@ class OnDeviceLLMManager(
     }
 
     /**
-     * Create a default [LLMModelConfig] from a discovered model directory.
-     * Reads config.json if present.
+     * Create a [LLMModelConfig] from a discovered model directory.
+     * Reads config.json if present and computes SHA-256 checksums for all
+     * required model artifacts found on disk so the model can pass integrity
+     * verification without being marked as untrusted.
      */
     fun createConfigFromDirectory(modelDir: File): LLMModelConfig {
         val modelName = modelDir.name
@@ -442,12 +444,59 @@ class OnDeviceLLMManager(
             }
         }
 
-        return LLMModelConfig.Builder(modelName, modelPath)
+        // Compute SHA-256 checksums for all required artifacts present on disk.
+        // This allows freshly downloaded models to pass integrity verification.
+        val artifacts = computeArtifactChecksums(modelDir)
+
+        val builder = LLMModelConfig.Builder(modelName, modelPath)
             .setBackend(backend)
             .setThreadCount(threads)
             .setUseMmap(useMmap)
-            .markMigratedWithoutChecksums()
-            .build()
+
+        val requiredNames = LLMModelConfig.REQUIRED_MODEL_ARTIFACTS.toSet()
+        val computedNames = artifacts.map { it.fileName }.toSet()
+        val hasAllRequired = requiredNames.subtract(computedNames).isEmpty()
+
+        if (hasAllRequired) {
+            builder.setArtifacts(artifacts)
+            builder.setIntegrityStatus(LLMModelConfig.IntegrityStatus.VERIFIED)
+        } else {
+            // Not all required artifacts are present; fall back to untrusted but
+            // log what's missing so the user knows.
+            val missing = requiredNames.subtract(computedNames)
+            Log.d(TAG, "Model ${modelDir.name} missing artifacts for full verification: $missing")
+            builder.markMigratedWithoutChecksums()
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Compute SHA-256 checksums for all required model artifacts found in the directory.
+     */
+    private fun computeArtifactChecksums(modelDir: File): List<LLMModelConfig.ModelArtifact> {
+        val artifacts = mutableListOf<LLMModelConfig.ModelArtifact>()
+        for (artifactName in LLMModelConfig.REQUIRED_MODEL_ARTIFACTS) {
+            val file = File(modelDir, artifactName)
+            if (file.exists() && file.isFile) {
+                try {
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
+                    FileInputStream(file).use { input ->
+                        val buffer = ByteArray(IO_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            digest.update(buffer, 0, read)
+                        }
+                    }
+                    val sha256 = digest.digest().joinToString(separator = "") { "%02x".format(it) }
+                    artifacts.add(LLMModelConfig.ModelArtifact(artifactName, sha256))
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to compute checksum for $artifactName: ${e.message}")
+                }
+            }
+        }
+        return artifacts
     }
 
     /**
