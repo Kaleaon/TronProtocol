@@ -7,7 +7,7 @@ import org.json.JSONObject
  * after crashes, reinstalls, or model upgrades.
  */
 object ContinuitySnapshotCodec {
-    private const val SCHEMA_VERSION = 1
+    private const val CURRENT_SCHEMA_VERSION = 2
 
     data class ContinuitySnapshot(
         val snapshotId: String,
@@ -21,9 +21,17 @@ object ContinuitySnapshotCodec {
         val notes: String?
     )
 
+    data class DecodeResult(
+        val snapshot: ContinuitySnapshot,
+        val schemaVersion: Int,
+        val wasMigrated: Boolean,
+        val migrationPath: String,
+        val normalizedPayload: String
+    )
+
     fun encode(snapshot: ContinuitySnapshot): String {
         return JSONObject().apply {
-            put("schemaVersion", SCHEMA_VERSION)
+            put("schemaVersion", CURRENT_SCHEMA_VERSION)
             put("snapshotId", snapshot.snapshotId)
             put("aiId", snapshot.aiId)
             put("createdAtMs", snapshot.createdAtMs)
@@ -37,18 +45,22 @@ object ContinuitySnapshotCodec {
     }
 
     fun decode(data: String): ContinuitySnapshot? {
+        return decodeWithMigration(data)?.snapshot
+    }
+
+    fun decodeWithMigration(data: String): DecodeResult? {
         return try {
-            val obj = JSONObject(data)
-            ContinuitySnapshot(
-                snapshotId = obj.optString("snapshotId", ""),
-                aiId = obj.optString("aiId", ""),
-                createdAtMs = obj.optLong("createdAtMs", 0L),
-                ragChunksJson = obj.optNullableString("ragChunksJson"),
-                emotionalHistoryJson = obj.optNullableString("emotionalHistoryJson"),
-                personalityTraitsJson = obj.optNullableString("personalityTraitsJson"),
-                consolidationStatsJson = obj.optNullableString("consolidationStatsJson"),
-                constitutionalMemoryJson = obj.optNullableString("constitutionalMemoryJson"),
-                notes = obj.optNullableString("notes")
+            val rawObject = JSONObject(data)
+            val sourceVersion = detectSchemaVersion(rawObject)
+            val migratedObject = migrateToCurrentSchema(rawObject, sourceVersion) ?: return null
+            val snapshot = parseSnapshot(migratedObject) ?: return null
+
+            DecodeResult(
+                snapshot = snapshot,
+                schemaVersion = CURRENT_SCHEMA_VERSION,
+                wasMigrated = sourceVersion != CURRENT_SCHEMA_VERSION,
+                migrationPath = "v$sourceVersion->v$CURRENT_SCHEMA_VERSION",
+                normalizedPayload = encode(snapshot)
             )
         } catch (_: Exception) {
             null
@@ -66,6 +78,66 @@ object ContinuitySnapshotCodec {
     private fun JSONObject.optNullableString(key: String): String? {
         if (!has(key) || isNull(key)) return null
         return getString(key)
+    }
+
+    private fun detectSchemaVersion(obj: JSONObject): Int {
+        val explicitVersion = obj.optInt("schemaVersion", -1)
+        if (explicitVersion > 0) return explicitVersion
+        return 1
+    }
+
+    private fun migrateToCurrentSchema(obj: JSONObject, sourceVersion: Int): JSONObject? {
+        if (sourceVersion <= 0 || sourceVersion > CURRENT_SCHEMA_VERSION) {
+            return null
+        }
+
+        var migrated = JSONObject(obj.toString())
+        var currentVersion = sourceVersion
+
+        while (currentVersion < CURRENT_SCHEMA_VERSION) {
+            migrated = when (currentVersion) {
+                1 -> migrateV1ToV2(migrated)
+                else -> return null
+            }
+            currentVersion += 1
+        }
+
+        migrated.put("schemaVersion", CURRENT_SCHEMA_VERSION)
+        return migrated
+    }
+
+    private fun migrateV1ToV2(v1: JSONObject): JSONObject {
+        val migrated = JSONObject(v1.toString())
+        migrated.put("schemaVersion", 2)
+        if (migrated.has("snapshotNotes") && !migrated.has("notes")) {
+            migrated.put("notes", migrated.optString("snapshotNotes"))
+        }
+        if (!migrated.has("notes")) {
+            migrated.put("notes", JSONObject.NULL)
+        }
+        return migrated
+    }
+
+    private fun parseSnapshot(obj: JSONObject): ContinuitySnapshot? {
+        val snapshotId = sanitizeIdentifier(obj.optString("snapshotId", ""), "")
+        val aiId = sanitizeIdentifier(obj.optString("aiId", ""), "")
+        val createdAtMs = obj.optLong("createdAtMs", 0L)
+
+        if (snapshotId.isBlank() || aiId.isBlank() || createdAtMs <= 0L) {
+            return null
+        }
+
+        return ContinuitySnapshot(
+            snapshotId = snapshotId,
+            aiId = aiId,
+            createdAtMs = createdAtMs,
+            ragChunksJson = obj.optNullableString("ragChunksJson"),
+            emotionalHistoryJson = obj.optNullableString("emotionalHistoryJson"),
+            personalityTraitsJson = obj.optNullableString("personalityTraitsJson"),
+            consolidationStatsJson = obj.optNullableString("consolidationStatsJson"),
+            constitutionalMemoryJson = obj.optNullableString("constitutionalMemoryJson"),
+            notes = obj.optNullableString("notes")
+        )
     }
 
     private const val MAX_IDENTIFIER_LENGTH = 64
