@@ -31,6 +31,13 @@ object PluginRegistry {
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25, setOf(Capability.MODEL_EXECUTION)) { FrontierDynamicsPlugin() },
         PluginConfig("takens_training", TakensTrainingPlugin::class.java, true, 145, setOf(Capability.MODEL_EXECUTION)) { TakensTrainingPlugin() },
         PluginConfig("continuity_bridge", ContinuityBridgePlugin::class.java, true, 146, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { ContinuityBridgePlugin() },
+        // ── TronProtocol Pixel 10 Spec: new systems ──
+        PluginConfig("phylactery", PhylacteryPlugin::class.java, true, 12, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PhylacteryPlugin() },
+        PluginConfig("inference_router", InferenceRouterPlugin::class.java, true, 16, setOf(Capability.MODEL_EXECUTION, Capability.NETWORK_OUTBOUND)) { InferenceRouterPlugin() },
+        PluginConfig("drift_detector", DriftDetectorPlugin::class.java, true, 147, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { DriftDetectorPlugin() },
+        PluginConfig("wisdom_log", WisdomLogPlugin::class.java, true, 148, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { WisdomLogPlugin() },
+        PluginConfig("hedonic", HedonicPlugin::class.java, true, 149, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { HedonicPlugin() },
+        PluginConfig("nct", NCTPlugin::class.java, true, 150, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE, Capability.MODEL_EXECUTION)) { NCTPlugin() },
     )
 
     val defaultCapabilitiesByPluginId: Map<String, Set<Capability>>

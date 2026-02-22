@@ -126,6 +126,34 @@ enum class AffectDimension(
         minValue = 0.0f,
         maxValue = 1.0f,
         description = "Internal conflict to unified state"
+    ),
+
+    /**
+     * Sense of control / agency. Part of the extended PAD model (Pleasure-Arousal-Dominance).
+     * Low = helpless/submissive. High = in control/agentic.
+     */
+    DOMINANCE(
+        key = "dominance",
+        inertia = 0.55f,
+        decayRate = 0.025f,
+        baseline = 0.5f,
+        minValue = 0.0f,
+        maxValue = 1.0f,
+        description = "Helpless/submissive to in control/agentic"
+    ),
+
+    /**
+     * Alignment with values / ethical congruence.
+     * Low = acting against own values. High = fully aligned with ethical kernel.
+     */
+    INTEGRITY(
+        key = "integrity",
+        inertia = 0.8f,
+        decayRate = 0.01f,
+        baseline = 0.8f,
+        minValue = 0.0f,
+        maxValue = 1.0f,
+        description = "Acting against own values to fully aligned with ethical kernel"
     );
 
     companion object {

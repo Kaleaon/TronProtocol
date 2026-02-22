@@ -44,12 +44,20 @@ class MotorNoise {
         VOICE_PITCH("voice_pitch", 0.8f),
         VOICE_TEMPO("voice_tempo", 0.6f),
         VOICE_VOLUME("voice_volume", 0.5f),
-        EAR_SERVOS("ear_servos", 0.7f),
-        TAIL_RHYTHM("tail_rhythm", 0.75f),
-        LIMB_CONTROL("limb_control", 0.4f),
-        SPINE_POSTURE("spine_posture", 0.5f),
-        BREATHING("breathing", 0.65f),
-        EYE_TRACKING("eye_tracking", 0.55f);
+        EAR_SERVOS("ear_servos", 0.9f),
+        TAIL_RHYTHM("tail_rhythm", 0.85f),
+        LIMB_CONTROL("limb_control", 0.7f),
+        SPINE_POSTURE("spine_posture", 0.65f),
+        BREATHING("breathing", 0.75f),
+        EYE_TRACKING("eye_tracking", 0.5f),
+        /** Thermal flush: ears, face, chest intensify heat under arousal. */
+        THERMAL_FLUSH("thermal_flush", 0.9f),
+        /** Fiber optic fur glow: erratic brightness proportional to arousal. */
+        FUR_GLOW("fur_glow", 0.6f),
+        /** Facial expression: muzzle composure breaks under affect load. */
+        FACIAL_EXPRESSION("facial_expression", 0.55f),
+        /** Grip/paw tension: paws clench, grip tightens under arousal. */
+        GRIP_PAW_TENSION("grip_paw_tension", 0.7f);
     }
 
     /**
@@ -100,17 +108,24 @@ class MotorNoise {
      * the mesh like a physical tremor.
      */
     private fun applyCrossChannelCorrelation(noise: MutableMap<MotorChannel, Float>) {
-        // Simple adjacency: voice channels correlate; body channels correlate.
+        // Simple adjacency: voice channels correlate; body channels correlate;
+        // autonomic channels correlate (thermal, breathing, fur).
         val voiceChannels = listOf(
             MotorChannel.VOICE_PITCH, MotorChannel.VOICE_TEMPO, MotorChannel.VOICE_VOLUME
         )
         val bodyChannels = listOf(
             MotorChannel.EAR_SERVOS, MotorChannel.TAIL_RHYTHM,
-            MotorChannel.LIMB_CONTROL, MotorChannel.SPINE_POSTURE
+            MotorChannel.LIMB_CONTROL, MotorChannel.SPINE_POSTURE,
+            MotorChannel.GRIP_PAW_TENSION
+        )
+        val autonomicChannels = listOf(
+            MotorChannel.THERMAL_FLUSH, MotorChannel.BREATHING,
+            MotorChannel.FUR_GLOW, MotorChannel.FACIAL_EXPRESSION
         )
 
         propagateWithinGroup(noise, voiceChannels)
         propagateWithinGroup(noise, bodyChannels)
+        propagateWithinGroup(noise, autonomicChannels)
     }
 
     private fun propagateWithinGroup(
@@ -157,12 +172,16 @@ class MotorNoise {
         MotorChannel.VOICE_PITCH -> "pitch_breaks_and_wobble"
         MotorChannel.VOICE_TEMPO -> "unplanned_pauses_rushed_segments"
         MotorChannel.VOICE_VOLUME -> "sudden_drops_or_spikes"
-        MotorChannel.EAR_SERVOS -> "micro_twitches_asymmetric"
-        MotorChannel.TAIL_RHYTHM -> "pattern_breaks_tremor"
+        MotorChannel.EAR_SERVOS -> "ears_pin_flat_tremble_flick"
+        MotorChannel.TAIL_RHYTHM -> "tail_rigid_arches_curls"
         MotorChannel.LIMB_CONTROL -> "grip_fluctuation_jitter"
-        MotorChannel.SPINE_POSTURE -> "shuddering_trembling"
-        MotorChannel.BREATHING -> "held_breath_sudden_exhale"
-        MotorChannel.EYE_TRACKING -> "loss_of_lock_rapid_blink"
+        MotorChannel.SPINE_POSTURE -> "back_arches_into_contact"
+        MotorChannel.BREATHING -> "accelerates_becomes_irregular"
+        MotorChannel.EYE_TRACKING -> "eyes_unfocus_pupils_dilate"
+        MotorChannel.THERMAL_FLUSH -> "ears_face_chest_intense_heat"
+        MotorChannel.FUR_GLOW -> "entire_body_flares_bright"
+        MotorChannel.FACIAL_EXPRESSION -> "muzzle_breaks_composure"
+        MotorChannel.GRIP_PAW_TENSION -> "paws_clench_grip_locks"
     }
 
     private fun describeMediumNoise(ch: MotorChannel): String = when (ch) {
@@ -175,6 +194,10 @@ class MotorNoise {
         MotorChannel.SPINE_POSTURE -> "micro_adjustments"
         MotorChannel.BREATHING -> "slight_irregularity"
         MotorChannel.EYE_TRACKING -> "momentary_drift"
+        MotorChannel.THERMAL_FLUSH -> "progressive_warming"
+        MotorChannel.FUR_GLOW -> "rippling_wave_patterns"
+        MotorChannel.FACIAL_EXPRESSION -> "softening_features"
+        MotorChannel.GRIP_PAW_TENSION -> "intermittent_squeeze"
     }
 
     private fun describeLowNoise(ch: MotorChannel): String = when (ch) {
@@ -187,6 +210,10 @@ class MotorNoise {
         MotorChannel.SPINE_POSTURE -> "barely_visible_shift"
         MotorChannel.BREATHING -> "subtle_catch"
         MotorChannel.EYE_TRACKING -> "brief_refocus"
+        MotorChannel.THERMAL_FLUSH -> "faint_warmth"
+        MotorChannel.FUR_GLOW -> "gentle_luminance_shift"
+        MotorChannel.FACIAL_EXPRESSION -> "slight_softening"
+        MotorChannel.GRIP_PAW_TENSION -> "minimal_tightening"
     }
 
     // ---- Result data --------------------------------------------------------
