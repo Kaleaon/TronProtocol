@@ -28,7 +28,7 @@ import java.util.UUID
  */
 class MnxWriter(output: OutputStream) {
 
-    private val dos = DataOutputStream(output)
+    val dos = DataOutputStream(output)
 
     /** Bytes written so far. */
     val bytesWritten: Long get() = dos.size().toLong()
@@ -166,7 +166,7 @@ class MnxWriter(output: OutputStream) {
  */
 class MnxReader(input: InputStream) {
 
-    private val dis = DataInputStream(input)
+    val dis = DataInputStream(input)
 
     // ---- Primitives ---------------------------------------------------------
 
