@@ -128,25 +128,33 @@ class ScriptingRuntimePlugin : Plugin {
 
     private fun evalMath(expression: String): Double {
         // Delegate to simple parser (similar to SandboxedCodeExecutionPlugin)
-        var pos = -1
-        var ch = 0
-        val s = expression
+        return MathExpressionParser(expression).parse()
+    }
 
-        fun nextChar() { ch = if (++pos < s.length) s[pos].code else -1 }
-        fun eat(c: Int): Boolean {
+    private class MathExpressionParser(private val s: String) {
+        private var pos = -1
+        private var ch = 0
+
+        fun parse(): Double {
+            nextChar()
+            return parseExpression()
+        }
+
+        private fun nextChar() { ch = if (++pos < s.length) s[pos].code else -1 }
+        private fun eat(c: Int): Boolean {
             while (ch == ' '.code) nextChar()
             if (ch == c) { nextChar(); return true }
             return false
         }
-        fun parseExpression(): Double {
+        private fun parseExpression(): Double {
             var x = parseTerm()
             while (true) when { eat('+'.code) -> x += parseTerm(); eat('-'.code) -> x -= parseTerm(); else -> return x }
         }
-        fun parseTerm(): Double {
+        private fun parseTerm(): Double {
             var x = parseFactor()
             while (true) when { eat('*'.code) -> x *= parseFactor(); eat('/'.code) -> x /= parseFactor(); else -> return x }
         }
-        fun parseFactor(): Double {
+        private fun parseFactor(): Double {
             if (eat('+'.code)) return parseFactor()
             if (eat('-'.code)) return -parseFactor()
             val sp = pos
@@ -157,9 +165,6 @@ class ScriptingRuntimePlugin : Plugin {
             }
             throw RuntimeException("Unexpected: ${ch.toChar()}")
         }
-
-        nextChar()
-        return parseExpression()
     }
 
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start

@@ -212,7 +212,7 @@ class BenchmarkSuitePlugin : Plugin {
         }
 
         return try {
-            val pluginManager = PluginManager.getInstance(appContext)
+            val pluginManager = PluginManager.getInstance()
             val plugin = pluginManager.getPlugin(pluginId)
 
             if (plugin == null) {
@@ -238,10 +238,10 @@ class BenchmarkSuitePlugin : Plugin {
                     }
 
                 result.apply {
-                    put("passed", matches && execResult.success)
+                    put("passed", matches && execResult.isSuccess)
                     put("actual_output", outputData.take(500))
                     put("execution_time_ms", execResult.executionTimeMs)
-                    put("plugin_success", execResult.success)
+                    put("plugin_success", execResult.isSuccess)
                     put("pattern_match", matches)
                 }
             }
