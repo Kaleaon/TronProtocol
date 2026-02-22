@@ -5,4 +5,5 @@
     <string name="skipped_plugins_message">Some plugins could not be initialized: %1$s</string>
     <string name="service_status_waiting_reason">Waiting for service startup diagnostics</string>
     <string name="service_status_format">Service status: %1$s\n%2$s</string>
+    <string name="accessibility_service_description">TronProtocol screen reader for AI context awareness. Reads on-screen text to understand what you are doing and provide proactive assistance.</string>
 </resources>
