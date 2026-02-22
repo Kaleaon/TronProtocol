@@ -6,6 +6,7 @@ import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -34,8 +35,8 @@ class AffectEngine(private val context: Context) {
     /** The live affect state — only mutated inside the tick. */
     private val state = AffectState()
 
-    /** Pending inputs accumulated between ticks. */
-    private val pendingInputs = CopyOnWriteArrayList<AffectInput>()
+    /** Pending inputs accumulated between ticks. Bounded to prevent memory leak. */
+    private val pendingInputs = LinkedBlockingQueue<AffectInput>(MAX_PENDING_INPUTS)
 
     /** Recent input source labels for logging. */
     private val recentSources = CopyOnWriteArrayList<String>()
@@ -61,16 +62,23 @@ class AffectEngine(private val context: Context) {
      */
     fun start() {
         if (!running.compareAndSet(false, true)) return
-        loadState()
-        tickScheduler = Executors.newSingleThreadScheduledExecutor().also { scheduler ->
-            scheduler.scheduleAtFixedRate(
-                { runTick() },
-                0L,
-                TICK_INTERVAL_MS,
-                TimeUnit.MILLISECONDS
-            )
+        try {
+            loadState()
+            tickScheduler = Executors.newSingleThreadScheduledExecutor().also { scheduler ->
+                scheduler.scheduleAtFixedRate(
+                    { runTick() },
+                    0L,
+                    TICK_INTERVAL_MS,
+                    TimeUnit.MILLISECONDS
+                )
+            }
+            Log.d(TAG, "AffectEngine started (${TICK_INTERVAL_MS}ms tick)")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start AffectEngine", e)
+            running.set(false)
+            tickScheduler?.shutdownNow()
+            tickScheduler = null
         }
-        Log.d(TAG, "AffectEngine started (${TICK_INTERVAL_MS}ms tick)")
     }
 
     /**
@@ -90,9 +98,15 @@ class AffectEngine(private val context: Context) {
 
     /**
      * Submit an affect input. Inputs are queued and applied on the next tick.
+     * If the queue is full, the oldest input is dropped to make room.
      */
     fun submitInput(input: AffectInput) {
-        pendingInputs.add(input)
+        if (!pendingInputs.offer(input)) {
+            // Queue is full — drop oldest and retry
+            pendingInputs.poll()
+            pendingInputs.offer(input)
+            Log.w(TAG, "Affect input queue full, dropped oldest input")
+        }
     }
 
     /**
@@ -180,6 +194,7 @@ class AffectEngine(private val context: Context) {
     private fun applyPendingInputs(dtSeconds: Float) {
         val inputs = mutableListOf<AffectInput>()
         pendingInputs.drainTo(inputs)
+        if (inputs.isEmpty()) return
 
         for (input in inputs) {
             // Track sources for logging / ImmutableAffectLog.
@@ -232,14 +247,6 @@ class AffectEngine(private val context: Context) {
                 state[AffectDimension.VALENCE] -
                         LONGING_VALENCE_RATE * longingFactor * rate
         }
-    }
-
-    // ---- Extension: drain helper for CopyOnWriteArrayList -------------------
-
-    private fun <T> CopyOnWriteArrayList<T>.drainTo(dest: MutableList<T>) {
-        val snapshot = this.toList()
-        this.removeAll(snapshot.toSet())
-        dest.addAll(snapshot)
     }
 
     // ---- Persistence --------------------------------------------------------
@@ -314,6 +321,9 @@ class AffectEngine(private val context: Context) {
 
         /** Maximum recent source entries kept in memory. */
         private const val MAX_RECENT_SOURCES = 20
+
+        /** Maximum queued affect inputs before oldest are dropped. */
+        private const val MAX_PENDING_INPUTS = 500
 
         /** Time (ms) before longing temporal pattern activates. */
         private const val LONGING_ONSET_MS = 300_000L  // 5 minutes

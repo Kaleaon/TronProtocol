@@ -742,10 +742,19 @@ class MainActivity : AppCompatActivity() {
                     return@setPositiveButton
                 }
 
+                // Validate URL scheme to prevent file://, data://, or other unsafe schemes
+                val uri = android.net.Uri.parse(modelUrl)
+                val scheme = uri.scheme?.lowercase()
+                if (scheme != "http" && scheme != "https") {
+                    showPermissionMessage("Invalid URL scheme: only http and https are allowed.")
+                    return@setPositiveButton
+                }
+
                 showPermissionMessage("Downloading model package. This can take a while...")
                 llmSetupExecutor.execute {
                     val result = llmManager.downloadAndInitializeModel(modelName, modelUrl)
                     runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
                         if (result.success) {
                             val sizeMb = result.downloadedBytes / (1024f * 1024f)
                             showPermissionMessage(
@@ -1090,10 +1099,10 @@ class MainActivity : AppCompatActivity() {
             .setView(layout)
             .setPositiveButton("Save") { _, _ ->
                 val newConfig = ModelRepository.ModelConfigOverrides(
-                    maxTokens = maxTokensInput.text.toString().toIntOrNull() ?: 512,
-                    temperature = tempInput.text.toString().toFloatOrNull() ?: 0.7f,
-                    topP = topPInput.text.toString().toFloatOrNull() ?: 0.9f,
-                    threadCount = threadsInput.text.toString().toIntOrNull() ?: 4,
+                    maxTokens = (maxTokensInput.text.toString().toIntOrNull() ?: 512).coerceIn(1, 8192),
+                    temperature = (tempInput.text.toString().toFloatOrNull() ?: 0.7f).coerceIn(0.0f, 2.0f),
+                    topP = (topPInput.text.toString().toFloatOrNull() ?: 0.9f).coerceIn(0.0f, 1.0f),
+                    threadCount = (threadsInput.text.toString().toIntOrNull() ?: 4).coerceIn(1, 16),
                     backend = config.backend,
                     useMmap = config.useMmap
                 )

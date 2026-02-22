@@ -32,10 +32,10 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     private val context: Context
 ) {
     private val storage: SecureStorage = SecureStorage(context)
-    private var totalConsolidations: Int = 0
-    private var memoriesStrengthened: Int = 0
-    private var memoriesWeakened: Int = 0
-    private var memoriesForgotten: Int = 0
+    @Volatile private var totalConsolidations: Int = 0
+    @Volatile private var memoriesStrengthened: Int = 0
+    @Volatile private var memoriesWeakened: Int = 0
+    @Volatile private var memoriesForgotten: Int = 0
 
     init {
         loadStats()

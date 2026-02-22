@@ -23,6 +23,7 @@ class AnthropicApiClient(
     private val requestTimes = ArrayDeque<Long>()
     private val maxRequestsPerMinute: Int = maxOf(1, maxRequestsPerMinute)
     private val minRequestIntervalMs: Long = maxOf(0L, minRequestIntervalMs)
+    @Volatile
     private var lastRequestMs: Long = 0L
 
     @Throws(AnthropicException::class)
@@ -138,20 +139,25 @@ class AnthropicApiClient(
 
     private fun buildError(body: String, status: Int): AnthropicException {
         var msg = "Anthropic API error"
+        var errorType = "unknown"
         try {
             val json = JSONObject(body)
             val error = json.optJSONObject("error")
             if (error != null) {
                 msg = error.optString("message", msg)
+                errorType = error.optString("type", errorType)
             }
-        } catch (ignored: Exception) {
+        } catch (_: org.json.JSONException) {
+            // Response body is not JSON (e.g., HTML error page)
             if (!TextUtils.isEmpty(body)) {
-                msg = body
+                msg = body.take(500) // Truncate to avoid oversized error messages
             }
+        } catch (_: Exception) {
+            // Other parse errors
         }
 
         val retryable = status == 429 || status >= 500
-        return AnthropicException(msg, status, retryable)
+        return AnthropicException("[$errorType] $msg", status, retryable)
     }
 
     @Throws(Exception::class)
@@ -164,6 +170,10 @@ class AnthropicApiClient(
             var line: String?
             while (reader.readLine().also { line = it } != null) {
                 sb.append(line)
+                if (sb.length > MAX_RESPONSE_SIZE) {
+                    sb.append("... [truncated]")
+                    break
+                }
             }
             return sb.toString()
         }
@@ -181,5 +191,7 @@ class AnthropicApiClient(
 
         private const val API_URL = "https://api.anthropic.com/v1/messages"
         private const val API_VERSION = "2023-06-01"
+        /** Maximum response body size to read (5 MB). Prevents OOM from huge error pages. */
+        private const val MAX_RESPONSE_SIZE = 5 * 1024 * 1024
     }
 }

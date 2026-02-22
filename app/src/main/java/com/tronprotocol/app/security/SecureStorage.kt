@@ -119,9 +119,21 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
 
     @Throws(IOException::class)
     private fun readFile(file: File): ByteArray {
+        val fileSize = file.length()
+        if (fileSize > MAX_FILE_SIZE) {
+            throw IOException("File exceeds maximum allowed size: ${fileSize} bytes (max $MAX_FILE_SIZE)")
+        }
+        if (fileSize == 0L) {
+            return ByteArray(0)
+        }
         FileInputStream(file).use { fis ->
-            val data = ByteArray(file.length().toInt())
-            fis.read(data)
+            val data = ByteArray(fileSize.toInt())
+            var offset = 0
+            while (offset < data.size) {
+                val read = fis.read(data, offset, data.size - offset)
+                if (read < 0) break
+                offset += read
+            }
             return data
         }
     }
@@ -129,5 +141,7 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
     companion object {
         private const val TAG = "SecureStorage"
         private const val STORAGE_DIR = "secure_data"
+        /** Maximum file size for secure storage reads (50 MB). Prevents OOM on corrupted files. */
+        private const val MAX_FILE_SIZE = 50L * 1024 * 1024
     }
 }

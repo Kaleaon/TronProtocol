@@ -100,7 +100,11 @@ class RAGStore @Throws(Exception::class) constructor(
         chunks.add(chunk)
         chunkIndex[chunkId] = chunk
 
+        // Evict lowest-Q-value chunks if store exceeds maximum capacity
+        evictIfNeeded()
+
         // Extract entities and populate knowledge graph (MiniRAG-inspired)
+        var graphModified = false
         try {
             val extraction = entityExtractor.extract(content)
             val entityIds = mutableListOf<String>()
@@ -108,6 +112,7 @@ class RAGStore @Throws(Exception::class) constructor(
             for (entity in extraction.entities) {
                 val entityId = knowledgeGraph.addEntity(entity.name, entity.entityType, entity.context)
                 entityIds.add(entityId)
+                graphModified = true
             }
 
             if (entityIds.isNotEmpty()) {
@@ -120,11 +125,19 @@ class RAGStore @Throws(Exception::class) constructor(
                 val sourceId = "entity_${rel.sourceEntity.lowercase().trim()}"
                 val targetId = "entity_${rel.targetEntity.lowercase().trim()}"
                 knowledgeGraph.addRelationship(sourceId, targetId, rel.relationship, rel.strength)
+                graphModified = true
             }
-
-            knowledgeGraph.save()
         } catch (e: Exception) {
             Log.w(TAG, "Entity extraction failed for chunk $chunkId", e)
+        } finally {
+            // Guarantee graph is saved even if extraction partially fails
+            if (graphModified) {
+                try {
+                    knowledgeGraph.save()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to save knowledge graph after entity extraction", e)
+                }
+            }
         }
 
         saveChunks()
@@ -578,6 +591,37 @@ class RAGStore @Throws(Exception::class) constructor(
         Log.d(TAG, "Cleared RAG store for AI: $aiId")
     }
 
+    /**
+     * Evict lowest-Q-value chunks when store exceeds MAX_CHUNKS capacity.
+     * Prevents unbounded memory growth. Keeps the top-performing chunks.
+     */
+    private fun evictIfNeeded() {
+        if (chunks.size <= MAX_CHUNKS) return
+
+        val evictCount = chunks.size - MAX_CHUNKS
+        val toEvict = chunks
+            .sortedBy { it.qValue }
+            .take(evictCount)
+
+        for (chunk in toEvict) {
+            chunks.remove(chunk)
+            chunkIndex.remove(chunk.chunkId)
+            try {
+                knowledgeGraph.removeChunkNode(chunk.chunkId)
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to remove evicted chunk from knowledge graph", e)
+            }
+        }
+        if (toEvict.isNotEmpty()) {
+            try {
+                knowledgeGraph.save()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to save knowledge graph after eviction", e)
+            }
+            Log.d(TAG, "Evicted ${toEvict.size} low-Q-value chunks (store was at ${chunks.size + evictCount})")
+        }
+    }
+
     // Helper methods
 
     private fun generateChunkId(content: String, source: String): String =
@@ -762,5 +806,7 @@ class RAGStore @Throws(Exception::class) constructor(
         private const val DEFAULT_LEARNING_RATE = 0.1f
         private const val MAX_CHUNK_SIZE = 512  // tokens
         private const val RELEVANCE_DECAY_HALF_LIFE_DAYS = 30.0
+        /** Maximum chunks stored before LRU eviction kicks in. Prevents OOM. */
+        private const val MAX_CHUNKS = 10_000
     }
 }

@@ -34,11 +34,13 @@ import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.SecureStorage
 import com.tronprotocol.app.selfmod.CodeModificationManager
 import java.util.Date
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class TronProtocolService : Service() {
 
@@ -86,10 +88,11 @@ class TronProtocolService : Service() {
 
     // -- Counters & metrics --------------------------------------------------
 
-    private var initAttempt = 0
+    private val initAttempt = AtomicInteger(0)
     private var heartbeatCount = 0
     private var totalProcessingTime = 0L
     private var lastConsolidation = 0L
+    private var consecutiveHeartbeatErrors = 0
 
     // ========================================================================
     // Lifecycle
@@ -156,8 +159,15 @@ class TronProtocolService : Service() {
         super.onDestroy()
         isRunning = false
 
+        // Signal threads to stop and wait briefly for graceful completion
         heartbeatThread?.interrupt()
         consolidationThread?.interrupt()
+        try {
+            heartbeatThread?.join(SHUTDOWN_TIMEOUT_MS)
+            consolidationThread?.join(SHUTDOWN_TIMEOUT_MS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
 
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
@@ -167,10 +177,15 @@ class TronProtocolService : Service() {
         onDeviceLLMManager?.shutdown()
         laneQueueExecutor?.shutdown()
         subAgentManager?.shutdown()
+        // Flush audit logger last so subsystem shutdown events are captured
         auditLogger?.shutdown()
 
         if (wakeLock?.isHeld == true) {
-            wakeLock?.release()
+            try {
+                wakeLock?.release()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error releasing wake lock", e)
+            }
         }
     }
 
@@ -181,15 +196,15 @@ class TronProtocolService : Service() {
     // ========================================================================
 
     private fun initializeDependenciesAsync() {
-        if (dependenciesReady.get() || !initializationInProgress.compareAndSet(false, true)) {
-            return
-        }
+        if (dependenciesReady.get()) return
+        if (!initializationInProgress.compareAndSet(false, true)) return
 
         initExecutor.execute {
             try {
                 initializeDependencies()
+                // Atomic transition: mark ready and reset attempt counter together
+                initAttempt.set(0)
                 dependenciesReady.set(true)
-                initAttempt = 0
                 Log.d(TAG, "All heavy dependencies initialized")
                 ensureLoopsStartedIfReady()
             } catch (e: Exception) {
@@ -463,18 +478,21 @@ class TronProtocolService : Service() {
     }
 
     private fun scheduleInitializationRetry(cause: Exception) {
-        initAttempt++
-        val delaySeconds = (INIT_BASE_RETRY_SECONDS * (1 shl (initAttempt - 1).coerceAtMost(10)))
+        val attempt = initAttempt.incrementAndGet()
+        val baseDelay = (INIT_BASE_RETRY_SECONDS * (1 shl (attempt - 1).coerceAtMost(10)))
             .coerceAtMost(INIT_MAX_RETRY_SECONDS)
+        // Add random jitter (up to 25%) to avoid thundering herd
+        val jitter = (baseDelay * 0.25 * Math.random()).toLong()
+        val delaySeconds = baseDelay + jitter
         Log.e(
             TAG,
             "Dependency initialization failed; service continuing in degraded mode. " +
-                "Retrying in ${delaySeconds}s (attempt $initAttempt)",
+                "Retrying in ${delaySeconds}s (attempt $attempt)",
             cause
         )
         initRetryScheduler.schedule(
             { initializeDependenciesAsync() },
-            delaySeconds.toLong(),
+            delaySeconds,
             TimeUnit.SECONDS
         )
     }
@@ -599,6 +617,19 @@ class TronProtocolService : Service() {
         }
     }
 
+    /** Refresh the wake lock before it expires. Called periodically from the heartbeat loop. */
+    private fun refreshWakeLockIfNeeded() {
+        try {
+            val wl = wakeLock ?: return
+            if (!wl.isHeld) {
+                wl.acquire(WAKELOCK_TIMEOUT_MS)
+                Log.d(TAG, "Wake lock re-acquired")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to refresh wake lock", e)
+        }
+    }
+
     // ========================================================================
     // Heartbeat loop
     // ========================================================================
@@ -615,10 +646,24 @@ class TronProtocolService : Service() {
             while (isRunning) {
                 try {
                     performHeartbeat()
+                    consecutiveHeartbeatErrors = 0
                     Thread.sleep(HEARTBEAT_INTERVAL_MS)
                 } catch (e: InterruptedException) {
                     Thread.currentThread().interrupt()
                     break
+                } catch (e: Exception) {
+                    consecutiveHeartbeatErrors++
+                    Log.e(TAG, "Heartbeat error #$consecutiveHeartbeatErrors", e)
+                    // Exponential backoff on repeated errors, capped at 5 minutes
+                    val backoffMs = (HEARTBEAT_INTERVAL_MS *
+                        (1L shl consecutiveHeartbeatErrors.coerceAtMost(4)))
+                        .coerceAtMost(300_000L)
+                    try {
+                        Thread.sleep(backoffMs)
+                    } catch (ie: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                        break
+                    }
                 }
             }
         }.also { it.start() }
@@ -627,6 +672,11 @@ class TronProtocolService : Service() {
     private fun performHeartbeat() {
         val startTime = System.currentTimeMillis()
         heartbeatCount++
+
+        // Refresh wake lock periodically (every 50 heartbeats ≈ 25 min, well before 10 min timeout)
+        if (heartbeatCount % 50 == 0) {
+            refreshWakeLockIfNeeded()
+        }
 
         try {
             // 1. Store heartbeat event as memory
@@ -651,27 +701,31 @@ class TronProtocolService : Service() {
 
             // 3. Auto-compaction check every 25 heartbeats (OpenClaw-inspired)
             if (heartbeatCount % 25 == 0) {
-                ragStore?.let { store ->
-                    autoCompactionManager?.let { compactor ->
-                        val usage = compactor.checkUsage(store)
-                        if (usage.needsCompaction) {
-                            Log.d(TAG, "Auto-compaction triggered: ${usage.utilizationPercent}% utilization")
-                            val result = compactor.compact(store)
-                            if (result.success) {
-                                auditLogger?.logAsync(
-                                    AuditLogger.Severity.INFO,
-                                    AuditLogger.AuditCategory.MEMORY_OPERATION,
-                                    "auto_compaction", "compact",
-                                    outcome = "success",
-                                    details = mapOf(
-                                        "tokens_recovered" to result.tokensRecovered,
-                                        "summaries_created" to result.summariesCreated,
-                                        "compression_ratio" to result.compressionRatio
+                try {
+                    ragStore?.let { store ->
+                        autoCompactionManager?.let { compactor ->
+                            val usage = compactor.checkUsage(store)
+                            if (usage.needsCompaction) {
+                                Log.d(TAG, "Auto-compaction triggered: ${usage.utilizationPercent}% utilization")
+                                val result = compactor.compact(store)
+                                if (result.success) {
+                                    auditLogger?.logAsync(
+                                        AuditLogger.Severity.INFO,
+                                        AuditLogger.AuditCategory.MEMORY_OPERATION,
+                                        "auto_compaction", "compact",
+                                        outcome = "success",
+                                        details = mapOf(
+                                            "tokens_recovered" to result.tokensRecovered,
+                                            "summaries_created" to result.summariesCreated,
+                                            "compression_ratio" to result.compressionRatio
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Auto-compaction failed", e)
                 }
             }
 
@@ -754,11 +808,15 @@ class TronProtocolService : Service() {
 
             // 7. Archive expired sessions every 200 heartbeats (OpenClaw-inspired)
             if (heartbeatCount % 200 == 0) {
-                sessionKeyManager?.let { mgr ->
-                    val archived = mgr.archiveExpiredSessions()
-                    if (archived > 0) {
-                        Log.d(TAG, "Archived $archived expired sessions")
+                try {
+                    sessionKeyManager?.let { mgr ->
+                        val archived = mgr.archiveExpiredSessions()
+                        if (archived > 0) {
+                            Log.d(TAG, "Archived $archived expired sessions")
+                        }
                     }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Session archiving failed", e)
                 }
             }
 
@@ -884,6 +942,7 @@ class TronProtocolService : Service() {
         private const val INIT_MAX_RETRY_SECONDS = 300
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val WAKELOCK_TIMEOUT_MS = 10 * 60 * 1000L     // 10 minutes
+        private const val SHUTDOWN_TIMEOUT_MS = 3_000L              // 3 seconds for graceful thread join
 
         const val SERVICE_STARTUP_STATE_KEY = "service_startup_state"
         const val SERVICE_STARTUP_REASON_KEY = "service_startup_reason"
