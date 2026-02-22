@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -91,6 +92,7 @@ class AuditLogger(private val context: Context) {
 
     // Async writer
     private val asyncQueue = ConcurrentLinkedQueue<AuditEntry>()
+    private val shuttingDown = AtomicBoolean(false)
     private val asyncWriter: ExecutorService = Executors.newSingleThreadExecutor { r ->
         Thread(r, "AuditLogger-Writer").apply { isDaemon = true }
     }
@@ -124,9 +126,14 @@ class AuditLogger(private val context: Context) {
         details: Map<String, Any>? = null
     ) {
         val entry = createEntry(severity, category, actor, action, target, outcome, details)
-        asyncQueue.add(entry)
         entries.add(entry)
         trimIfNeeded()
+        if (shuttingDown.get()) {
+            // During shutdown, persist synchronously instead of queuing
+            persistEntry(entry)
+        } else {
+            asyncQueue.add(entry)
+        }
     }
 
     /**
@@ -328,13 +335,21 @@ class AuditLogger(private val context: Context) {
      * Shut down the audit logger, flushing remaining entries.
      */
     fun shutdown() {
+        // Stop accepting new async entries
+        shuttingDown.set(true)
+        // Drain any remaining items in the async queue
         flushAsyncQueue()
         asyncWriter.shutdown()
         try {
-            asyncWriter.awaitTermination(5, TimeUnit.SECONDS)
+            if (!asyncWriter.awaitTermination(5, TimeUnit.SECONDS)) {
+                asyncWriter.shutdownNow()
+            }
         } catch (e: InterruptedException) {
             asyncWriter.shutdownNow()
+            Thread.currentThread().interrupt()
         }
+        // Final drain in case items were enqueued during shutdown
+        flushAsyncQueue()
         persistAllEntries()
         Log.d(TAG, "AuditLogger shut down. Total entries: ${entries.size}")
     }
@@ -398,18 +413,27 @@ class AuditLogger(private val context: Context) {
     }
 
     private fun persistBatch(batch: List<AuditEntry>) {
-        try {
-            val existing = loadPersistedJson()
-            for (entry in batch) {
-                existing.put(entry.toJson())
+        var retries = 0
+        while (retries <= PERSIST_MAX_RETRIES) {
+            try {
+                val existing = loadPersistedJson()
+                for (entry in batch) {
+                    existing.put(entry.toJson())
+                }
+                // Keep only last MAX_PERSISTED entries
+                while (existing.length() > MAX_PERSISTED) {
+                    existing.remove(0)
+                }
+                storage.store(STORAGE_KEY, existing.toString())
+                return // Success
+            } catch (e: Exception) {
+                retries++
+                if (retries > PERSIST_MAX_RETRIES) {
+                    Log.e(TAG, "Failed to persist audit batch (${batch.size} entries) after $PERSIST_MAX_RETRIES retries", e)
+                } else {
+                    Log.w(TAG, "Audit persist retry $retries/${PERSIST_MAX_RETRIES}", e)
+                }
             }
-            // Keep only last MAX_PERSISTED entries
-            while (existing.length() > MAX_PERSISTED) {
-                existing.remove(0)
-            }
-            storage.store(STORAGE_KEY, existing.toString())
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to persist audit batch (${batch.size} entries)", e)
         }
     }
 
@@ -464,6 +488,7 @@ class AuditLogger(private val context: Context) {
         private const val MAX_ENTRIES = 5000
         private const val MAX_PERSISTED = 2000
         private const val FLUSH_INTERVAL_MS = 10_000L
+        private const val PERSIST_MAX_RETRIES = 2
 
         val ISO_FORMAT: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {

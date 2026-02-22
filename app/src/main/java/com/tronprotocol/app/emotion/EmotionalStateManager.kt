@@ -34,7 +34,7 @@ class EmotionalStateManager(private val context: Context) {
     }
 
     private val storage = SecureStorage(context)
-    private val emotionalHistory = mutableListOf<EmotionalEvent>()
+    private val emotionalHistory = ArrayDeque<EmotionalEvent>(MAX_HISTORY_SIZE + 10)
 
     private var currentEmotion: Emotion = Emotion.NEUTRAL
     private var emotionalIntensity: Float = 0.5f
@@ -122,7 +122,7 @@ class EmotionalStateManager(private val context: Context) {
         val event = EmotionalEvent(
             Emotion.EMBARRASSED, emotionalIntensity, context, System.currentTimeMillis()
         )
-        emotionalHistory.add(event)
+        addToHistory(event)
 
         Log.w(TAG, String.format("EMBARRASSMENT applied (%.2f): %s", severity, context))
         saveEmotionalHistory()
@@ -137,7 +137,7 @@ class EmotionalStateManager(private val context: Context) {
         currentEmotion = Emotion.CONFIDENT
         emotionalIntensity = 0.8f
 
-        emotionalHistory.add(
+        addToHistory(
             EmotionalEvent(Emotion.CONFIDENT, emotionalIntensity, context, System.currentTimeMillis())
         )
 
@@ -154,7 +154,7 @@ class EmotionalStateManager(private val context: Context) {
         currentEmotion = Emotion.PROUD
         emotionalIntensity = 0.9f
 
-        emotionalHistory.add(
+        addToHistory(
             EmotionalEvent(Emotion.PROUD, emotionalIntensity, context, System.currentTimeMillis())
         )
 
@@ -171,7 +171,7 @@ class EmotionalStateManager(private val context: Context) {
         currentEmotion = Emotion.UNCERTAIN
         emotionalIntensity = 0.3f
 
-        emotionalHistory.add(
+        addToHistory(
             EmotionalEvent(Emotion.UNCERTAIN, emotionalIntensity, context, System.currentTimeMillis())
         )
 
@@ -195,7 +195,7 @@ class EmotionalStateManager(private val context: Context) {
         curiosityStreak++
         lastCuriosityTime = System.currentTimeMillis()
 
-        emotionalHistory.add(
+        addToHistory(
             EmotionalEvent(Emotion.CURIOUS, emotionalIntensity, context, System.currentTimeMillis())
         )
 
@@ -355,6 +355,14 @@ class EmotionalStateManager(private val context: Context) {
         return state
     }
 
+    /** Add an event to history, evicting oldest entries if over capacity. */
+    private fun addToHistory(event: EmotionalEvent) {
+        emotionalHistory.addLast(event)
+        while (emotionalHistory.size > MAX_HISTORY_SIZE) {
+            emotionalHistory.removeFirst()
+        }
+    }
+
     private fun saveEmotionalHistory() {
         try {
             val historyArray = JSONArray()
@@ -387,7 +395,7 @@ class EmotionalStateManager(private val context: Context) {
                     eventObj.getString("context"),
                     eventObj.getLong("timestamp")
                 )
-                emotionalHistory.add(event)
+                emotionalHistory.addLast(event)
 
                 if (event.emotion == Emotion.EMBARRASSED) {
                     embarrassmentCount++
@@ -433,5 +441,7 @@ class EmotionalStateManager(private val context: Context) {
         private const val CURIOSITY_TRAIT_BOOST = 0.1f
         private const val TRAIT_LEARNING_RATE = 0.05f
         private const val CURIOSITY_STREAK_WINDOW_MS = 1800000L  // 30 minutes
+        /** Maximum emotional events kept in memory. Prevents unbounded growth. */
+        private const val MAX_HISTORY_SIZE = 500
     }
 }

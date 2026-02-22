@@ -4,6 +4,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Log
 import java.security.KeyStore
+import javax.crypto.AEADBadTagException
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -87,7 +88,9 @@ class EncryptionManager @Throws(Exception::class) constructor() {
      */
     @Throws(Exception::class)
     fun decrypt(encryptedData: ByteArray): ByteArray {
-        require(encryptedData.size > GCM_IV_LENGTH) { "Invalid encrypted data size" }
+        require(encryptedData.size > GCM_IV_LENGTH) {
+            "Invalid encrypted data: size ${encryptedData.size} is too small (minimum ${GCM_IV_LENGTH + 1})"
+        }
 
         val startTime = System.currentTimeMillis()
 
@@ -101,7 +104,12 @@ class EncryptionManager @Throws(Exception::class) constructor() {
         val spec = GCMParameterSpec(GCM_TAG_LENGTH, iv)
         cipher.init(Cipher.DECRYPT_MODE, getMasterKey(), spec)
 
-        val decrypted = cipher.doFinal(ciphertext)
+        val decrypted = try {
+            cipher.doFinal(ciphertext)
+        } catch (e: AEADBadTagException) {
+            Log.e(TAG, "SECURITY: GCM authentication tag verification failed — data may have been tampered with")
+            throw SecurityException("Decryption authentication failed: data integrity compromised", e)
+        }
 
         val duration = System.currentTimeMillis() - startTime
         Log.d(TAG, "Decrypted ${encryptedData.size} bytes in ${duration}ms")

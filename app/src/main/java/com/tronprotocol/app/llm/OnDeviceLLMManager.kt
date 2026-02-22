@@ -66,8 +66,10 @@ class OnDeviceLLMManager(
 
     private var nativeSessionHandle: Long = 0
 
-    @Volatile
-    private var isModelLoaded: Boolean = false
+    /** Derived from currentModelState; kept in sync for fast-path checks. */
+    private val isModelLoaded: Boolean
+        get() = currentModelState.get() == ModelState.READY ||
+                currentModelState.get() == ModelState.GENERATING
 
     // Performance tracking
     private var totalInferences: Long = 0
@@ -243,7 +245,6 @@ class OnDeviceLLMManager(
 
             nativeSessionHandle = handle
             activeConfig = config
-            isModelLoaded = true
             currentModelState.set(ModelState.READY)
 
             Log.d(TAG, "Model loaded successfully: ${config.modelName} " +
@@ -336,7 +337,6 @@ class OnDeviceLLMManager(
             }
         }
         nativeSessionHandle = 0
-        isModelLoaded = false
         activeConfig = null
         currentModelState.set(ModelState.UNLOADED)
     }

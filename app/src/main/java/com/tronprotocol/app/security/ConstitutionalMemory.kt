@@ -75,6 +75,9 @@ class ConstitutionalMemory(private val context: Context) {
     private val storage: SecureStorage = SecureStorage(context)
     private var currentVersion = 0
 
+    // Pre-compiled regex cache for safe matching (avoids ReDoS)
+    private val compiledPatterns = mutableMapOf<String, Regex?>()
+
     init {
         loadCoreDirectives()
         loadPersistedDirectives()
@@ -289,7 +292,18 @@ class ConstitutionalMemory(private val context: Context) {
         return patterns.any { pattern ->
             if (pattern.contains(".*")) {
                 try {
-                    Regex(pattern).containsMatchIn(actionLower)
+                    val regex = compiledPatterns.getOrPut(pattern) {
+                        // Validate pattern is safe: reject patterns with known ReDoS triggers
+                        // (nested quantifiers like (a+)+, (a*)*b, etc.)
+                        if (REDOS_DETECTOR.containsMatchIn(pattern)) {
+                            Log.w(TAG, "Rejected unsafe regex pattern: $pattern")
+                            null
+                        } else {
+                            Regex(pattern)
+                        }
+                    }
+                    regex?.containsMatchIn(actionLower)
+                        ?: actionLower.contains(pattern.replace(".*", ""))
                 } catch (e: Exception) {
                     actionLower.contains(pattern.replace(".*", ""))
                 }
@@ -303,10 +317,10 @@ class ConstitutionalMemory(private val context: Context) {
 
     private fun persistDirectives() {
         try {
-            currentVersion++
+            val nextVersion = currentVersion + 1
             val userDirectives = directives.filter { !it.immutable }
             val json = JSONObject().apply {
-                put("version", currentVersion)
+                put("version", nextVersion)
                 put("timestamp", System.currentTimeMillis())
                 val arr = JSONArray()
                 for (d in userDirectives) {
@@ -322,6 +336,8 @@ class ConstitutionalMemory(private val context: Context) {
                 put("directives", arr)
             }
             storage.store(STORAGE_KEY, json.toString())
+            // Only increment version after successful persistence
+            currentVersion = nextVersion
             Log.d(TAG, "Persisted ${userDirectives.size} user directives (v$currentVersion)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to persist directives", e)
@@ -335,21 +351,38 @@ class ConstitutionalMemory(private val context: Context) {
             currentVersion = json.optInt("version", 0)
             val arr = json.optJSONArray("directives") ?: return
 
+            var loaded = 0
             for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
-                val directive = Directive(
-                    id = obj.getString("id"),
-                    category = Category.valueOf(obj.getString("category")),
-                    priority = obj.getInt("priority"),
-                    rule = obj.getString("rule"),
-                    enforcement = Enforcement.valueOf(obj.getString("enforcement")),
-                    immutable = false,
-                    version = obj.optInt("directiveVersion", 1)
-                )
-                directives.add(directive)
+                try {
+                    val obj = arr.getJSONObject(i)
+                    val categoryStr = obj.getString("category")
+                    val enforcementStr = obj.getString("enforcement")
+
+                    // Validate enum values safely to avoid IllegalArgumentException
+                    val category = Category.entries.firstOrNull { it.name == categoryStr }
+                    val enforcement = Enforcement.entries.firstOrNull { it.name == enforcementStr }
+                    if (category == null || enforcement == null) {
+                        Log.w(TAG, "Skipping directive with invalid enum: category=$categoryStr, enforcement=$enforcementStr")
+                        continue
+                    }
+
+                    val directive = Directive(
+                        id = obj.getString("id"),
+                        category = category,
+                        priority = obj.getInt("priority"),
+                        rule = obj.getString("rule"),
+                        enforcement = enforcement,
+                        immutable = false,
+                        version = obj.optInt("directiveVersion", 1)
+                    )
+                    directives.add(directive)
+                    loaded++
+                } catch (e: Exception) {
+                    Log.w(TAG, "Skipping corrupt directive at index $i", e)
+                }
             }
 
-            Log.d(TAG, "Loaded ${arr.length()} persisted user directives (v$currentVersion)")
+            Log.d(TAG, "Loaded $loaded persisted user directives (v$currentVersion)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load persisted directives", e)
         }
@@ -358,5 +391,7 @@ class ConstitutionalMemory(private val context: Context) {
     companion object {
         private const val TAG = "ConstitutionalMemory"
         private const val STORAGE_KEY = "constitutional_memory"
+        /** Detects common ReDoS-vulnerable patterns like (a+)+, (a*)*b, (a|b+)+. */
+        private val REDOS_DETECTOR = Regex("""\([^)]*[+*][^)]*\)[+*]""")
     }
 }

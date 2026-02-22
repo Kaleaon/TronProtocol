@@ -43,12 +43,12 @@ class PluginSafetyScanner(
 
     /** Behavioral profile for a plugin. */
     private data class BehaviorProfile(
-        var totalExecutions: Int = 0,
-        var blockedExecutions: Int = 0,
+        var totalExecutions: Long = 0,
+        var blockedExecutions: Long = 0,
         var avgInputLength: Double = 0.0,
         var lastExecutionTime: Long = 0,
-        var suspiciousInputCount: Int = 0,
-        var rapidFireCount: Int = 0,
+        var suspiciousInputCount: Long = 0,
+        var rapidFireCount: Long = 0,
         var lastRapidFireReset: Long = System.currentTimeMillis()
     )
 
@@ -325,10 +325,19 @@ class PluginSafetyScanner(
         return findings.maxOf { it.severity }
     }
 
+    // Cache compiled patterns to avoid recompilation on every scan
+    private val compiledThreatPatterns = mutableMapOf<String, Regex?>()
+
     private fun matchesThreatPattern(input: String, pattern: String): Boolean {
         return if (pattern.contains(".*")) {
             try {
-                Regex(pattern).containsMatchIn(input)
+                val regex = compiledThreatPatterns.getOrPut(pattern) {
+                    // Reject patterns with known ReDoS triggers (nested quantifiers)
+                    if (REDOS_DETECTOR.containsMatchIn(pattern)) null
+                    else Regex(pattern)
+                }
+                regex?.containsMatchIn(input)
+                    ?: input.contains(pattern.replace(".*", ""))
             } catch (e: Exception) {
                 input.contains(pattern.replace(".*", ""))
             }
@@ -345,7 +354,7 @@ class PluginSafetyScanner(
         return mapOf(
             "total_executions" to profile.totalExecutions,
             "blocked_executions" to profile.blockedExecutions,
-            "avg_input_length" to profile.avgInputLength.toInt(),
+            "avg_input_length" to profile.avgInputLength.toLong(),
             "suspicious_inputs" to profile.suspiciousInputCount,
             "rapid_fire_count" to profile.rapidFireCount
         )
@@ -361,7 +370,7 @@ class PluginSafetyScanner(
             "plugins_tracked" to behaviorProfiles.size,
             "total_scans" to totalExecs,
             "total_blocked" to totalBlocked,
-            "block_rate" to if (totalExecs > 0) totalBlocked.toDouble() / totalExecs else 0.0
+            "block_rate" to if (totalExecs > 0L) totalBlocked.toDouble() / totalExecs else 0.0
         )
     }
 
@@ -369,8 +378,10 @@ class PluginSafetyScanner(
         private const val TAG = "PluginSafetyScanner"
 
         private const val RAPID_FIRE_THRESHOLD_MS = 500L
-        private const val RAPID_FIRE_MAX_COUNT = 10
+        private const val RAPID_FIRE_MAX_COUNT = 10L
         private const val RAPID_FIRE_WINDOW_MS = 60_000L
+        /** Detects common ReDoS-vulnerable patterns like (a+)+, (a*)*b. */
+        private val REDOS_DETECTOR = Regex("""\([^)]*[+*][^)]*\)[+*]""")
 
         // Organized threat patterns by category
         private val THREAT_PATTERNS = mapOf(

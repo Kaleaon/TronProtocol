@@ -139,6 +139,17 @@ class CodeModificationManager(private val context: Context) {
 
             val backupId = createBackup(modification)
             modification.backupId = backupId
+            if (backupId.isBlank()) {
+                transitionStatus(
+                    modification,
+                    ModificationStatus.ROLLED_BACK,
+                    "backup",
+                    "failed",
+                    "backup creation required before modification"
+                )
+                return false
+            }
+
             val checkpointId = createRollbackCheckpoint(modification)
             modification.rollbackCheckpointId = checkpointId
 
