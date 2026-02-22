@@ -37,6 +37,8 @@ data class AffectInput(
         fun satiation(v: Float) = delta(AffectDimension.SATIATION, v)
         fun vulnerability(v: Float) = delta(AffectDimension.VULNERABILITY, v)
         fun coherence(v: Float) = delta(AffectDimension.COHERENCE, v)
+        fun dominance(v: Float) = delta(AffectDimension.DOMINANCE, v)
+        fun integrity(v: Float) = delta(AffectDimension.INTEGRITY, v)
 
         fun build() = AffectInput(source, deltas.toMap())
     }

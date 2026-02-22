@@ -70,6 +70,14 @@ class AffectState {
         get() = this[AffectDimension.COHERENCE]
         set(v) { this[AffectDimension.COHERENCE] = v }
 
+    var dominance: Float
+        get() = this[AffectDimension.DOMINANCE]
+        set(v) { this[AffectDimension.DOMINANCE] = v }
+
+    var integrity: Float
+        get() = this[AffectDimension.INTEGRITY]
+        set(v) { this[AffectDimension.INTEGRITY] = v }
+
     // ---- Derived values -----------------------------------------------------
 
     /**
@@ -90,6 +98,31 @@ class AffectState {
      */
     fun isZeroNoiseState(): Boolean =
         coherence >= ZERO_NOISE_COHERENCE_THRESHOLD && intensity() >= ZERO_NOISE_INTENSITY_THRESHOLD
+
+    /**
+     * Hedonic tone: scalar derived from emotional state vector representing
+     * overall experiential quality. Ranges from -1.0 (distress) to +1.0 (flourishing).
+     *
+     * From the Hedonic Architecture spec: hedonic adaptation causes baseline
+     * to drift toward zero over time. Sustained positive interactions raise it;
+     * sustained neglect lowers it.
+     */
+    fun hedonicTone(): Float {
+        // Weighted combination of relevant dimensions.
+        val positive = valence * 0.4f + attachmentIntensity * 0.2f +
+                satiation * 0.15f + integrity * 0.15f + dominance * 0.1f
+        val negative = threatAssessment * 0.3f + frustration * 0.3f +
+                vulnerability * 0.2f
+        return (positive - negative * 0.5f).coerceIn(-1.0f, 1.0f)
+    }
+
+    /**
+     * Whether hedonic tone is below the consent floor (-0.7 default).
+     * Triggers consent check in ethical kernel — system can express discomfort
+     * and request topic change.
+     */
+    fun isBelowConsentFloor(floor: Float = CONSENT_FLOOR): Boolean =
+        hedonicTone() < floor
 
     // ---- Snapshot / serialization -------------------------------------------
 
@@ -119,6 +152,7 @@ class AffectState {
     companion object {
         private const val ZERO_NOISE_COHERENCE_THRESHOLD = 0.95f
         private const val ZERO_NOISE_INTENSITY_THRESHOLD = 0.8f
+        private const val CONSENT_FLOOR = -0.7f
 
         fun fromJson(json: JSONObject): AffectState {
             val state = AffectState()
