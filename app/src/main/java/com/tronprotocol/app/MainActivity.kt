@@ -889,6 +889,7 @@ class MainActivity : AppCompatActivity() {
     private fun showDownloadedModelDialog(model: ModelRepository.AvailableModel) {
         val repo = modelRepository ?: return
         val isSelected = model.id == repo.getSelectedModelId()
+        val config = repo.getModelConfig(model.id)
 
         val message = buildString {
             append("Family: ${model.family}\n")
@@ -899,23 +900,30 @@ class MainActivity : AppCompatActivity() {
             append("Source: ${model.source}\n")
             append("Path: ${model.directory.absolutePath}\n")
             if (isSelected) append("\nCurrently selected for inference")
-        }
-
-        val builder = AlertDialog.Builder(this)
-            .setTitle(model.name)
-            .setMessage(message)
-
-        if (!isSelected) {
-            builder.setPositiveButton("Select") { _, _ ->
-                selectAndLoadModel(model.id)
+            if (config != null) {
+                append("\n\nCustom config: temp=${config.temperature}, " +
+                        "tokens=${config.maxTokens}, threads=${config.threadCount}")
             }
         }
 
-        builder.setNeutralButton("Delete") { _, _ ->
-            confirmDeleteModel(model.id, model.name)
-        }
-        builder.setNegativeButton("Close", null)
-        builder.show()
+        val items = mutableListOf<String>()
+        if (!isSelected) items.add("Select for inference")
+        items.add("Configure")
+        items.add("Delete")
+
+        AlertDialog.Builder(this)
+            .setTitle(model.name)
+            .setMessage(message)
+            .setItems(items.toTypedArray()) { _, which ->
+                val adjustedIndex = if (isSelected) which + 1 else which
+                when (adjustedIndex) {
+                    0 -> selectAndLoadModel(model.id)
+                    1 -> showModelConfigDialog(model)
+                    2 -> confirmDeleteModel(model.id, model.name)
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
     }
 
     private fun showModelRecommendation() {
@@ -967,6 +975,7 @@ class MainActivity : AppCompatActivity() {
         val repo = modelRepository
         val dm = downloadManager
         val cap = llmManager.assessDevice()
+        val hfToken = dm?.getHuggingFaceToken()
 
         val message = buildString {
             append("=== On-Device LLM Status ===\n\n")
@@ -984,6 +993,8 @@ class MainActivity : AppCompatActivity() {
                 append("Disk usage: $totalDiskMb MB\n")
             }
 
+            append("HF Token: ${if (hfToken != null) "Set (${hfToken.take(8)}...)" else "Not set"}\n")
+
             append("\n=== Device ===\n")
             append("RAM: ${cap.availableRamMb}/${cap.totalRamMb} MB\n")
             append("CPU: ${cap.cpuArch}\n")
@@ -998,6 +1009,102 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Model Hub Status")
             .setMessage(message)
             .setPositiveButton("OK", null)
+            .setNeutralButton("HF Token") { _, _ ->
+                showHfTokenDialog()
+            }
+            .show()
+    }
+
+    private fun showHfTokenDialog() {
+        val dm = downloadManager ?: return
+        val currentToken = dm.getHuggingFaceToken()
+
+        val input = EditText(this).apply {
+            hint = "hf_xxxxxxxxxxxx"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            if (currentToken != null) setText(currentToken)
+            setPadding(40, 20, 40, 0)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("HuggingFace API Token")
+            .setMessage("Set your HuggingFace token to download gated models.\n" +
+                    "Get one at: huggingface.co/settings/tokens")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val token = input.text?.toString()?.trim()
+                dm.setHuggingFaceToken(if (token.isNullOrBlank()) null else token)
+                showPermissionMessage(if (token.isNullOrBlank()) "HF token cleared" else "HF token saved")
+            }
+            .setNeutralButton("Clear") { _, _ ->
+                dm.setHuggingFaceToken(null)
+                showPermissionMessage("HF token cleared")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showModelConfigDialog(model: ModelRepository.AvailableModel) {
+        val repo = modelRepository ?: return
+        val config = repo.getModelConfig(model.id) ?: ModelRepository.ModelConfigOverrides()
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 20, 40, 0)
+        }
+
+        val maxTokensInput = EditText(this).apply {
+            hint = "Max tokens (default: 512)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(config.maxTokens.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Max Tokens:" })
+        layout.addView(maxTokensInput)
+
+        val tempInput = EditText(this).apply {
+            hint = "Temperature (default: 0.7)"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(config.temperature.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Temperature:" })
+        layout.addView(tempInput)
+
+        val topPInput = EditText(this).apply {
+            hint = "Top-P (default: 0.9)"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(config.topP.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Top-P:" })
+        layout.addView(topPInput)
+
+        val threadsInput = EditText(this).apply {
+            hint = "Thread count (default: 4)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(config.threadCount.toString())
+        }
+        layout.addView(TextView(this).apply { text = "Threads:" })
+        layout.addView(threadsInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Configure: ${model.name}")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val newConfig = ModelRepository.ModelConfigOverrides(
+                    maxTokens = maxTokensInput.text.toString().toIntOrNull() ?: 512,
+                    temperature = tempInput.text.toString().toFloatOrNull() ?: 0.7f,
+                    topP = topPInput.text.toString().toFloatOrNull() ?: 0.9f,
+                    threadCount = threadsInput.text.toString().toIntOrNull() ?: 4,
+                    backend = config.backend,
+                    useMmap = config.useMmap
+                )
+                repo.setModelConfig(model.id, newConfig)
+                showPermissionMessage("Configuration saved for ${model.name}")
+            }
+            .setNeutralButton("Reset") { _, _ ->
+                repo.removeModelConfig(model.id)
+                showPermissionMessage("Configuration reset to defaults for ${model.name}")
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

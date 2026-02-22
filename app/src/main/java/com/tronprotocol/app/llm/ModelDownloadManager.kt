@@ -24,6 +24,7 @@ import java.util.zip.ZipInputStream
 class ModelDownloadManager(context: Context) {
 
     private val appContext: Context = context.applicationContext
+    private val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val downloadExecutor = Executors.newFixedThreadPool(2) { r ->
         Thread(r, "ModelDownload-${System.nanoTime()}").apply {
             isDaemon = true
@@ -31,6 +32,19 @@ class ModelDownloadManager(context: Context) {
         }
     }
     private val activeDownloads = ConcurrentHashMap<String, DownloadTask>()
+
+    /** Get the stored HuggingFace token, or null if not set. */
+    fun getHuggingFaceToken(): String? = prefs.getString(KEY_HF_TOKEN, null)
+
+    /** Set or clear the HuggingFace API token for downloading gated models. */
+    fun setHuggingFaceToken(token: String?) {
+        if (token.isNullOrBlank()) {
+            prefs.edit().remove(KEY_HF_TOKEN).apply()
+        } else {
+            prefs.edit().putString(KEY_HF_TOKEN, token.trim()).apply()
+        }
+        Log.d(TAG, "HF token ${if (token.isNullOrBlank()) "cleared" else "set (${token.take(8)}...)"}")
+    }
 
     /** Current state of a download. */
     enum class DownloadState {
@@ -191,6 +205,65 @@ class ModelDownloadManager(context: Context) {
         return modelDir.listFiles()?.sumOf { it.length() } ?: 0
     }
 
+    /**
+     * Download a model from a custom URL (not from the catalog).
+     * Creates a synthetic catalog entry for tracking.
+     */
+    fun downloadFromUrl(
+        modelId: String,
+        modelName: String,
+        downloadUrl: String,
+        listener: DownloadListener? = null
+    ): Boolean {
+        val syntheticEntry = ModelCatalog.CatalogEntry(
+            id = modelId,
+            name = modelName,
+            description = "Custom model downloaded from URL",
+            family = "Custom",
+            parameterCount = "unknown",
+            quantization = "unknown",
+            format = "mnn",
+            downloadUrl = downloadUrl,
+            sizeBytes = 0L,
+            contextWindow = 2048,
+            ramRequirement = ModelCatalog.RamRequirement(minRamMb = 2048, recommendedRamMb = 4096),
+            supportsGpu = true,
+            source = "Custom URL"
+        )
+        return downloadModel(syntheticEntry, listener)
+    }
+
+    /**
+     * Import a model from a local directory path.
+     * Validates required files and registers it.
+     */
+    fun importLocalModel(modelId: String, sourceDir: File): Boolean {
+        if (!sourceDir.exists() || !sourceDir.isDirectory) {
+            Log.w(TAG, "Import source directory does not exist: ${sourceDir.absolutePath}")
+            return false
+        }
+
+        if (!File(sourceDir, "llm.mnn").exists()) {
+            Log.w(TAG, "Import directory missing llm.mnn: ${sourceDir.absolutePath}")
+            return false
+        }
+
+        val targetDir = getModelDir(modelId)
+        if (targetDir.exists()) targetDir.deleteRecursively()
+        targetDir.mkdirs()
+
+        // Copy all files from source to target
+        sourceDir.listFiles()?.forEach { file ->
+            if (file.isFile) {
+                file.copyTo(File(targetDir, file.name), overwrite = true)
+            }
+        }
+
+        val success = File(targetDir, "llm.mnn").exists()
+        Log.d(TAG, "Imported model $modelId from ${sourceDir.absolutePath}: $success")
+        return success
+    }
+
     /** Shutdown the download manager and cancel all active downloads. */
     fun shutdown() {
         activeDownloads.keys.toList().forEach { cancelDownload(it) }
@@ -279,6 +352,10 @@ class ModelDownloadManager(context: Context) {
             setRequestProperty("User-Agent", USER_AGENT)
             if (downloadedBytes > 0) {
                 setRequestProperty("Range", "bytes=$downloadedBytes-")
+            }
+            // Add HuggingFace token for gated model downloads
+            getHuggingFaceToken()?.let { token ->
+                setRequestProperty("Authorization", "Bearer $token")
             }
         }
 
@@ -438,6 +515,8 @@ class ModelDownloadManager(context: Context) {
 
     companion object {
         private const val TAG = "ModelDownloadManager"
+        private const val PREFS_NAME = "tronprotocol_download_prefs"
+        private const val KEY_HF_TOKEN = "huggingface_token"
         private const val CONNECT_TIMEOUT_MS = 15_000
         private const val READ_TIMEOUT_MS = 60_000
         private const val IO_BUFFER_SIZE = 8 * 1024

@@ -32,6 +32,11 @@ import java.io.File
  *   unload              - Unload the current model
  *   stats               - Show inference statistics
  *   families            - List all model families in the catalog
+ *   config|<model_id>   - Show/edit per-model configuration
+ *   hftoken|<token>     - Set HuggingFace API token for gated models
+ *   hftoken             - Show current HF token status
+ *   import|<path>       - Import a model from a local directory
+ *   download_url|<name>|<url> - Download from a custom URL
  *
  * @see OnDeviceLLMManager
  * @see ModelCatalog
@@ -97,10 +102,21 @@ class OnDeviceLLMPlugin : Plugin {
                 "unload" -> executeUnload(start)
                 "stats" -> executeStats(start)
                 "families" -> executeFamilies(start)
+                "config" -> executeConfig(parts.getOrNull(1)?.trim(), start)
+                "hftoken" -> executeHfToken(parts.getOrNull(1)?.trim(), start)
+                "import" -> executeImport(parts.getOrNull(1)?.trim(), start)
+                "download_url" -> {
+                    val args = parts.getOrNull(1)?.trim()
+                    if (args.isNullOrBlank()) {
+                        PluginResult.error("Usage: download_url|<model_name>|<url>", elapsed(start))
+                    } else {
+                        executeDownloadUrl(args, start)
+                    }
+                }
                 else -> PluginResult.error(
                     "Unknown command: $command. Use: catalog, recommend, download|id, " +
                             "downloaded, select|id, generate|prompt, status, benchmark, " +
-                            "stats, delete|id, families",
+                            "stats, delete|id, families, config|id, hftoken, import|path",
                     elapsed(start)
                 )
             }
@@ -638,6 +654,183 @@ class OnDeviceLLMPlugin : Plugin {
         }
 
         return PluginResult.success(sb.toString(), elapsed(start))
+    }
+
+    // ---- Config / Token / Import commands ----
+
+    private fun executeConfig(modelId: String?, start: Long): PluginResult {
+        val repo = modelRepository
+            ?: return PluginResult.error("Model repository not initialized", elapsed(start))
+
+        if (modelId.isNullOrBlank()) {
+            // Show config for currently selected model
+            val selectedId = repo.getSelectedModelId()
+                ?: return PluginResult.error(
+                    "No model selected. Usage: config|<model_id>", elapsed(start)
+                )
+            return showModelConfig(selectedId, repo, start)
+        }
+
+        return showModelConfig(modelId, repo, start)
+    }
+
+    private fun showModelConfig(modelId: String, repo: ModelRepository, start: Long): PluginResult {
+        val config = repo.getModelConfig(modelId)
+        val defaults = ModelRepository.ModelConfigOverrides()
+
+        val sb = StringBuilder("=== Model Configuration: $modelId ===\n")
+        if (config != null) {
+            sb.append("Max Tokens: ${config.maxTokens}\n")
+            sb.append("Temperature: ${config.temperature}\n")
+            sb.append("Top-P: ${config.topP}\n")
+            sb.append("Thread Count: ${config.threadCount}\n")
+            sb.append("Backend: ${config.backend} (0=CPU, 3=OpenCL, 7=Vulkan)\n")
+            sb.append("Memory Mapped: ${config.useMmap}\n")
+        } else {
+            sb.append("Using defaults:\n")
+            sb.append("Max Tokens: ${defaults.maxTokens}\n")
+            sb.append("Temperature: ${defaults.temperature}\n")
+            sb.append("Top-P: ${defaults.topP}\n")
+            sb.append("Thread Count: ${defaults.threadCount}\n")
+            sb.append("Backend: ${defaults.backend} (CPU)\n")
+            sb.append("Memory Mapped: ${defaults.useMmap}\n")
+        }
+
+        return PluginResult.success(sb.toString(), elapsed(start))
+    }
+
+    private fun executeHfToken(token: String?, start: Long): PluginResult {
+        val dm = downloadManager
+            ?: return PluginResult.error("Download manager not initialized", elapsed(start))
+
+        if (token.isNullOrBlank()) {
+            val current = dm.getHuggingFaceToken()
+            return if (current != null) {
+                PluginResult.success(
+                    "HuggingFace token is set: ${current.take(8)}...${current.takeLast(4)}\n" +
+                            "Use: hftoken|<new_token> to change or hftoken|clear to remove.",
+                    elapsed(start)
+                )
+            } else {
+                PluginResult.success(
+                    "No HuggingFace token set.\n" +
+                            "Some models require authentication. Use: hftoken|<your_token>\n" +
+                            "Get a token at: https://huggingface.co/settings/tokens",
+                    elapsed(start)
+                )
+            }
+        }
+
+        if (token.equals("clear", ignoreCase = true)) {
+            dm.setHuggingFaceToken(null)
+            return PluginResult.success("HuggingFace token cleared.", elapsed(start))
+        }
+
+        dm.setHuggingFaceToken(token)
+        return PluginResult.success(
+            "HuggingFace token set: ${token.take(8)}...\nGated model downloads will now use this token.",
+            elapsed(start)
+        )
+    }
+
+    private fun executeImport(path: String?, start: Long): PluginResult {
+        if (path.isNullOrBlank()) {
+            return PluginResult.error(
+                "Usage: import|<model_directory_path>\n" +
+                        "The directory must contain: llm.mnn, config.json, tokenizer.txt",
+                elapsed(start)
+            )
+        }
+
+        val dm = downloadManager
+            ?: return PluginResult.error("Download manager not initialized", elapsed(start))
+        val repo = modelRepository
+            ?: return PluginResult.error("Model repository not initialized", elapsed(start))
+
+        val sourceDir = File(path)
+        if (!sourceDir.exists()) {
+            return PluginResult.error("Directory not found: $path", elapsed(start))
+        }
+        if (!sourceDir.isDirectory) {
+            return PluginResult.error("Path is not a directory: $path", elapsed(start))
+        }
+        if (!File(sourceDir, "llm.mnn").exists()) {
+            return PluginResult.error(
+                "Directory missing required file: llm.mnn\n" +
+                        "Expected MNN model directory with llm.mnn, config.json, tokenizer.txt",
+                elapsed(start)
+            )
+        }
+
+        val modelId = "import_${sourceDir.name}_${System.currentTimeMillis()}"
+        val success = dm.importLocalModel(modelId, sourceDir)
+
+        if (success) {
+            repo.addImportedModel(
+                ModelRepository.ImportedModelEntry(
+                    id = modelId,
+                    name = sourceDir.name,
+                    directory = dm.getModelDir(modelId).absolutePath
+                )
+            )
+            return PluginResult.success(
+                "Imported model: ${sourceDir.name}\n" +
+                        "ID: $modelId\n" +
+                        "Use: select|$modelId to load it for inference.",
+                elapsed(start)
+            )
+        } else {
+            return PluginResult.error("Failed to import model from: $path", elapsed(start))
+        }
+    }
+
+    private fun executeDownloadUrl(args: String, start: Long): PluginResult {
+        val dm = downloadManager
+            ?: return PluginResult.error("Download manager not initialized", elapsed(start))
+
+        val urlParts = args.split("\\|".toRegex(), 2)
+        if (urlParts.size < 2) {
+            return PluginResult.error(
+                "Usage: download_url|<model_name>|<download_url>",
+                elapsed(start)
+            )
+        }
+
+        val modelName = urlParts[0].trim()
+        val downloadUrl = urlParts[1].trim()
+
+        if (modelName.isBlank() || downloadUrl.isBlank()) {
+            return PluginResult.error("Both model name and URL are required.", elapsed(start))
+        }
+
+        if (!downloadUrl.startsWith("http://") && !downloadUrl.startsWith("https://")) {
+            return PluginResult.error("URL must start with http:// or https://", elapsed(start))
+        }
+
+        val modelId = "custom_${modelName.replace(Regex("[^a-zA-Z0-9]"), "_").lowercase()}_${System.currentTimeMillis()}"
+
+        val started = dm.downloadFromUrl(modelId, modelName, downloadUrl) { progress ->
+            Log.d(TAG, "Custom download $modelName: ${progress.state} ${progress.progressPercent}%")
+        }
+
+        return if (started) {
+            // Track as imported model
+            modelRepository?.addImportedModel(
+                ModelRepository.ImportedModelEntry(
+                    id = modelId,
+                    name = modelName,
+                    directory = dm.getModelDir(modelId).absolutePath
+                )
+            )
+            PluginResult.success(
+                "Download started: $modelName\n" +
+                        "ID: $modelId\n" +
+                        "Downloading in background. Use 'downloaded' to check status.",
+                elapsed(start)
+            )
+        } else {
+            PluginResult.error("Failed to start download for $modelName", elapsed(start))
+        }
     }
 
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start
