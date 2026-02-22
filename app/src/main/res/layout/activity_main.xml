@@ -395,6 +395,14 @@
                     android:text="Download &amp; initialize LLM model" />
 
                 <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnImportPersonality"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Import AI personality / memories" />
+
+                <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnExportDebugLog"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="match_parent"

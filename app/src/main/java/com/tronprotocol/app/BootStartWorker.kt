@@ -2,6 +2,7 @@ package com.tronprotocol.app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -25,7 +26,7 @@ class BootStartWorker(
                 clearDeferredStartFlag(applicationContext)
                 Result.success()
             } catch (t: Throwable) {
-                if (isForegroundStartBlockedException(t)) {
+                if (isForegroundStartBlockedException(t) || isSecurityException(t)) {
                     persistDeferredStartFlag(applicationContext)
                     StartupDiagnostics.recordError(applicationContext, "boot_worker_foreground_start_blocked", t)
                     Log.w(TAG, "Foreground start blocked at boot; deferring to next app launch", t)
@@ -46,6 +47,16 @@ class BootStartWorker(
     }
 
     private fun canStartServiceImmediately(context: Context): Boolean {
+        // Android 13+: cannot start foreground service without POST_NOTIFICATIONS
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                Log.i(TAG, "POST_NOTIFICATIONS not granted — deferring service start to app launch")
+                return false
+            }
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
             if (pm != null && !pm.isInteractive) {
@@ -59,6 +70,11 @@ class BootStartWorker(
     private fun isForegroundStartBlockedException(t: Throwable): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             t.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException"
+    }
+
+    private fun isSecurityException(t: Throwable): Boolean {
+        return t is SecurityException ||
+            t.javaClass.name == "java.lang.SecurityException"
     }
 
     private fun startTronProtocolService(context: Context) {

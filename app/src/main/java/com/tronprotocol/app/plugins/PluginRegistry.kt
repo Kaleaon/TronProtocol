@@ -25,6 +25,7 @@ object PluginRegistry {
         PluginConfig("task_automation", TaskAutomationPlugin::class.java, true, 100, setOf(Capability.TASK_AUTOMATION)) { TaskAutomationPlugin() },
         PluginConfig("sandbox_exec", SandboxedCodeExecutionPlugin::class.java, true, 110, setOf(Capability.CODE_EXECUTION)) { SandboxedCodeExecutionPlugin() },
         PluginConfig("personalization", PersonalizationPlugin::class.java, true, 120, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PersonalizationPlugin() },
+        PluginConfig("personality_import", PersonalityImportPlugin::class.java, true, 121, setOf(Capability.FILESYSTEM_READ, Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PersonalityImportPlugin() },
         PluginConfig("communication_hub", CommunicationHubPlugin::class.java, true, 130, setOf(Capability.CONTACTS_READ, Capability.SMS_SEND, Capability.NETWORK_OUTBOUND)) { CommunicationHubPlugin() },
         PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15, setOf(Capability.MODEL_EXECUTION)) { OnDeviceLLMPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140, setOf(Capability.NETWORK_OUTBOUND, Capability.MODEL_EXECUTION)) { GuidanceRouterPlugin() },
