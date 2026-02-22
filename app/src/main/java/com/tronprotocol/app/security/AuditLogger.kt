@@ -278,6 +278,27 @@ class AuditLogger(private val context: Context) {
         )
     }
 
+    fun logSnapshotMigration(
+        operation: String,
+        target: String,
+        success: Boolean,
+        message: String,
+        details: Map<String, Any>? = null
+    ) {
+        logAsync(
+            severity = if (success) Severity.INFO else Severity.ERROR,
+            category = AuditCategory.MEMORY_OPERATION,
+            actor = "continuity_snapshot_codec",
+            action = "migration_$operation",
+            target = target,
+            outcome = if (success) "success" else "failure",
+            details = buildMap {
+                put("message", message)
+                details?.forEach { (key, value) -> put(key, value) }
+            }
+        )
+    }
+
     // -- Query methods --
 
     /**
