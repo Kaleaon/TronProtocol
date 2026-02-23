@@ -1,25 +1,32 @@
 package com.tronprotocol.app
 
 import android.Manifest
+import android.app.ActivityManager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Build
 import java.io.File
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -34,6 +41,11 @@ import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.android.material.textfield.TextInputEditText
 import com.ktheme.core.ThemeEngine
 import com.ktheme.utils.ColorUtils
+import com.tronprotocol.app.affect.AffectDimension
+import com.tronprotocol.app.affect.AffectOrchestrator
+import com.tronprotocol.app.avatar.AvatarModelCatalog
+import com.tronprotocol.app.avatar.AvatarSessionManager
+import com.tronprotocol.app.avatar.NnrRenderEngine
 import com.tronprotocol.app.llm.ModelCatalog
 import com.tronprotocol.app.llm.ModelDownloadManager
 import com.tronprotocol.app.llm.ModelRepository
@@ -75,8 +87,42 @@ class MainActivity : AppCompatActivity() {
     private var activeGenerationFuture: java.util.concurrent.Future<*>? = null
     private val llmSetupExecutor = Executors.newSingleThreadExecutor()
 
+    // --- Avatar views ---
+    private lateinit var avatarTextureView: TextureView
+    private lateinit var avatarStatusText: TextView
+    private lateinit var avatarStatusIndicator: View
+    private lateinit var avatarFpsText: TextView
+    private lateinit var avatarActiveModelText: TextView
+    private lateinit var avatarDeviceAssessmentText: TextView
+    private lateinit var avatarDownloadContainer: LinearLayout
+    private lateinit var avatarDownloadStatusText: TextView
+    private lateinit var avatarDownloadProgressBar: ProgressBar
+    private lateinit var affectDimensionBarsContainer: LinearLayout
+    private lateinit var affectIntensityText: TextView
+    private lateinit var affectHedonicText: TextView
+    private lateinit var expressionOutputText: TextView
+    private lateinit var motorNoiseText: TextView
+
+    // --- Chat emotion strip ---
+    private lateinit var chatEmotionStrip: LinearLayout
+    private lateinit var chatHedonicToneText: TextView
+    private lateinit var chatExpressionSummaryText: TextView
+    private lateinit var chatCoherenceIndicator: View
+
+    // --- Settings new cards ---
+    private lateinit var memoryStatsText: TextView
+    private lateinit var systemDashboardText: TextView
+
+    // --- Avatar/Affect managers ---
+    private var avatarSessionManager: AvatarSessionManager? = null
+    private var affectOrchestrator: AffectOrchestrator? = null
+    private var avatarSurface: Surface? = null
+    private val uiHandler = Handler(Looper.getMainLooper())
+    private var affectUpdateRunnable: Runnable? = null
+
     // --- Tab views ---
     private lateinit var tabChat: View
+    private lateinit var tabAvatar: View
     private lateinit var tabModels: View
     private lateinit var tabPlugins: View
     private lateinit var tabSettings: View
@@ -238,9 +284,12 @@ class MainActivity : AppCompatActivity() {
         llmManager = OnDeviceLLMManager(this)
         downloadManager = ModelDownloadManager(this)
         modelRepository = ModelRepository(this)
+        avatarSessionManager = AvatarSessionManager(this)
+        affectOrchestrator = AffectOrchestrator(this)
 
         bindViews()
         setupBottomNavigation()
+        setupAvatarTextureView()
 
         runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
@@ -268,6 +317,10 @@ class MainActivity : AppCompatActivity() {
         runStartupBlock("refresh_model_hub") { refreshModelHubCard() }
         runStartupBlock("refresh_api_keys") { refreshApiKeyList() }
         runStartupBlock("refresh_device_cap") { refreshDeviceCapabilities() }
+        runStartupBlock("refresh_avatar_assessment") { refreshAvatarDeviceAssessment() }
+        runStartupBlock("start_affect_system") { startAffectSystem() }
+        runStartupBlock("refresh_memory_stats") { refreshMemoryStats() }
+        runStartupBlock("refresh_system_dashboard") { refreshSystemDashboard() }
     }
 
     override fun onStart() {
@@ -279,6 +332,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopAffectUpdates()
+        affectOrchestrator?.stop()
+        avatarSessionManager?.shutdown()
+        avatarSurface?.release()
         llmSetupExecutor.shutdownNow()
         llmManager.shutdown()
         downloadManager?.shutdown()
@@ -314,10 +371,37 @@ class MainActivity : AppCompatActivity() {
         btnStopGeneration = findViewById(R.id.btnStopGeneration)
 
         tabChat = findViewById(R.id.tabChat)
+        tabAvatar = findViewById(R.id.tabAvatar)
         tabModels = findViewById(R.id.tabModels)
         tabPlugins = findViewById(R.id.tabPlugins)
         tabSettings = findViewById(R.id.tabSettings)
         bottomNav = findViewById(R.id.bottomNav)
+
+        // Avatar views
+        avatarTextureView = findViewById(R.id.avatarTextureView)
+        avatarStatusText = findViewById(R.id.avatarStatusText)
+        avatarStatusIndicator = findViewById(R.id.avatarStatusIndicator)
+        avatarFpsText = findViewById(R.id.avatarFpsText)
+        avatarActiveModelText = findViewById(R.id.avatarActiveModelText)
+        avatarDeviceAssessmentText = findViewById(R.id.avatarDeviceAssessmentText)
+        avatarDownloadContainer = findViewById(R.id.avatarDownloadContainer)
+        avatarDownloadStatusText = findViewById(R.id.avatarDownloadStatusText)
+        avatarDownloadProgressBar = findViewById(R.id.avatarDownloadProgressBar)
+        affectDimensionBarsContainer = findViewById(R.id.affectDimensionBarsContainer)
+        affectIntensityText = findViewById(R.id.affectIntensityText)
+        affectHedonicText = findViewById(R.id.affectHedonicText)
+        expressionOutputText = findViewById(R.id.expressionOutputText)
+        motorNoiseText = findViewById(R.id.motorNoiseText)
+
+        // Chat emotion strip
+        chatEmotionStrip = findViewById(R.id.chatEmotionStrip)
+        chatHedonicToneText = findViewById(R.id.chatHedonicToneText)
+        chatExpressionSummaryText = findViewById(R.id.chatExpressionSummaryText)
+        chatCoherenceIndicator = findViewById(R.id.chatCoherenceIndicator)
+
+        // Settings new cards
+        memoryStatsText = findViewById(R.id.memoryStatsText)
+        systemDashboardText = findViewById(R.id.systemDashboardText)
 
         pluginCoreContainer = findViewById(R.id.pluginCoreContainer)
         pluginAiContainer = findViewById(R.id.pluginAiContainer)
@@ -330,6 +414,7 @@ class MainActivity : AppCompatActivity() {
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_chat -> showTab(tabChat)
+                R.id.nav_avatar -> showTab(tabAvatar)
                 R.id.nav_models -> showTab(tabModels)
                 R.id.nav_plugins -> showTab(tabPlugins)
                 R.id.nav_settings -> showTab(tabSettings)
@@ -343,6 +428,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showTab(tab: View) {
         tabChat.visibility = View.GONE
+        tabAvatar.visibility = View.GONE
         tabModels.visibility = View.GONE
         tabPlugins.visibility = View.GONE
         tabSettings.visibility = View.GONE
@@ -391,6 +477,7 @@ class MainActivity : AppCompatActivity() {
             // Root background
             findViewById<LinearLayout>(R.id.statusBar).setBackgroundColor(background)
             tabChat.setBackgroundColor(background)
+            tabAvatar.setBackgroundColor(background)
             tabModels.setBackgroundColor(background)
             tabPlugins.setBackgroundColor(background)
             tabSettings.setBackgroundColor(background)
@@ -416,6 +503,9 @@ class MainActivity : AppCompatActivity() {
                 R.id.pluginCommCard, R.id.pluginToolsCard, R.id.pluginSafetyCard,
                 R.id.apiKeysCard, R.id.serviceCard, R.id.permissionsCard,
                 R.id.integrationsCard, R.id.toolsCard, R.id.diagnosticsCard,
+                R.id.avatarViewportCard, R.id.avatarControlCard,
+                R.id.avatarAffectCard, R.id.avatarExpressionCard,
+                R.id.memoryCard, R.id.systemDashboardCard,
             )
             cardIds.forEach { id ->
                 try {
@@ -436,6 +526,19 @@ class MainActivity : AppCompatActivity() {
             deviceCapText.setTextColor(onSurface)
             apiKeyEmptyText.setTextColor(onSurface)
             messageShareStatusText.setTextColor(onSurface)
+            avatarStatusText.setTextColor(onSurface)
+            avatarFpsText.setTextColor(onSurface)
+            avatarActiveModelText.setTextColor(onSurface)
+            avatarDeviceAssessmentText.setTextColor(onSurface)
+            avatarDownloadStatusText.setTextColor(onSurface)
+            affectIntensityText.setTextColor(onSurface)
+            affectHedonicText.setTextColor(onSurface)
+            expressionOutputText.setTextColor(onSurface)
+            motorNoiseText.setTextColor(onSurface)
+            chatHedonicToneText.setTextColor(onSurface)
+            chatExpressionSummaryText.setTextColor(onSurface)
+            memoryStatsText.setTextColor(onSurface)
+            systemDashboardText.setTextColor(onSurface)
 
             // Send button
             findViewById<MaterialButton>(R.id.btnSendConversation).apply {
@@ -444,7 +547,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Filled buttons
-            listOf(R.id.btnModelBrowse, R.id.btnStartService, R.id.btnRunModel).forEach { id ->
+            listOf(R.id.btnModelBrowse, R.id.btnStartService, R.id.btnRunModel, R.id.btnAvatarLoad).forEach { id ->
                 findViewById<MaterialButton>(id).apply {
                     backgroundTintList = ColorStateList.valueOf(primary)
                     setTextColor(onPrimary)
@@ -460,6 +563,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnOpenBotFather, R.id.btnOpenPluginGuide, R.id.btnOpenKthemeRepo,
                 R.id.btnImportPersonality,
                 R.id.btnShareDocument, R.id.btnShareImage, R.id.btnShareMusic, R.id.btnShareLink,
+                R.id.btnAvatarUnload, R.id.btnAvatarCustom, R.id.btnAvatarReset,
             ).forEach { id ->
                 try {
                     findViewById<MaterialButton>(id).apply {
@@ -473,6 +577,8 @@ class MainActivity : AppCompatActivity() {
             listOf(
                 R.id.btnAddApiKey, R.id.btnGrantAllFiles,
                 R.id.btnExportDebugLog, R.id.btnRuntimeSelfCheck,
+                R.id.btnRefreshAffect, R.id.btnMemoryConsolidate,
+                R.id.btnMemoryStats, R.id.btnRefreshDashboard,
             ).forEach { id ->
                 try {
                     findViewById<MaterialButton>(id).setTextColor(primary)
@@ -480,6 +586,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             try {
+                applyKthemeToAllTextViews(tabAvatar as ViewGroup, onSurface)
                 applyKthemeToAllTextViews(tabModels as ViewGroup, onSurface)
                 applyKthemeToAllTextViews(tabPlugins as ViewGroup, onSurface)
                 applyKthemeToAllTextViews(tabSettings as ViewGroup, onSurface)
@@ -635,6 +742,37 @@ class MainActivity : AppCompatActivity() {
         // API Keys
         findViewById<MaterialButton>(R.id.btnAddApiKey).setOnClickListener {
             showAddApiKeyDialog()
+        }
+
+        // Avatar controls
+        findViewById<MaterialButton>(R.id.btnAvatarLoad).setOnClickListener {
+            showAvatarPresetDialog()
+        }
+        findViewById<MaterialButton>(R.id.btnAvatarUnload).setOnClickListener {
+            unloadAvatar()
+        }
+        findViewById<MaterialButton>(R.id.btnAvatarCustom).setOnClickListener {
+            showCustomAvatarsDialog()
+        }
+        findViewById<MaterialButton>(R.id.btnAvatarReset).setOnClickListener {
+            avatarSessionManager?.setCamera(0f, 0f, 2.5f)
+            showToast("Camera reset")
+        }
+        findViewById<MaterialButton>(R.id.btnRefreshAffect).setOnClickListener {
+            refreshAffectDisplay()
+        }
+
+        // Memory & RAG
+        findViewById<MaterialButton>(R.id.btnMemoryConsolidate).setOnClickListener {
+            triggerMemoryConsolidation()
+        }
+        findViewById<MaterialButton>(R.id.btnMemoryStats).setOnClickListener {
+            refreshMemoryStats()
+        }
+
+        // System dashboard
+        findViewById<MaterialButton>(R.id.btnRefreshDashboard).setOnClickListener {
+            refreshSystemDashboard()
         }
     }
 
@@ -1882,6 +2020,529 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ========================================================================
+    // Avatar Viewport
+    // ========================================================================
+
+    private fun setupAvatarTextureView() {
+        avatarTextureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
+                avatarSurface = Surface(texture)
+                Log.d(TAG, "Avatar surface available: ${width}x${height}")
+            }
+
+            override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+                avatarSessionManager?.let { manager ->
+                    if (manager.isReady) {
+                        // NnrRenderEngine handles surface size changes internally
+                    }
+                }
+            }
+
+            override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
+                avatarSessionManager?.unloadAvatar()
+                avatarSurface = null
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+                // Frame updated — no action needed
+            }
+        }
+    }
+
+    private fun refreshAvatarDeviceAssessment() {
+        val manager = avatarSessionManager ?: return
+        val assessment = manager.assessDevice()
+        avatarDeviceAssessmentText.text = buildString {
+            append("NNR: ${if (assessment.isNnrAvailable) "Available" else "Not installed"}")
+            append(" | A2BS: ${if (assessment.isA2bsAvailable) "Available" else "Not installed"}\n")
+            append("RAM: ${assessment.availableRamMb}/${assessment.totalRamMb} MB")
+            append(" | ${assessment.cpuArch}\n")
+            append("Avatar capable: ${if (assessment.canRunAvatar) "Yes" else "No"}\n")
+            if (assessment.recommendedPreset != null) {
+                append("Recommended: ${assessment.recommendedPreset.name}")
+            } else {
+                append(assessment.reason)
+            }
+        }
+    }
+
+    private fun showAvatarPresetDialog() {
+        val presets = AvatarModelCatalog.presets
+        if (presets.isEmpty()) {
+            showToast("No avatar presets available in catalog")
+            return
+        }
+
+        val manager = avatarSessionManager ?: return
+        val items = presets.map { preset ->
+            val downloaded = preset.componentIds.values.all {
+                manager.resourceManager.isComponentDownloaded(it)
+            }
+            val status = if (downloaded) "[Ready]" else "[Download required]"
+            "$status ${preset.name} (${preset.description})"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Avatar Presets (${presets.size})")
+            .setItems(items) { _, which ->
+                val preset = presets[which]
+                handleAvatarPresetSelection(preset)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun handleAvatarPresetSelection(preset: AvatarModelCatalog.AvatarPreset) {
+        val manager = avatarSessionManager ?: return
+        val surface = avatarSurface
+
+        if (surface == null) {
+            showToast("Avatar viewport not ready. Try again.")
+            return
+        }
+
+        val allDownloaded = preset.componentIds.values.all {
+            manager.resourceManager.isComponentDownloaded(it)
+        }
+
+        if (!allDownloaded) {
+            AlertDialog.Builder(this)
+                .setTitle("Download: ${preset.name}")
+                .setMessage("This avatar preset needs to download required components. Continue?")
+                .setPositiveButton("Download") { _, _ ->
+                    startAvatarPresetDownload(preset)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+            return
+        }
+
+        loadAvatarPreset(preset.id)
+    }
+
+    private fun startAvatarPresetDownload(preset: AvatarModelCatalog.AvatarPreset) {
+        val manager = avatarSessionManager ?: return
+
+        avatarDownloadContainer.visibility = View.VISIBLE
+        avatarDownloadStatusText.text = "Downloading ${preset.name}..."
+        avatarDownloadProgressBar.progress = 0
+        avatarDownloadProgressBar.isIndeterminate = true
+
+        llmSetupExecutor.execute {
+            val result = manager.downloadPreset(preset.id, object : com.tronprotocol.app.avatar.AvatarResourceManager.DownloadListener {
+                override fun onProgress(progress: com.tronprotocol.app.avatar.AvatarResourceManager.DownloadProgress) {
+                    val percent = progress.progressPercent.toInt()
+                    runOnUiThread {
+                        avatarDownloadProgressBar.isIndeterminate = false
+                        avatarDownloadProgressBar.progress = percent
+                        avatarDownloadStatusText.text = "Downloading ${progress.componentId}... $percent%"
+                    }
+                }
+
+                override fun onComplete(componentId: String, modelDir: java.io.File) {
+                    runOnUiThread {
+                        avatarDownloadStatusText.text = "Downloaded: $componentId"
+                    }
+                }
+
+                override fun onError(componentId: String, error: String) {
+                    runOnUiThread {
+                        avatarDownloadStatusText.text = "Error: $componentId — $error"
+                    }
+                }
+            })
+
+            runOnUiThread {
+                avatarDownloadContainer.visibility = View.GONE
+                if (result.success) {
+                    showToast("Download complete. Loading avatar...")
+                    loadAvatarPreset(preset.id)
+                } else {
+                    showToast("Download failed: ${result.message}")
+                }
+            }
+        }
+    }
+
+    private fun loadAvatarPreset(presetId: String) {
+        val manager = avatarSessionManager ?: return
+        val surface = avatarSurface ?: return
+
+        val width = avatarTextureView.width
+        val height = avatarTextureView.height
+
+        updateAvatarStatus("Loading...", R.color.service_status_degraded_background)
+
+        llmSetupExecutor.execute {
+            val result = manager.loadAvatar(presetId, surface, width, height)
+            runOnUiThread {
+                if (result.success) {
+                    val config = manager.activeAvatar
+                    avatarActiveModelText.text = config?.displayName ?: "Avatar loaded"
+                    updateAvatarStatus("Ready", R.color.service_status_running_background)
+                    showToast("Avatar loaded: ${config?.displayName}")
+
+                    // Render initial idle frame
+                    llmSetupExecutor.execute { manager.renderIdle() }
+                } else {
+                    updateAvatarStatus("Error", R.color.service_status_blocked_background)
+                    showToast("Failed to load avatar: ${result.message}")
+                }
+            }
+        }
+    }
+
+    private fun unloadAvatar() {
+        avatarSessionManager?.unloadAvatar()
+        avatarActiveModelText.text = getString(R.string.avatar_load_hint)
+        updateAvatarStatus("No avatar loaded", R.color.service_status_deferred_background)
+        avatarFpsText.text = ""
+    }
+
+    private fun updateAvatarStatus(status: String, colorRes: Int) {
+        avatarStatusText.text = status
+        avatarStatusIndicator.setBackgroundColor(ContextCompat.getColor(this, colorRes))
+    }
+
+    private fun showCustomAvatarsDialog() {
+        val manager = avatarSessionManager ?: return
+        val customAvatars = manager.listCustomAvatars()
+
+        if (customAvatars.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Custom Avatars")
+                .setMessage("No custom avatars imported yet.\n\nUse the MNN Avatar plugin to import custom avatar models with NNR rendering support.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        val items = customAvatars.map { info ->
+            "${info.name} (${if (info.hasSkeleton) "With skeleton" else "Default skeleton"})"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Custom Avatars (${customAvatars.size})")
+            .setItems(items) { _, which ->
+                val avatarName = customAvatars[which].name
+                val surface = avatarSurface ?: return@setItems
+                llmSetupExecutor.execute {
+                    val result = manager.loadCustomAvatar(
+                        avatarName, surface,
+                        avatarTextureView.width, avatarTextureView.height
+                    )
+                    runOnUiThread {
+                        if (result.success) {
+                            avatarActiveModelText.text = avatarName
+                            updateAvatarStatus("Ready", R.color.service_status_running_background)
+                        } else {
+                            showToast("Failed: ${result.message}")
+                        }
+                    }
+                }
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    // ========================================================================
+    // Affect System & Display
+    // ========================================================================
+
+    private fun startAffectSystem() {
+        val orchestrator = affectOrchestrator ?: return
+        orchestrator.start()
+        startAffectUpdates()
+    }
+
+    private fun startAffectUpdates() {
+        affectUpdateRunnable = object : Runnable {
+            override fun run() {
+                updateChatEmotionStrip()
+                if (tabAvatar.visibility == View.VISIBLE) {
+                    refreshAffectDisplay()
+                    updateAvatarFps()
+                }
+                uiHandler.postDelayed(this, AFFECT_UI_UPDATE_INTERVAL_MS)
+            }
+        }
+        uiHandler.postDelayed(affectUpdateRunnable!!, AFFECT_UI_UPDATE_INTERVAL_MS)
+    }
+
+    private fun stopAffectUpdates() {
+        affectUpdateRunnable?.let { uiHandler.removeCallbacks(it) }
+        affectUpdateRunnable = null
+    }
+
+    private fun refreshAffectDisplay() {
+        val orchestrator = affectOrchestrator ?: return
+        val state = orchestrator.getCurrentState()
+        val expression = orchestrator.getLastExpression()
+        val noise = orchestrator.getLastNoiseResult()
+
+        // Intensity and hedonic tone
+        affectIntensityText.text = "I=%.2f".format(state.intensity())
+        val hedonic = state.hedonicTone()
+        val hedonicLabel = when {
+            hedonic > 0.5f -> "Flourishing"
+            hedonic > 0.2f -> "Positive"
+            hedonic > -0.2f -> "Neutral"
+            hedonic > -0.5f -> "Low"
+            else -> "Distress"
+        }
+        affectHedonicText.text = "Hedonic tone: %.2f ($hedonicLabel)".format(hedonic)
+
+        // Build dimension bars dynamically
+        buildAffectDimensionBars(state)
+
+        // Expression output
+        if (expression != null) {
+            expressionOutputText.text = buildString {
+                append("Ears:     ${expression.earPosition}\n")
+                append("Tail:     ${expression.tailState}")
+                if (expression.tailPoof) append(" [POOF]")
+                append("\n")
+                append("Voice:    ${expression.vocalTone}\n")
+                append("Posture:  ${expression.posture}\n")
+                append("Eyes:     ${expression.eyeTracking}\n")
+                append("Breath:   ${expression.breathingRate}\n")
+                append("Grip:     ${expression.gripPressure}\n")
+                append("Proxim:   ${expression.proximitySeeking}")
+            }
+        } else {
+            expressionOutputText.text = getString(R.string.avatar_no_expression)
+        }
+
+        // Motor noise
+        if (noise != null) {
+            motorNoiseText.text = buildString {
+                append("Motor noise: %.2f".format(noise.overallNoiseLevel))
+                if (state.isZeroNoiseState()) {
+                    append(" [ZERO NOISE — total presence]")
+                }
+            }
+        } else {
+            motorNoiseText.text = ""
+        }
+    }
+
+    private fun buildAffectDimensionBars(state: com.tronprotocol.app.affect.AffectState) {
+        affectDimensionBarsContainer.removeAllViews()
+
+        val dimensionColors = mapOf(
+            AffectDimension.VALENCE to R.color.affect_valence,
+            AffectDimension.AROUSAL to R.color.affect_arousal,
+            AffectDimension.ATTACHMENT_INTENSITY to R.color.affect_attachment,
+            AffectDimension.CERTAINTY to R.color.affect_certainty,
+            AffectDimension.NOVELTY_RESPONSE to R.color.affect_novelty,
+            AffectDimension.THREAT_ASSESSMENT to R.color.affect_threat,
+            AffectDimension.FRUSTRATION to R.color.affect_frustration,
+            AffectDimension.SATIATION to R.color.affect_satiation,
+            AffectDimension.VULNERABILITY to R.color.affect_vulnerability,
+            AffectDimension.COHERENCE to R.color.affect_coherence,
+            AffectDimension.DOMINANCE to R.color.affect_dominance,
+            AffectDimension.INTEGRITY to R.color.affect_integrity
+        )
+
+        for (dim in AffectDimension.entries) {
+            val value = state[dim]
+            val normalizedValue = if (dim == AffectDimension.VALENCE) {
+                // Valence range is -1 to 1, normalize to 0-1
+                (value + 1f) / 2f
+            } else {
+                value.coerceIn(0f, 1f)
+            }
+
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = 2 }
+            }
+
+            // Label
+            val label = TextView(this).apply {
+                text = dim.key.take(8).uppercase()
+                textSize = 9f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.25f)
+                setTypeface(android.graphics.Typeface.MONOSPACE)
+            }
+            row.addView(label)
+
+            // Bar background
+            val barContainer = LinearLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, 10, 0.6f)
+                setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.affect_bar_background))
+            }
+
+            // Bar fill
+            val barFill = View(this).apply {
+                val colorRes = dimensionColors[dim] ?: R.color.affect_valence
+                setBackgroundColor(ContextCompat.getColor(this@MainActivity, colorRes))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    weight = normalizedValue
+                }
+            }
+            val barEmpty = View(this).apply {
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT).apply {
+                    weight = 1f - normalizedValue
+                }
+            }
+            barContainer.addView(barFill)
+            barContainer.addView(barEmpty)
+            row.addView(barContainer)
+
+            // Value text
+            val valueText = TextView(this).apply {
+                text = "%.2f".format(value)
+                textSize = 9f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.15f)
+                gravity = android.view.Gravity.END
+                setTypeface(android.graphics.Typeface.MONOSPACE)
+            }
+            row.addView(valueText)
+
+            affectDimensionBarsContainer.addView(row)
+        }
+    }
+
+    private fun updateChatEmotionStrip() {
+        val orchestrator = affectOrchestrator ?: return
+        if (!orchestrator.isRunning()) return
+
+        chatEmotionStrip.visibility = View.VISIBLE
+        val state = orchestrator.getCurrentState()
+        val expression = orchestrator.getLastExpression()
+
+        val hedonic = state.hedonicTone()
+        chatHedonicToneText.text = "%.2f".format(hedonic)
+
+        if (expression != null) {
+            chatExpressionSummaryText.text = "${expression.earPosition} | ${expression.posture}"
+        }
+
+        // Coherence indicator color
+        val coherence = state.coherence
+        val coherenceColor = when {
+            coherence > 0.8f -> R.color.affect_coherence
+            coherence > 0.5f -> R.color.service_status_degraded_background
+            else -> R.color.service_status_blocked_background
+        }
+        chatCoherenceIndicator.setBackgroundColor(ContextCompat.getColor(this, coherenceColor))
+    }
+
+    private fun updateAvatarFps() {
+        val manager = avatarSessionManager ?: return
+        if (manager.isReady) {
+            val stats = manager.getStats()
+            val fps = (stats["nnr_current_fps"] as? Float) ?: 0f
+            val frames = (stats["nnr_total_frames"] as? Long) ?: 0L
+            avatarFpsText.text = if (fps > 0) "%.0f fps | %d frames".format(fps, frames) else ""
+        }
+    }
+
+    // ========================================================================
+    // Memory & RAG
+    // ========================================================================
+
+    private fun refreshMemoryStats() {
+        val pluginManager = PluginManager.getInstance()
+
+        llmSetupExecutor.execute {
+            val ragResult = pluginManager.executePlugin("rag_memory", "stats")
+            val ragText = if (ragResult.isSuccess) {
+                ragResult.data ?: "No RAG statistics available"
+            } else {
+                "RAG memory plugin not active"
+            }
+
+            val consolidationResult = pluginManager.executePlugin("rag_memory", "consolidation_status")
+            val consolidationText = if (consolidationResult.isSuccess) {
+                consolidationResult.data ?: ""
+            } else {
+                ""
+            }
+
+            val affectLogStats = affectOrchestrator?.let {
+                val stats = it.getStats()
+                "Affect log entries: ${(stats["log"] as? Map<*, *>)?.get("entry_count") ?: "N/A"}"
+            } ?: ""
+
+            runOnUiThread {
+                memoryStatsText.text = buildString {
+                    append(ragText)
+                    if (consolidationText.isNotBlank()) {
+                        append("\n\n$consolidationText")
+                    }
+                    if (affectLogStats.isNotBlank()) {
+                        append("\n$affectLogStats")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun triggerMemoryConsolidation() {
+        val pluginManager = PluginManager.getInstance()
+        showToast("Starting memory consolidation...")
+
+        llmSetupExecutor.execute {
+            val result = pluginManager.executePlugin("rag_memory", "consolidate")
+            runOnUiThread {
+                if (result.isSuccess) {
+                    showToast("Memory consolidation complete")
+                } else {
+                    showToast("Consolidation unavailable: ${result.errorMessage}")
+                }
+                refreshMemoryStats()
+            }
+        }
+    }
+
+    // ========================================================================
+    // System Dashboard
+    // ========================================================================
+
+    private fun refreshSystemDashboard() {
+        val am = getSystemService(ACTIVITY_SERVICE) as? ActivityManager
+        val memInfo = ActivityManager.MemoryInfo()
+        am?.getMemoryInfo(memInfo)
+
+        val pluginManager = PluginManager.getInstance()
+        val allPlugins = pluginManager.getAllPlugins()
+
+        val serviceState = prefs.getString(
+            TronProtocolService.SERVICE_STARTUP_STATE_KEY,
+            TronProtocolService.STATE_DEFERRED
+        ) ?: TronProtocolService.STATE_DEFERRED
+
+        val affectRunning = affectOrchestrator?.isRunning() ?: false
+        val avatarState = avatarSessionManager?.state?.name ?: "N/A"
+        val nnrAvailable = NnrRenderEngine.isNativeAvailable()
+        val llmReady = llmManager.isReady
+
+        systemDashboardText.text = buildString {
+            append("=== Service ===\n")
+            append("State: $serviceState\n")
+            append("Plugins loaded: ${allPlugins.size}\n\n")
+
+            append("=== Resources ===\n")
+            append("RAM: ${memInfo.availMem / (1024 * 1024)} MB free / ${memInfo.totalMem / (1024 * 1024)} MB total\n")
+            append("Low memory: ${memInfo.lowMemory}\n\n")
+
+            append("=== Subsystems ===\n")
+            append("Affect engine: ${if (affectRunning) "Running" else "Stopped"}\n")
+            append("Avatar pipeline: $avatarState\n")
+            append("NNR native: ${if (nnrAvailable) "Loaded" else "Not available"}\n")
+            append("On-device LLM: ${if (llmReady) "Ready" else "Not loaded"}\n")
+            append("MNN framework: ${if (OnDeviceLLMManager.isNativeAvailable()) "Loaded" else "Not available"}")
+        }
+    }
+
+    // ========================================================================
     // Constants
     // ========================================================================
 
@@ -1897,6 +2558,7 @@ class MainActivity : AppCompatActivity() {
         private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
         private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
+        private const val AFFECT_UI_UPDATE_INTERVAL_MS = 2000L
 
         // Plugin categorization
         private val CORE_PLUGINS = setOf(

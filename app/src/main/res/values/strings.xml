@@ -9,6 +9,7 @@
 
     <!-- Tab titles -->
     <string name="tab_chat">Chat</string>
+    <string name="tab_avatar">Avatar</string>
     <string name="tab_models">Models</string>
     <string name="tab_plugins">Plugins</string>
     <string name="tab_settings">Settings</string>
@@ -16,6 +17,18 @@
     <!-- Chat -->
     <string name="chat_hint">Message Tron AI&#8230;</string>
     <string name="chat_empty">Start a conversation with Tron AI.\nMessages are routed through on-device LLM or Claude API.</string>
+
+    <!-- Avatar -->
+    <string name="avatar_viewport_label">3D AVATAR VIEWPORT</string>
+    <string name="avatar_status_uninitialized">No avatar loaded</string>
+    <string name="avatar_status_loading">Loading avatar&#8230;</string>
+    <string name="avatar_status_ready">Avatar ready</string>
+    <string name="avatar_status_rendering">Rendering</string>
+    <string name="avatar_status_error">Avatar error</string>
+    <string name="avatar_load_hint">Download and load an avatar preset to begin</string>
+    <string name="avatar_affect_title">AFFECT STATE</string>
+    <string name="avatar_expression_title">EXPRESSION OUTPUT</string>
+    <string name="avatar_no_expression">No expression data</string>
 
     <!-- API Keys -->
     <string name="api_keys_title">API Keys</string>
@@ -28,4 +41,6 @@
     <string name="section_integrations">Integrations</string>
     <string name="section_tools">Tools</string>
     <string name="section_diagnostics">Diagnostics</string>
+    <string name="section_memory">Memory &amp; RAG</string>
+    <string name="section_system">System Dashboard</string>
 </resources>
