@@ -16,16 +16,18 @@ import android.provider.Settings
 import android.provider.OpenableColumns
 import android.text.InputType
 import android.util.Log
+import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.children
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.switchmaterial.SwitchMaterial
@@ -36,7 +38,6 @@ import com.tronprotocol.app.llm.ModelCatalog
 import com.tronprotocol.app.llm.ModelDownloadManager
 import com.tronprotocol.app.llm.ModelRepository
 import com.tronprotocol.app.llm.OnDeviceLLMManager
-import com.tronprotocol.app.plugins.OnDeviceLLMPlugin
 import com.tronprotocol.app.plugins.PluginManager
 import com.tronprotocol.app.plugins.PluginRegistry
 import java.time.Instant
@@ -44,23 +45,41 @@ import java.util.concurrent.Executors
 
 class MainActivity : AppCompatActivity() {
 
+    // --- Views ---
     private lateinit var pluginCountText: TextView
     private lateinit var permissionStatusText: TextView
-    private lateinit var pluginStatusText: TextView
-    private lateinit var pluginToggleContainer: LinearLayout
     private lateinit var startupStateBadgeText: TextView
     private lateinit var diagnosticsText: TextView
     private lateinit var permissionRationaleText: TextView
     private lateinit var conversationTranscriptText: TextView
     private lateinit var conversationInput: TextInputEditText
-    private lateinit var messageFormatText: TextView
     private lateinit var messageShareStatusText: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var llmManager: OnDeviceLLMManager
     private var downloadManager: ModelDownloadManager? = null
     private var modelRepository: ModelRepository? = null
     private lateinit var modelHubStatusText: TextView
+    private lateinit var modelSelectedDetailsText: TextView
+    private lateinit var apiKeyListContainer: LinearLayout
+    private lateinit var apiKeyEmptyText: TextView
+    private lateinit var pluginSummaryText: TextView
+    private lateinit var serviceStatusDetailText: TextView
+    private lateinit var deviceCapText: TextView
     private val llmSetupExecutor = Executors.newSingleThreadExecutor()
+
+    // --- Tab views ---
+    private lateinit var tabChat: View
+    private lateinit var tabModels: View
+    private lateinit var tabPlugins: View
+    private lateinit var tabSettings: View
+    private lateinit var bottomNav: BottomNavigationView
+
+    // --- Plugin category containers ---
+    private lateinit var pluginCoreContainer: LinearLayout
+    private lateinit var pluginAiContainer: LinearLayout
+    private lateinit var pluginCommContainer: LinearLayout
+    private lateinit var pluginToolsContainer: LinearLayout
+    private lateinit var pluginSafetyContainer: LinearLayout
 
     private var activePermissionRequest: PermissionFeature? = null
     private var pendingShareType: ShareType? = null
@@ -160,7 +179,7 @@ class MainActivity : AppCompatActivity() {
 
             if (feature != null) {
                 if (denied.isEmpty()) {
-                    showPermissionMessage("${feature.title} permission granted. You can continue.")
+                    showPermissionMessage("${feature.title} permission granted.")
                 } else {
                     onPermissionDenied(feature, denied.toList())
                 }
@@ -171,7 +190,6 @@ class MainActivity : AppCompatActivity() {
             refreshStartupStateBadge()
             refreshDiagnosticsPanel()
 
-            // If notification permission was just granted, start the service now
             if (feature == PermissionFeature.NOTIFICATIONS && denied.isEmpty()) {
                 runStartupBlock("start_service_after_notification_grant") {
                     startTronProtocolService()
@@ -191,7 +209,7 @@ class MainActivity : AppCompatActivity() {
             val displayName = resolveDisplayName(uri) ?: "File ($mimeType)"
             val formatted = formatShareMessage(type.name, displayName, uri.toString(), NOTE_SHARED_FROM_DEVICE_PICKER)
             messageShareStatusText.text = formatted
-            showPermissionMessage("Shared ${type.name.lowercase()} context with AI message format.")
+            showPermissionMessage("Shared ${type.name.lowercase()} context with AI.")
         }
 
     private val personalityImportLauncher =
@@ -200,27 +218,21 @@ class MainActivity : AppCompatActivity() {
             handlePersonalityImport(uri)
         }
 
+    // ========================================================================
+    // Lifecycle
+    // ========================================================================
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences(BootReceiver.PREFS_NAME, MODE_PRIVATE)
         llmManager = OnDeviceLLMManager(this)
-        pluginCountText = findViewById(R.id.pluginCountText)
-        permissionStatusText = findViewById(R.id.permissionStatusText)
-        pluginStatusText = findViewById(R.id.pluginStatusText)
-        pluginToggleContainer = findViewById(R.id.pluginToggleContainer)
-        startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
-        permissionRationaleText = findViewById(R.id.permissionRationaleText)
-        diagnosticsText = findViewById(R.id.diagnosticsText)
-        conversationTranscriptText = findViewById(R.id.conversationTranscriptText)
-        conversationInput = findViewById(R.id.conversationInput)
-        messageFormatText = findViewById(R.id.messageFormatText)
-        messageShareStatusText = findViewById(R.id.messageShareStatusText)
-        messageShareStatusText.text = "Ready to share docs, pictures, music, and links with AI."
-        modelHubStatusText = findViewById(R.id.modelHubStatusText)
         downloadManager = ModelDownloadManager(this)
         modelRepository = ModelRepository(this)
+
+        bindViews()
+        setupBottomNavigation()
 
         runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
@@ -238,9 +250,6 @@ class MainActivity : AppCompatActivity() {
 
         runStartupBlock("request_battery_optimization_exemption") { requestBatteryOptimizationExemption() }
 
-        // Only start the service if notification permission is already granted.
-        // On Android 13+ the first launch will request POST_NOTIFICATIONS via
-        // requestInitialAccess() and start the service in the permission callback.
         if (canStartForegroundService()) {
             runStartupBlock("start_service_from_main_oncreate") { startTronProtocolService() }
         } else {
@@ -249,6 +258,8 @@ class MainActivity : AppCompatActivity() {
         refreshStartupStateBadge()
         refreshDiagnosticsPanel()
         runStartupBlock("refresh_model_hub") { refreshModelHubCard() }
+        runStartupBlock("refresh_api_keys") { refreshApiKeyList() }
+        runStartupBlock("refresh_device_cap") { refreshDeviceCapabilities() }
     }
 
     override fun onStart() {
@@ -257,6 +268,75 @@ class MainActivity : AppCompatActivity() {
         refreshStartupStateBadge()
         refreshDiagnosticsPanel()
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        llmSetupExecutor.shutdownNow()
+        llmManager.shutdown()
+        downloadManager?.shutdown()
+    }
+
+    // ========================================================================
+    // View binding & tab navigation
+    // ========================================================================
+
+    private fun bindViews() {
+        pluginCountText = findViewById(R.id.pluginCountText)
+        permissionStatusText = findViewById(R.id.permissionStatusText)
+        startupStateBadgeText = findViewById(R.id.startupStateBadgeText)
+        permissionRationaleText = findViewById(R.id.permissionRationaleText)
+        diagnosticsText = findViewById(R.id.diagnosticsText)
+        conversationTranscriptText = findViewById(R.id.conversationTranscriptText)
+        conversationInput = findViewById(R.id.conversationInput)
+        messageShareStatusText = findViewById(R.id.messageShareStatusText)
+        messageShareStatusText.text = ""
+        modelHubStatusText = findViewById(R.id.modelHubStatusText)
+        modelSelectedDetailsText = findViewById(R.id.modelSelectedDetailsText)
+        apiKeyListContainer = findViewById(R.id.apiKeyListContainer)
+        apiKeyEmptyText = findViewById(R.id.apiKeyEmptyText)
+        pluginSummaryText = findViewById(R.id.pluginSummaryText)
+        serviceStatusDetailText = findViewById(R.id.serviceStatusDetailText)
+        deviceCapText = findViewById(R.id.deviceCapText)
+
+        tabChat = findViewById(R.id.tabChat)
+        tabModels = findViewById(R.id.tabModels)
+        tabPlugins = findViewById(R.id.tabPlugins)
+        tabSettings = findViewById(R.id.tabSettings)
+        bottomNav = findViewById(R.id.bottomNav)
+
+        pluginCoreContainer = findViewById(R.id.pluginCoreContainer)
+        pluginAiContainer = findViewById(R.id.pluginAiContainer)
+        pluginCommContainer = findViewById(R.id.pluginCommContainer)
+        pluginToolsContainer = findViewById(R.id.pluginToolsContainer)
+        pluginSafetyContainer = findViewById(R.id.pluginSafetyContainer)
+    }
+
+    private fun setupBottomNavigation() {
+        bottomNav.setOnItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_chat -> showTab(tabChat)
+                R.id.nav_models -> showTab(tabModels)
+                R.id.nav_plugins -> showTab(tabPlugins)
+                R.id.nav_settings -> showTab(tabSettings)
+                else -> return@setOnItemSelectedListener false
+            }
+            true
+        }
+        // Default to chat tab
+        showTab(tabChat)
+    }
+
+    private fun showTab(tab: View) {
+        tabChat.visibility = View.GONE
+        tabModels.visibility = View.GONE
+        tabPlugins.visibility = View.GONE
+        tabSettings.visibility = View.GONE
+        tab.visibility = View.VISIBLE
+    }
+
+    // ========================================================================
+    // Startup helpers
+    // ========================================================================
 
     private fun runStartupBlock(name: String, block: () -> Unit) {
         try {
@@ -267,6 +347,10 @@ class MainActivity : AppCompatActivity() {
             Log.e(TAG, "Startup block failed: $name", t)
         }
     }
+
+    // ========================================================================
+    // Ktheme
+    // ========================================================================
 
     private fun applyKtheme() {
         try {
@@ -289,137 +373,169 @@ class MainActivity : AppCompatActivity() {
             val primary = ColorUtils.hexToColorInt(colors.primary)
             val onPrimary = ColorUtils.hexToColorInt(colors.onPrimary)
 
-            findViewById<android.widget.ScrollView>(R.id.rootScrollView).setBackgroundColor(background)
+            // Root background
+            findViewById<LinearLayout>(R.id.statusBar).setBackgroundColor(background)
+            tabChat.setBackgroundColor(background)
+            tabModels.setBackgroundColor(background)
+            tabPlugins.setBackgroundColor(background)
+            tabSettings.setBackgroundColor(background)
 
-            listOf(
-                R.id.headerCard,
-                R.id.conversationCard,
-                R.id.modelHubCard,
-                R.id.actionCard,
-                R.id.messageCard,
-                R.id.pluginManagementCard,
-                R.id.diagnosticsCard,
-            ).forEach { cardId ->
-                findViewById<MaterialCardView>(cardId).setCardBackgroundColor(surface)
+            // Bottom nav styling
+            bottomNav.setBackgroundColor(surface)
+            bottomNav.itemIconTintList = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()),
+                intArrayOf(primary, onSurface)
+            )
+            bottomNav.itemTextColor = ColorStateList(
+                arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()),
+                intArrayOf(primary, onSurface)
+            )
+
+            // Status bar area
+            findViewById<TextView>(R.id.pluginCountText).setTextColor(onSurface)
+
+            // All cards
+            val cardIds = listOf(
+                R.id.modelActiveCard, R.id.deviceCapCard,
+                R.id.pluginSummaryCard, R.id.pluginCoreCard, R.id.pluginAiCard,
+                R.id.pluginCommCard, R.id.pluginToolsCard, R.id.pluginSafetyCard,
+                R.id.apiKeysCard, R.id.serviceCard, R.id.permissionsCard,
+                R.id.integrationsCard, R.id.toolsCard, R.id.diagnosticsCard,
+            )
+            cardIds.forEach { id ->
+                try {
+                    findViewById<MaterialCardView>(id).setCardBackgroundColor(surface)
+                } catch (_: Exception) {}
             }
 
-            listOf(
-                R.id.pluginCountText,
-                R.id.permissionStatusText,
-                R.id.startupStateBadgeText,
-                R.id.permissionRationaleText,
-                R.id.pluginStatusText,
-                R.id.diagnosticsText,
-                R.id.conversationTranscriptText,
-                R.id.messageFormatText,
-                R.id.messageShareStatusText,
-                R.id.modelHubStatusText,
-            ).forEach { textId ->
-                findViewById<TextView>(textId).setTextColor(onSurface)
+            // Text colors
+            conversationTranscriptText.setTextColor(onSurface)
+            modelHubStatusText.setTextColor(onSurface)
+            modelSelectedDetailsText.setTextColor(onSurface)
+            permissionStatusText.setTextColor(onSurface)
+            diagnosticsText.setTextColor(onSurface)
+            pluginSummaryText.setTextColor(onSurface)
+            serviceStatusDetailText.setTextColor(onSurface)
+            deviceCapText.setTextColor(onSurface)
+            apiKeyEmptyText.setTextColor(onSurface)
+            messageShareStatusText.setTextColor(onSurface)
+
+            // Send button
+            findViewById<MaterialButton>(R.id.btnSendConversation).apply {
+                backgroundTintList = ColorStateList.valueOf(primary)
+                iconTint = ColorStateList.valueOf(onPrimary)
             }
 
-            listOf(
-                R.id.btnTelephonyFeature,
-                R.id.btnSmsFeature,
-                R.id.btnContactsFeature,
-                R.id.btnLocationFeature,
-                R.id.btnStorageFeature,
-                R.id.btnNotificationsFeature,
-                R.id.btnOpenBotFather,
-                R.id.btnSendConversation,
-                R.id.btnShareDocument,
-                R.id.btnShareImage,
-                R.id.btnShareMusic,
-            ).forEach { buttonId ->
-                findViewById<MaterialButton>(buttonId).apply {
+            // Filled buttons
+            listOf(R.id.btnModelBrowse, R.id.btnStartService).forEach { id ->
+                findViewById<MaterialButton>(id).apply {
                     backgroundTintList = ColorStateList.valueOf(primary)
                     setTextColor(onPrimary)
                 }
             }
 
-            findViewById<MaterialButton>(R.id.btnGrantAllFiles).apply {
-                strokeColor = ColorStateList.valueOf(primary)
-                setTextColor(primary)
+            // Outlined buttons
+            listOf(
+                R.id.btnModelSelect, R.id.btnModelRecommend, R.id.btnModelStatus,
+                R.id.btnDownloadInitModel,
+                R.id.btnTelephonyFeature, R.id.btnSmsFeature, R.id.btnContactsFeature,
+                R.id.btnLocationFeature, R.id.btnStorageFeature, R.id.btnNotificationsFeature,
+                R.id.btnOpenBotFather, R.id.btnOpenPluginGuide, R.id.btnOpenKthemeRepo,
+                R.id.btnImportPersonality,
+                R.id.btnShareDocument, R.id.btnShareImage, R.id.btnShareMusic, R.id.btnShareLink,
+            ).forEach { id ->
+                try {
+                    findViewById<MaterialButton>(id).apply {
+                        strokeColor = ColorStateList.valueOf(primary)
+                        setTextColor(primary)
+                    }
+                } catch (_: Exception) {}
             }
 
-            findViewById<MaterialButton>(R.id.btnStartService).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnDownloadInitModel).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnExportDebugLog).setTextColor(primary)
-            findViewById<MaterialButton>(R.id.btnClearConversation).apply {
-                strokeColor = ColorStateList.valueOf(primary)
-                setTextColor(primary)
+            // Text buttons
+            listOf(
+                R.id.btnAddApiKey, R.id.btnGrantAllFiles,
+                R.id.btnExportDebugLog, R.id.btnRuntimeSelfCheck,
+            ).forEach { id ->
+                try {
+                    findViewById<MaterialButton>(id).setTextColor(primary)
+                } catch (_: Exception) {}
             }
 
-            pluginToggleContainer.children.forEach { child ->
-                if (child is SwitchMaterial) {
-                    child.setTextColor(onSurface)
-                }
-            }
+            try {
+                applyKthemeToAllTextViews(tabModels as ViewGroup, onSurface)
+                applyKthemeToAllTextViews(tabPlugins as ViewGroup, onSurface)
+                applyKthemeToAllTextViews(tabSettings as ViewGroup, onSurface)
+            } catch (_: Exception) {}
+
         } catch (t: Throwable) {
             Log.w(TAG, "Unable to apply ktheme styling", t)
         }
     }
 
+    private fun applyKthemeToAllTextViews(viewGroup: ViewGroup, color: Int) {
+        for (i in 0 until viewGroup.childCount) {
+            val child = viewGroup.getChildAt(i)
+            if (child is TextView && child !is EditText) {
+                child.setTextColor(color)
+            } else if (child is ViewGroup) {
+                applyKthemeToAllTextViews(child, color)
+            }
+        }
+    }
+
+    // ========================================================================
+    // UI wiring
+    // ========================================================================
+
     private fun wireUiActions() {
+        // Chat
         findViewById<MaterialButton>(R.id.btnSendConversation).setOnClickListener {
             sendConversationMessage()
         }
 
-        findViewById<MaterialButton>(R.id.btnClearConversation).setOnClickListener {
-            conversationTurns.clear()
-            conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
-            showInlineStatusMessage("Conversation history cleared.")
-        }
-
+        // Permissions
         findViewById<MaterialButton>(R.id.btnTelephonyFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.TELEPHONY) {
-                showPermissionMessage("Telephony plugin is ready to execute call operations.")
+                showPermissionMessage("Telephony plugin ready.")
             }
         }
-
         findViewById<MaterialButton>(R.id.btnSmsFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.SMS) {
-                showPermissionMessage("SMS plugin is ready to send/read messages.")
+                showPermissionMessage("SMS plugin ready.")
             }
         }
-
         findViewById<MaterialButton>(R.id.btnContactsFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.CONTACTS) {
-                showPermissionMessage("Contacts plugin is ready to read/update contacts.")
+                showPermissionMessage("Contacts plugin ready.")
             }
         }
-
         findViewById<MaterialButton>(R.id.btnLocationFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.LOCATION) {
-                showPermissionMessage("Location plugin is ready to resolve nearby context.")
+                showPermissionMessage("Location plugin ready.")
             }
         }
-
         findViewById<MaterialButton>(R.id.btnStorageFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.STORAGE) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
                     showPermissionMessage("Grant All Files access to complete advanced file management.")
                     requestAllFilesAccess()
                 } else {
-                    showPermissionMessage("File manager plugin is ready for storage operations.")
+                    showPermissionMessage("File manager plugin ready.")
                 }
             }
         }
-
         findViewById<MaterialButton>(R.id.btnNotificationsFeature).setOnClickListener {
             executeFeatureWithPermissions(PermissionFeature.NOTIFICATIONS) {
-                showPermissionMessage("Notifications are enabled for task and service updates.")
+                showPermissionMessage("Notifications enabled.")
             }
         }
-
         findViewById<MaterialButton>(R.id.btnGrantAllFiles).setOnClickListener {
             requestAllFilesAccess()
             refreshDiagnosticsPanel()
         }
 
+        // Service
         findViewById<MaterialButton>(R.id.btnStartService).setOnClickListener {
             runStartupBlock("start_service_from_button") { startTronProtocolService() }
             refreshStartupStateBadge()
@@ -427,34 +543,32 @@ class MainActivity : AppCompatActivity() {
             refreshDiagnosticsPanel()
         }
 
+        // Integrations
         findViewById<MaterialButton>(R.id.btnOpenBotFather).setOnClickListener {
-            openExternalLink(BOTFATHER_URL, "Opening BotFather setup in Telegram/browser.")
+            openExternalLink(BOTFATHER_URL, "Opening BotFather setup.")
         }
-
         findViewById<MaterialButton>(R.id.btnOpenPluginGuide).setOnClickListener {
-            openExternalLink(PLUGIN_GUIDE_URL, "Opening plugin expansion and maintenance guide.")
+            openExternalLink(PLUGIN_GUIDE_URL, "Opening plugin guide.")
         }
-
         findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setOnClickListener {
-            openExternalLink(KTHEME_REPO_URL, "Opening Ktheme so AI/user can design and preview themes.")
+            openExternalLink(KTHEME_REPO_URL, "Opening Ktheme designer.")
         }
 
+        // Sharing
         findViewById<MaterialButton>(R.id.btnShareDocument).setOnClickListener {
             startSharePicker(ShareType.DOC, arrayOf("application/pdf", "text/plain", "application/msword"))
         }
-
         findViewById<MaterialButton>(R.id.btnShareImage).setOnClickListener {
             startSharePicker(ShareType.IMAGE, arrayOf("image/*"))
         }
-
         findViewById<MaterialButton>(R.id.btnShareMusic).setOnClickListener {
             startSharePicker(ShareType.AUDIO, arrayOf("audio/*"))
         }
-
         findViewById<MaterialButton>(R.id.btnShareLink).setOnClickListener {
             promptAndShareLink()
         }
 
+        // Self-check
         findViewById<MaterialButton>(R.id.btnRuntimeSelfCheck).setOnClickListener {
             val manager = PluginManager.getInstance()
             val message = buildString {
@@ -462,14 +576,28 @@ class MainActivity : AppCompatActivity() {
                 append("\n")
                 append("Policy: ${manager.getRuntimePolicyStatus()}")
             }
-            messageShareStatusText.text = message
+            pluginSummaryText.text = message
             showPermissionMessage("Runtime self-check completed.")
         }
 
+        // Model hub
+        findViewById<MaterialButton>(R.id.btnModelBrowse).setOnClickListener {
+            showModelCatalogDialog()
+        }
+        findViewById<MaterialButton>(R.id.btnModelSelect).setOnClickListener {
+            showDownloadedModelsDialog()
+        }
+        findViewById<MaterialButton>(R.id.btnModelRecommend).setOnClickListener {
+            showModelRecommendation()
+        }
+        findViewById<MaterialButton>(R.id.btnModelStatus).setOnClickListener {
+            showModelStatus()
+        }
         findViewById<MaterialButton>(R.id.btnDownloadInitModel).setOnClickListener {
             promptModelDownloadAndInit()
         }
 
+        // Tools
         findViewById<MaterialButton>(R.id.btnImportPersonality).setOnClickListener {
             personalityImportLauncher.launch(arrayOf(
                 "application/json",
@@ -479,28 +607,150 @@ class MainActivity : AppCompatActivity() {
                 "*/*"
             ))
         }
-
-        // Model Hub buttons
-        findViewById<MaterialButton>(R.id.btnModelBrowse).setOnClickListener {
-            showModelCatalogDialog()
-        }
-
-        findViewById<MaterialButton>(R.id.btnModelSelect).setOnClickListener {
-            showDownloadedModelsDialog()
-        }
-
-        findViewById<MaterialButton>(R.id.btnModelRecommend).setOnClickListener {
-            showModelRecommendation()
-        }
-
-        findViewById<MaterialButton>(R.id.btnModelStatus).setOnClickListener {
-            showModelStatus()
-        }
-
         findViewById<MaterialButton>(R.id.btnExportDebugLog).setOnClickListener {
             exportDebugLog()
         }
+
+        // API Keys
+        findViewById<MaterialButton>(R.id.btnAddApiKey).setOnClickListener {
+            showAddApiKeyDialog()
+        }
     }
+
+    // ========================================================================
+    // API Key Management UI
+    // ========================================================================
+
+    private fun showAddApiKeyDialog() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+        }
+
+        val serviceInput = EditText(this).apply {
+            hint = "Service name (e.g. anthropic, huggingface)"
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        layout.addView(serviceInput)
+
+        val keyInput = EditText(this).apply {
+            hint = "API key"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        layout.addView(keyInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Add API Key")
+            .setMessage("Keys are encrypted with hardware-backed AES-256-GCM and stored on-device only.")
+            .setView(layout)
+            .setPositiveButton("Save") { _, _ ->
+                val service = serviceInput.text?.toString()?.trim().orEmpty()
+                val key = keyInput.text?.toString()?.trim().orEmpty()
+                if (service.isBlank() || key.isBlank()) {
+                    showToast("Both service name and key are required.")
+                    return@setPositiveButton
+                }
+                storeApiKey(service, key)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun storeApiKey(service: String, key: String) {
+        val pluginManager = PluginManager.getInstance()
+        val result = pluginManager.executePlugin("api_key_vault", "store|$service|$key")
+        if (result.isSuccess) {
+            showToast("Key saved for $service")
+            // If this is the Anthropic key, also set it on guidance router
+            if (service.lowercase() == "anthropic") {
+                pluginManager.executePlugin("guidance_router", "set_api_key|$key")
+            }
+            // If this is HuggingFace token, set it on download manager
+            if (service.lowercase() == "huggingface" || service.lowercase() == "hf") {
+                downloadManager?.setHuggingFaceToken(key)
+            }
+            refreshApiKeyList()
+        } else {
+            showToast("Failed to save key: ${result.errorMessage}")
+        }
+    }
+
+    private fun refreshApiKeyList() {
+        apiKeyListContainer.removeAllViews()
+        val pluginManager = PluginManager.getInstance()
+        val result = pluginManager.executePlugin("api_key_vault", "list")
+
+        if (!result.isSuccess) {
+            apiKeyEmptyText.visibility = View.VISIBLE
+            return
+        }
+
+        val servicesStr = result.data?.removePrefix("Stored services: ")?.trim().orEmpty()
+        if (servicesStr.isBlank()) {
+            apiKeyEmptyText.visibility = View.VISIBLE
+            return
+        }
+
+        apiKeyEmptyText.visibility = View.GONE
+        val services = servicesStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
+
+        for (service in services) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, 8, 0, 8)
+            }
+
+            val nameText = TextView(this).apply {
+                text = service
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            row.addView(nameText)
+
+            // Masked key preview
+            val maskedResult = pluginManager.executePlugin("api_key_vault", "get|$service")
+            val preview = TextView(this).apply {
+                text = if (maskedResult.isSuccess) {
+                    maskedResult.data?.substringAfter(": ")?.take(16) ?: "****"
+                } else "****"
+                textSize = 12f
+                setTypeface(android.graphics.Typeface.MONOSPACE)
+            }
+            row.addView(preview)
+
+            val deleteBtn = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+                text = "Del"
+                textSize = 11f
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = 8 }
+                minimumWidth = 0
+                minWidth = 0
+                setPadding(16, 0, 16, 0)
+            }
+            deleteBtn.setOnClickListener {
+                AlertDialog.Builder(this)
+                    .setTitle("Delete API Key")
+                    .setMessage("Remove the key for '$service'?")
+                    .setPositiveButton("Delete") { _, _ ->
+                        pluginManager.executePlugin("api_key_vault", "delete|$service")
+                        showToast("Deleted key for $service")
+                        refreshApiKeyList()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            row.addView(deleteBtn)
+
+            apiKeyListContainer.addView(row)
+        }
+    }
+
+    // ========================================================================
+    // Plugin management (categorized)
+    // ========================================================================
 
     private fun initializePlugins() {
         val pluginManager = PluginManager.getInstance()
@@ -518,20 +768,54 @@ class MainActivity : AppCompatActivity() {
         updatePluginUiState()
     }
 
+    /**
+     * Plugin categories for the UI. Plugins are assigned based on their ID patterns.
+     */
+    private fun getPluginCategory(pluginId: String): String {
+        return when {
+            pluginId in CORE_PLUGINS -> "core"
+            pluginId in AI_PLUGINS -> "ai"
+            pluginId in COMM_PLUGINS -> "comm"
+            pluginId in SAFETY_PLUGINS -> "safety"
+            else -> "tools"
+        }
+    }
+
+    private fun getCategoryContainer(category: String): LinearLayout {
+        return when (category) {
+            "core" -> pluginCoreContainer
+            "ai" -> pluginAiContainer
+            "comm" -> pluginCommContainer
+            "safety" -> pluginSafetyContainer
+            else -> pluginToolsContainer
+        }
+    }
+
     private fun renderPluginManagementUi() {
-        pluginToggleContainer.removeAllViews()
+        pluginCoreContainer.removeAllViews()
+        pluginAiContainer.removeAllViews()
+        pluginCommContainer.removeAllViews()
+        pluginToolsContainer.removeAllViews()
+        pluginSafetyContainer.removeAllViews()
+
         val pluginManager = PluginManager.getInstance()
 
         for (config in PluginRegistry.sortedConfigs) {
+            val category = getPluginCategory(config.id)
+            val container = getCategoryContainer(category)
+
             val toggle = SwitchMaterial(this).apply {
                 val enabled = isPluginEnabled(config.id, config.defaultEnabled)
                 isChecked = enabled
-                text = "${config.id} · ${config.pluginClass.simpleName} (P${config.startupPriority})"
+                text = config.pluginClass.simpleName?.replace("Plugin", "") ?: config.id
+                textSize = 14f
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
-                )
-                setTextColor(pluginStatusText.currentTextColor)
+                ).apply {
+                    marginStart = 12
+                    marginEnd = 12
+                }
             }
 
             toggle.setOnCheckedChangeListener { _, isChecked ->
@@ -548,7 +832,7 @@ class MainActivity : AppCompatActivity() {
                 updatePluginUiState()
             }
 
-            pluginToggleContainer.addView(toggle)
+            container.addView(toggle)
         }
 
         updatePluginUiState()
@@ -556,21 +840,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun updatePluginUiState() {
         val pluginManager = PluginManager.getInstance()
-        val enabledConfigs = PluginRegistry.sortedConfigs.filter { isPluginEnabled(it.id, it.defaultEnabled) }
-        val loadedPluginIds = pluginManager.getAllPlugins().map { it.id }.toSet()
+        val enabledCount = PluginRegistry.sortedConfigs.count { isPluginEnabled(it.id, it.defaultEnabled) }
+        val loadedCount = pluginManager.getAllPlugins().size
+        val totalCount = PluginRegistry.sortedConfigs.size
 
-        pluginCountText.text = "Active plugins: ${pluginManager.getAllPlugins().size}"
-        pluginStatusText.text = buildString {
-            append("Configured enabled: ${enabledConfigs.size}/${PluginRegistry.sortedConfigs.size}\n")
-            append("Loaded: ${pluginManager.getAllPlugins().size}\n")
-            append("Status:\n")
-            PluginRegistry.sortedConfigs.forEach { config ->
-                val configuredEnabled = enabledConfigs.any { it.id == config.id }
-                val loaded = loadedPluginIds.contains(config.id)
-                append("• ${config.id} -> ${if (configuredEnabled) "enabled" else "disabled"}")
-                append(", loaded=${if (loaded) "yes" else "no"}\n")
-            }
-        }
+        pluginCountText.text = "$loadedCount active"
+        pluginSummaryText.text = "$enabledCount enabled / $totalCount total, $loadedCount loaded"
     }
 
     private fun isPluginEnabled(pluginId: String, defaultEnabled: Boolean): Boolean {
@@ -579,11 +854,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun pluginPreferenceKey(pluginId: String): String = "plugin_enabled_$pluginId"
 
+    // ========================================================================
+    // Device capabilities
+    // ========================================================================
+
+    private fun refreshDeviceCapabilities() {
+        val cap = llmManager.assessDevice()
+        deviceCapText.text = buildString {
+            append("RAM: ${cap.availableRamMb} MB free / ${cap.totalRamMb} MB total\n")
+            append("CPU: ${cap.cpuArch} | ARM64: ${cap.supportsArm64}\n")
+            append("GPU: ${if (cap.hasGpu) "Available" else "None"} | FP16: ${cap.supportsFp16}\n")
+            append("Threads: ${cap.recommendedThreads} | LLM capable: ${if (cap.canRunLLM) "Yes" else "No"}\n")
+            append("MNN: ${if (OnDeviceLLMManager.isNativeAvailable()) "Installed" else "Not installed"}")
+        }
+    }
+
+    // ========================================================================
+    // Permissions
+    // ========================================================================
+
     private fun requestInitialAccess() {
         updatePermissionUi()
 
-        // On Android 13+ the foreground service REQUIRES POST_NOTIFICATIONS.
-        // Request it immediately so the service can start without crashing.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val notifPerms = PermissionFeature.NOTIFICATIONS.permissions
             val missing = notifPerms.filter {
@@ -592,14 +884,12 @@ class MainActivity : AppCompatActivity() {
             if (missing.isNotEmpty()) {
                 activePermissionRequest = PermissionFeature.NOTIFICATIONS
                 permissionLauncher.launch(missing.toTypedArray())
-                showPermissionMessage("Notification permission is required for the background service to run.")
+                showPermissionMessage("Notification permission is required for the background service.")
                 return
             }
         }
 
-        // On older Android versions (or if notification permission is already granted),
-        // just display guidance. Other permissions are requested on demand.
-        showPermissionMessage("Notifications enabled. Other permissions are requested on demand when you use telephony, SMS, contacts, location, or storage features.")
+        showPermissionMessage("Notifications enabled. Other permissions are requested on demand.")
     }
 
     private fun executeFeatureWithPermissions(feature: PermissionFeature, onGranted: () -> Unit) {
@@ -687,7 +977,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         permissionStatusText.text =
-            "Runtime permissions: $granted/${allRuntimePermissions.size}\nAll files access: ${if (allFilesGranted) "Granted" else "Pending"}"
+            "Runtime: $granted/${allRuntimePermissions.size} | All files: ${if (allFilesGranted) "Yes" else "No"}"
     }
 
     private fun showPermissionMessage(message: String) {
@@ -695,10 +985,13 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
-    private fun showInlineStatusMessage(message: String) {
-        permissionRationaleText.text = message
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
+
+    // ========================================================================
+    // Service
+    // ========================================================================
 
     private fun refreshStartupStateBadge() {
         val state = prefs.getString(
@@ -712,13 +1005,14 @@ class MainActivity : AppCompatActivity() {
 
         val (colorRes, label) = when (state) {
             TronProtocolService.STATE_RUNNING -> R.color.service_status_running_background to "RUNNING"
-            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> R.color.service_status_blocked_background to "BLOCKED-BY-PERMISSION"
+            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> R.color.service_status_blocked_background to "BLOCKED"
             TronProtocolService.STATE_DEGRADED -> R.color.service_status_degraded_background to "DEGRADED"
             else -> R.color.service_status_deferred_background to "DEFERRED"
         }
 
         startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, colorRes))
-        startupStateBadgeText.text = getString(R.string.service_status_format, label, reason)
+        startupStateBadgeText.text = label
+        serviceStatusDetailText.text = reason
     }
 
     private fun requestBatteryOptimizationExemption() {
@@ -755,10 +1049,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Check whether the foreground service can be started right now.
-     * On Android 13+ this requires POST_NOTIFICATIONS to be granted.
-     */
     private fun canStartForegroundService(): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return ContextCompat.checkSelfPermission(
@@ -777,103 +1067,126 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ========================================================================
+    // Diagnostics
+    // ========================================================================
+
     private fun refreshDiagnosticsPanel() {
         val startupSummary = StartupDiagnostics.getEventsForDisplay(this)
         val retrievalSummary = StartupDiagnostics.getRetrievalDiagnosticsSummary(this, RAG_DIAGNOSTICS_AI_ID)
         diagnosticsText.text = "$startupSummary\n\n[RAG Telemetry]\n$retrievalSummary"
     }
 
+    // ========================================================================
+    // Conversation
+    // ========================================================================
+
+    private fun sendConversationMessage() {
+        val userText = conversationInput.text?.toString()?.trim().orEmpty()
+        if (userText.isBlank()) {
+            showToast("Type a message before sending.")
+            return
+        }
+
+        conversationTurns.add(ConversationTurn("You", userText))
+
+        val pluginManager = PluginManager.getInstance()
+        val guidanceResult = pluginManager.executePlugin(
+            GUIDANCE_ROUTER_PLUGIN_ID,
+            "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
+        )
+        val aiMessage = if (guidanceResult.isSuccess) {
+            guidanceResult.data ?: "No response received from AI. Please try again."
+        } else {
+            "I'm having trouble responding right now. Please try again."
+        }
+
+        conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
+        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+        conversationInput.setText("")
+
+        // Auto-scroll to bottom
+        findViewById<ScrollView>(R.id.chatScrollView).post {
+            findViewById<ScrollView>(R.id.chatScrollView).fullScroll(View.FOCUS_DOWN)
+        }
+    }
+
+    // ========================================================================
+    // Sharing
+    // ========================================================================
+
     private fun startSharePicker(type: ShareType, mimeTypes: Array<String>) {
         pendingShareType = type
         shareDocumentLauncher.launch(mimeTypes)
     }
 
-
-    private fun promptModelDownloadAndInit() {
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(40, 20, 40, 0)
-        }
-
-        val modelNameInput = EditText(this).apply {
-            hint = "Qwen2.5-1.5B-Instruct"
-            setText("Qwen2.5-1.5B-Instruct")
-        }
-
-        val modelUrlInput = EditText(this).apply {
-            hint = "https://example.com/model.zip"
+    private fun promptAndShareLink() {
+        val input = EditText(this).apply {
+            hint = "https://example.com/context"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setPadding(48, 24, 48, 0)
         }
-
-        layout.addView(modelNameInput)
-        layout.addView(modelUrlInput)
-
         AlertDialog.Builder(this)
-            .setTitle("Download & initialize LLM")
-            .setView(layout)
-            .setPositiveButton("Start") { _, _ ->
-                val modelName = modelNameInput.text?.toString()?.trim().orEmpty()
-                val modelUrl = modelUrlInput.text?.toString()?.trim().orEmpty()
-                if (modelName.isBlank() || modelUrl.isBlank()) {
-                    showPermissionMessage("Provide both model name and URL.")
+            .setTitle("Share web link with AI")
+            .setView(input)
+            .setPositiveButton("Share") { _, _ ->
+                val url = input.text?.toString()?.trim().orEmpty()
+                if (url.isBlank()) {
+                    showToast("Link was empty, nothing shared.")
                     return@setPositiveButton
                 }
-
-                // Validate URL scheme to prevent file://, data://, or other unsafe schemes
-                val uri = android.net.Uri.parse(modelUrl)
-                val scheme = uri.scheme?.lowercase()
-                if (scheme != "http" && scheme != "https") {
-                    showPermissionMessage("Invalid URL scheme: only http and https are allowed.")
-                    return@setPositiveButton
-                }
-
-                showPermissionMessage("Downloading model package. This can take a while...")
-                llmSetupExecutor.execute {
-                    val result = llmManager.downloadAndInitializeModel(modelName, modelUrl)
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        if (result.success) {
-                            val sizeMb = result.downloadedBytes / (1024f * 1024f)
-                            showPermissionMessage(
-                                "Model ready: ${result.config?.modelName} (${String.format("%.1f", sizeMb)} MB downloaded)"
-                            )
-                        } else {
-                            showPermissionMessage("Model setup failed: ${result.error}")
-                        }
-                        refreshDiagnosticsPanel()
-                    }
-                }
+                val formatted = formatShareMessage("LINK", "Web context", url, NOTE_SHARED_BY_USER)
+                messageShareStatusText.text = formatted
+                showToast("Shared web link with AI.")
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    // ---- Model Hub ----
+    private fun formatShareMessage(type: String, title: String, uriOrLink: String, note: String): String {
+        return "[$type] $title$MESSAGE_SEPARATOR$uriOrLink$MESSAGE_SEPARATOR$note$MESSAGE_SEPARATOR" +
+            Instant.now().toString()
+    }
+
+    private fun resolveDisplayName(uri: Uri): String? {
+        return try {
+            val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+            val cursor: Cursor? = contentResolver.query(uri, projection, null, null, null)
+            cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) it.getString(index) else null
+                } else null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    // ========================================================================
+    // Model Hub
+    // ========================================================================
 
     private fun refreshModelHubCard() {
         val repo = modelRepository ?: return
-        val dm = downloadManager ?: return
         val downloaded = repo.getAvailableModels()
         val selectedModel = repo.getSelectedModel()
 
-        val selectedContainer = findViewById<LinearLayout>(R.id.modelSelectedContainer)
-        val selectedNameText = findViewById<TextView>(R.id.modelSelectedNameText)
-        val selectedDetailsText = findViewById<TextView>(R.id.modelSelectedDetailsText)
-
         if (selectedModel != null) {
-            selectedContainer.visibility = android.view.View.VISIBLE
-            selectedNameText.text = selectedModel.name
-            selectedDetailsText.text = buildString {
+            modelHubStatusText.text = selectedModel.name
+            modelSelectedDetailsText.visibility = View.VISIBLE
+            modelSelectedDetailsText.text = buildString {
                 append("${selectedModel.family} | ${selectedModel.parameterCount} | ${selectedModel.quantization}")
-                append(" | ${selectedModel.diskUsageMb} MB on disk")
+                append(" | ${selectedModel.diskUsageMb} MB")
             }
-            modelHubStatusText.text = "Selected: ${selectedModel.name} | ${downloaded.size} model(s) on device"
         } else if (downloaded.isNotEmpty()) {
-            selectedContainer.visibility = android.view.View.GONE
-            modelHubStatusText.text = "${downloaded.size} model(s) available. Select one for inference."
+            modelHubStatusText.text = "${downloaded.size} model(s) available"
+            modelSelectedDetailsText.visibility = View.VISIBLE
+            modelSelectedDetailsText.text = "Select one for inference"
         } else {
-            selectedContainer.visibility = android.view.View.GONE
-            modelHubStatusText.text = "No models downloaded. Browse the catalog to get started."
+            modelHubStatusText.text = "No models downloaded"
+            modelSelectedDetailsText.visibility = View.VISIBLE
+            modelSelectedDetailsText.text = "Browse the catalog to get started"
         }
     }
 
@@ -949,7 +1262,7 @@ class MainActivity : AppCompatActivity() {
         if (models.isEmpty()) {
             AlertDialog.Builder(this)
                 .setTitle("My Models")
-                .setMessage("No models downloaded yet. Use 'Browse Models' to download one.")
+                .setMessage("No models downloaded yet. Use 'Browse' to download one.")
                 .setPositiveButton("Browse") { _, _ -> showModelCatalogDialog() }
                 .setNegativeButton("Close", null)
                 .show()
@@ -1109,7 +1422,7 @@ class MainActivity : AppCompatActivity() {
             hint = "hf_xxxxxxxxxxxx"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             if (currentToken != null) setText(currentToken)
-            setPadding(40, 20, 40, 0)
+            setPadding(48, 24, 48, 0)
         }
 
         AlertDialog.Builder(this)
@@ -1120,11 +1433,11 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save") { _, _ ->
                 val token = input.text?.toString()?.trim()
                 dm.setHuggingFaceToken(if (token.isNullOrBlank()) null else token)
-                showPermissionMessage(if (token.isNullOrBlank()) "HF token cleared" else "HF token saved")
+                showToast(if (token.isNullOrBlank()) "HF token cleared" else "HF token saved")
             }
             .setNeutralButton("Clear") { _, _ ->
                 dm.setHuggingFaceToken(null)
-                showPermissionMessage("HF token cleared")
+                showToast("HF token cleared")
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -1136,7 +1449,7 @@ class MainActivity : AppCompatActivity() {
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(40, 20, 40, 0)
+            setPadding(48, 24, 48, 0)
         }
 
         val maxTokensInput = EditText(this).apply {
@@ -1184,11 +1497,11 @@ class MainActivity : AppCompatActivity() {
                     useMmap = config.useMmap
                 )
                 repo.setModelConfig(model.id, newConfig)
-                showPermissionMessage("Configuration saved for ${model.name}")
+                showToast("Configuration saved for ${model.name}")
             }
             .setNeutralButton("Reset") { _, _ ->
                 repo.removeModelConfig(model.id)
-                showPermissionMessage("Configuration reset to defaults for ${model.name}")
+                showToast("Configuration reset for ${model.name}")
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -1197,15 +1510,15 @@ class MainActivity : AppCompatActivity() {
     private fun startModelDownload(entry: ModelCatalog.CatalogEntry) {
         val dm = downloadManager ?: return
 
-        val progressContainer = findViewById<LinearLayout>(R.id.modelDownloadProgressContainer)
+        val progressContainer = findViewById<MaterialCardView>(R.id.modelDownloadProgressContainer)
         val progressBar = findViewById<android.widget.ProgressBar>(R.id.modelDownloadProgressBar)
         val downloadStatusText = findViewById<TextView>(R.id.modelDownloadStatusText)
 
-        progressContainer.visibility = android.view.View.VISIBLE
+        progressContainer.visibility = View.VISIBLE
         downloadStatusText.text = "Starting download: ${entry.name}..."
         progressBar.progress = 0
 
-        showPermissionMessage("Downloading ${entry.name} (${entry.sizeMb} MB)...")
+        showToast("Downloading ${entry.name} (${entry.sizeMb} MB)...")
 
         val started = dm.downloadModel(entry) { progress ->
             runOnUiThread {
@@ -1216,8 +1529,8 @@ class MainActivity : AppCompatActivity() {
                         val downloadedMb = progress.downloadedBytes / (1024f * 1024f)
                         val totalMb = progress.totalBytes / (1024f * 1024f)
                         downloadStatusText.text = String.format(
-                            "Downloading %s: %.1f / %.1f MB (%.1f MB/s)",
-                            entry.name, downloadedMb, totalMb, speedMb
+                            "%.1f / %.1f MB (%.1f MB/s)",
+                            downloadedMb, totalMb, speedMb
                         )
                     }
                     ModelDownloadManager.DownloadState.EXTRACTING -> {
@@ -1225,18 +1538,18 @@ class MainActivity : AppCompatActivity() {
                         progressBar.isIndeterminate = true
                     }
                     ModelDownloadManager.DownloadState.COMPLETED -> {
-                        progressContainer.visibility = android.view.View.GONE
+                        progressContainer.visibility = View.GONE
                         progressBar.isIndeterminate = false
-                        showPermissionMessage("Download complete: ${entry.name}")
+                        showToast("Download complete: ${entry.name}")
                         refreshModelHubCard()
                     }
                     ModelDownloadManager.DownloadState.ERROR -> {
-                        progressContainer.visibility = android.view.View.GONE
+                        progressContainer.visibility = View.GONE
                         progressBar.isIndeterminate = false
-                        showPermissionMessage("Download failed: ${progress.errorMessage ?: "Unknown error"}")
+                        showToast("Download failed: ${progress.errorMessage ?: "Unknown error"}")
                     }
                     ModelDownloadManager.DownloadState.CANCELLED -> {
-                        progressContainer.visibility = android.view.View.GONE
+                        progressContainer.visibility = View.GONE
                         progressBar.isIndeterminate = false
                     }
                     else -> { }
@@ -1245,8 +1558,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (!started) {
-            progressContainer.visibility = android.view.View.GONE
-            showPermissionMessage("Download already in progress for ${entry.name}")
+            progressContainer.visibility = View.GONE
+            showToast("Download already in progress for ${entry.name}")
         }
     }
 
@@ -1257,7 +1570,7 @@ class MainActivity : AppCompatActivity() {
 
         val model = repo.getSelectedModel()
         if (model != null) {
-            showPermissionMessage("Selected: ${model.name}")
+            showToast("Selected: ${model.name}")
 
             if (OnDeviceLLMManager.isNativeAvailable()) {
                 llmSetupExecutor.execute {
@@ -1266,14 +1579,14 @@ class MainActivity : AppCompatActivity() {
                         val loaded = llmManager.loadModel(config)
                         runOnUiThread {
                             if (loaded) {
-                                showPermissionMessage("Loaded: ${model.name} (${config.backendName})")
+                                showToast("Loaded: ${model.name} (${config.backendName})")
                             } else {
-                                showPermissionMessage("Selected ${model.name} but failed to load model")
+                                showToast("Selected ${model.name} but failed to load model")
                             }
                         }
                     } catch (e: Exception) {
                         runOnUiThread {
-                            showPermissionMessage("Selected ${model.name} but error loading: ${e.message}")
+                            showToast("Selected ${model.name} but error loading: ${e.message}")
                         }
                     }
                 }
@@ -1293,16 +1606,79 @@ class MainActivity : AppCompatActivity() {
                     repo.setSelectedModelId(null)
                 }
                 refreshModelHubCard()
-                showPermissionMessage("Deleted: $modelName")
+                showToast("Deleted: $modelName")
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
+    private fun promptModelDownloadAndInit() {
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(48, 24, 48, 0)
+        }
+
+        val modelNameInput = EditText(this).apply {
+            hint = "Qwen2.5-1.5B-Instruct"
+            setText("Qwen2.5-1.5B-Instruct")
+        }
+
+        val modelUrlInput = EditText(this).apply {
+            hint = "https://example.com/model.zip"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+        }
+
+        layout.addView(TextView(this).apply { text = "Model name:" })
+        layout.addView(modelNameInput)
+        layout.addView(TextView(this).apply { text = "Download URL:" })
+        layout.addView(modelUrlInput)
+
+        AlertDialog.Builder(this)
+            .setTitle("Download & initialize LLM")
+            .setView(layout)
+            .setPositiveButton("Start") { _, _ ->
+                val modelName = modelNameInput.text?.toString()?.trim().orEmpty()
+                val modelUrl = modelUrlInput.text?.toString()?.trim().orEmpty()
+                if (modelName.isBlank() || modelUrl.isBlank()) {
+                    showToast("Provide both model name and URL.")
+                    return@setPositiveButton
+                }
+
+                val uri = android.net.Uri.parse(modelUrl)
+                val scheme = uri.scheme?.lowercase()
+                if (scheme != "http" && scheme != "https") {
+                    showToast("Invalid URL scheme: only http and https are allowed.")
+                    return@setPositiveButton
+                }
+
+                showToast("Downloading model package...")
+                llmSetupExecutor.execute {
+                    val result = llmManager.downloadAndInitializeModel(modelName, modelUrl)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (result.success) {
+                            val sizeMb = result.downloadedBytes / (1024f * 1024f)
+                            showToast(
+                                "Model ready: ${result.config?.modelName} (${String.format("%.1f", sizeMb)} MB)"
+                            )
+                        } else {
+                            showToast("Model setup failed: ${result.error}")
+                        }
+                        refreshDiagnosticsPanel()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // ========================================================================
+    // Personality import
+    // ========================================================================
+
     private fun handlePersonalityImport(uri: Uri) {
         llmSetupExecutor.execute {
             try {
-                // Copy the URI content to a temp file so the plugin can read it
                 val displayName = resolveDisplayName(uri) ?: "import_file"
                 val tempFile = File(cacheDir, "personality_import_$displayName")
                 contentResolver.openInputStream(uri)?.use { input ->
@@ -1310,14 +1686,14 @@ class MainActivity : AppCompatActivity() {
                         input.copyTo(output)
                     }
                 } ?: run {
-                    runOnUiThread { showPermissionMessage("Failed to read file.") }
+                    runOnUiThread { showToast("Failed to read file.") }
                     return@execute
                 }
 
                 val manager = PluginManager.getInstance()
                 val plugin = manager.getPlugin("personality_import")
                 if (plugin == null) {
-                    runOnUiThread { showPermissionMessage("Personality Import plugin not available.") }
+                    runOnUiThread { showToast("Personality Import plugin not available.") }
                     tempFile.delete()
                     return@execute
                 }
@@ -1327,19 +1703,22 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     if (result.isSuccess) {
-                        showPermissionMessage("Import successful!")
-                        messageShareStatusText.text = result.data ?: "Import completed"
+                        showToast("Import successful!")
                     } else {
-                        showPermissionMessage("Import failed: ${result.errorMessage}")
+                        showToast("Import failed: ${result.errorMessage}")
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    showPermissionMessage("Import error: ${e.message}")
+                    showToast("Import error: ${e.message}")
                 }
             }
         }
     }
+
+    // ========================================================================
+    // Debug log
+    // ========================================================================
 
     private fun exportDebugLog() {
         llmSetupExecutor.execute {
@@ -1350,95 +1729,29 @@ class MainActivity : AppCompatActivity() {
 
             val file = StartupDiagnostics.exportDebugLog(this)
             runOnUiThread {
-                showPermissionMessage("Debug log exported: ${file.absolutePath}")
-                messageShareStatusText.text = "Debug log file: ${file.absolutePath}"
+                showToast("Debug log exported: ${file.absolutePath}")
+                messageShareStatusText.text = "Debug log: ${file.absolutePath}"
             }
         }
     }
 
-    private fun promptAndShareLink() {
-        val input = EditText(this).apply {
-            hint = "https://example.com/context"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Share web link with AI")
-            .setView(input)
-            .setPositiveButton("Share") { _, _ ->
-                val url = input.text?.toString()?.trim().orEmpty()
-                if (url.isBlank()) {
-                    showPermissionMessage("Link was empty, nothing shared.")
-                    return@setPositiveButton
-                }
-                val formatted = formatShareMessage("LINK", "Web context", url, NOTE_SHARED_BY_USER)
-                messageShareStatusText.text = formatted
-                showPermissionMessage("Shared web link context with AI message format.")
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun sendConversationMessage() {
-        val userText = conversationInput.text?.toString()?.trim().orEmpty()
-        if (userText.isBlank()) {
-            showInlineStatusMessage("Type a message before sending.")
-            return
-        }
-
-        conversationTurns.add(ConversationTurn("You", userText))
-
-        val pluginManager = PluginManager.getInstance()
-        val guidanceResult = pluginManager.executePlugin(
-            GUIDANCE_ROUTER_PLUGIN_ID,
-            "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
-        )
-        val aiMessage = if (guidanceResult.isSuccess) {
-            guidanceResult.data ?: "No response received from AI. Please try again."
-        } else {
-            "I'm having trouble responding right now. Please try again."
-        }
-
-        conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
-        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
-        conversationInput.setText("")
-    }
-
-    private fun formatShareMessage(type: String, title: String, uriOrLink: String, note: String): String {
-        return "[$type] $title$MESSAGE_SEPARATOR$uriOrLink$MESSAGE_SEPARATOR$note$MESSAGE_SEPARATOR" +
-            Instant.now().toString()
-    }
-
-    private fun resolveDisplayName(uri: Uri): String? {
-        return try {
-            val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
-            val cursor: Cursor? = contentResolver.query(uri, projection, null, null, null)
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index >= 0) it.getString(index) else null
-                } else null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
+    // ========================================================================
+    // External links
+    // ========================================================================
 
     private fun openExternalLink(url: String, feedbackMessage: String) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            showPermissionMessage(feedbackMessage)
+            showToast(feedbackMessage)
         } catch (t: Throwable) {
-            showPermissionMessage("Unable to open link. Please copy and paste this URL into your browser: $url")
+            showToast("Unable to open link.")
             StartupDiagnostics.recordError(this, "open_external_link_failed", t)
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        llmSetupExecutor.shutdownNow()
-        llmManager.shutdown()
-        downloadManager?.shutdown()
-    }
+    // ========================================================================
+    // Constants
+    // ========================================================================
 
     companion object {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
@@ -1446,11 +1759,35 @@ class MainActivity : AppCompatActivity() {
         private const val BOTFATHER_URL = "https://t.me/BotFather"
         private const val PLUGIN_GUIDE_URL = "https://github.com/Kaleaon/TronProtocol#plugin-system-inspired-by-toolneuron"
         private const val KTHEME_REPO_URL = "https://github.com/kaleaon/Ktheme"
-        private const val MESSAGE_SEPARATOR = " · "
+        private const val MESSAGE_SEPARATOR = " \u00B7 "
         private const val NOTE_SHARED_FROM_DEVICE_PICKER = "shared from device picker"
         private const val NOTE_SHARED_BY_USER = "shared by user"
         private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
         private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
+
+        // Plugin categorization
+        private val CORE_PLUGINS = setOf(
+            "policy_guardrail", "phylactery", "on_device_llm", "inference_router",
+            "device_info", "api_key_vault"
+        )
+        private val AI_PLUGINS = setOf(
+            "guidance_router", "frontier_dynamics", "personalization", "personality_import",
+            "takens_training", "continuity_bridge", "drift_detector", "wisdom_log",
+            "hedonic", "nct", "react_planner", "prompt_strategy_evolution",
+            "ab_testing", "goal_hierarchy", "preference_crystallization",
+            "identity_narrative", "relationship_model", "mood_decision_router",
+            "error_pattern_learning", "conversation_summary", "tone_adaptation",
+        )
+        private val COMM_PLUGINS = setOf(
+            "telegram_bridge", "communication_hub", "proactive_messaging",
+            "sms_send", "email", "voice_synthesis", "communication_scheduler",
+            "multi_party_conversation", "contact_manager",
+        )
+        private val SAFETY_PLUGINS = setOf(
+            "kill_switch", "privacy_budget", "user_override_history",
+            "audit_dashboard", "granular_consent", "action_explanation",
+            "value_alignment",
+        )
     }
 }
