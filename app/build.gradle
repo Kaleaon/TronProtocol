@@ -77,7 +77,15 @@ dependencies {
     // Core AAR provides Java API for model loading, session management, and inference.
     // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true
     // and placed in app/src/main/jniLibs/arm64-v8a/ (libMNN.so, libMNN_Express.so, libmnnllm.so).
-    // See: https://github.com/alibaba/MNN
+    //
+    // MNN TaoAvatar (3D avatar rendering + animation):
+    // Additional native .so files for the avatar pipeline:
+    //   - libmnn_nnr.so  (Neural Network Rendering — 3D Gaussian Splatting avatar renderer)
+    //   - libmnn_a2bs.so (Audio-to-BlendShape — facial/body animation from audio)
+    // Build MNN from source with -DMNN_BUILD_NNR=true for avatar support.
+    // Models: TaoAvatar-NNR-MNN, UniTalker-MNN (ModelScope)
+    // Paper: https://arxiv.org/html/2503.17032v1
+    // See: https://github.com/alibaba/MNN/tree/master/apps/Android/MnnTaoAvatar
     implementation libs.alibaba.mnn
 
     // For neural network acceleration
