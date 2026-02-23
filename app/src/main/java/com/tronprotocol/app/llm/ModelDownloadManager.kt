@@ -276,7 +276,6 @@ class ModelDownloadManager(context: Context) {
     private fun executeDownload(task: DownloadTask) {
         val entry = task.catalogEntry
         val modelDir = getModelDir(entry.id)
-        val tempFile = File(appContext.cacheDir, "dl_${entry.id}.tmp")
 
         try {
             emitProgress(task, DownloadState.QUEUED, 0, entry.sizeBytes, 0)
@@ -289,17 +288,191 @@ class ModelDownloadManager(context: Context) {
                 return
             }
 
-            // Download phase
+            if (entry.modelFiles.isNotEmpty()) {
+                // Multi-file download: fetch individual files from HuggingFace repo
+                executeMultiFileDownload(task, modelDir)
+            } else {
+                // Legacy single-file download (ZIP or raw model file)
+                executeSingleFileDownload(task, modelDir)
+            }
+        } catch (e: InterruptedException) {
+            emitProgress(task, DownloadState.CANCELLED, 0, entry.sizeBytes, 0)
+            Log.d(TAG, "Download interrupted: ${entry.id}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Download failed for ${entry.id}: ${e.message}", e)
+            emitProgress(task, DownloadState.ERROR, 0, entry.sizeBytes, 0, e.message)
+        } finally {
+            activeDownloads.remove(entry.id)
+        }
+    }
+
+    /**
+     * Download individual model files from a HuggingFace repo.
+     * Each file in [ModelCatalog.CatalogEntry.modelFiles] is fetched from the base
+     * [ModelCatalog.CatalogEntry.downloadUrl] and saved directly to the model directory.
+     * Files that return HTTP 404 are silently skipped (they may be optional).
+     * The download fails only if the required `llm.mnn` file is missing afterward.
+     */
+    private fun executeMultiFileDownload(task: DownloadTask, modelDir: File) {
+        val entry = task.catalogEntry
+        val baseUrl = entry.downloadUrl.trimEnd('/')
+
+        if (modelDir.exists()) modelDir.deleteRecursively()
+        modelDir.mkdirs()
+
+        var totalDownloaded = 0L
+        val totalExpected = entry.sizeBytes
+        val startTime = System.currentTimeMillis()
+        val skippedFiles = mutableListOf<String>()
+
+        for (fileName in entry.modelFiles) {
+            if (task.cancelled.get() || Thread.currentThread().isInterrupted) {
+                emitProgress(task, DownloadState.CANCELLED, totalDownloaded, totalExpected, 0)
+                return
+            }
+            if (task.paused.get()) {
+                emitProgress(task, DownloadState.PAUSED, totalDownloaded, totalExpected, 0)
+                return
+            }
+
+            val fileUrl = "$baseUrl/$fileName"
+            val outputFile = File(modelDir, fileName)
+
+            try {
+                val bytesDownloaded = downloadSingleFile(task, fileUrl, outputFile, totalDownloaded, totalExpected)
+                if (bytesDownloaded < 0) {
+                    // HTTP 404 — file does not exist in this repo, skip it
+                    skippedFiles.add(fileName)
+                    Log.d(TAG, "Skipped optional file (404): $fileName")
+                    continue
+                }
+                totalDownloaded += bytesDownloaded
+            } catch (e: Exception) {
+                // If a required file fails, re-throw
+                if (fileName == "llm.mnn" || fileName == "llm.mnn.weight") {
+                    throw RuntimeException("Failed to download required file $fileName: ${e.message}", e)
+                }
+                // Optional file failed — log and continue
+                skippedFiles.add(fileName)
+                Log.w(TAG, "Failed to download optional file $fileName: ${e.message}")
+            }
+        }
+
+        if (task.cancelled.get()) {
+            emitProgress(task, DownloadState.CANCELLED, totalDownloaded, totalExpected, 0)
+            return
+        }
+
+        // Verify required files
+        if (!File(modelDir, "llm.mnn").exists()) {
+            throw RuntimeException("Download did not produce required file llm.mnn")
+        }
+
+        if (skippedFiles.isNotEmpty()) {
+            Log.d(TAG, "Skipped ${skippedFiles.size} optional files: $skippedFiles")
+        }
+
+        emitProgress(task, DownloadState.COMPLETED, totalDownloaded, totalExpected, 0)
+        Log.d(TAG, "Multi-file download complete: ${entry.name} -> ${modelDir.absolutePath} " +
+                "(${entry.modelFiles.size - skippedFiles.size}/${entry.modelFiles.size} files)")
+    }
+
+    /**
+     * Download a single file from a URL directly to the output file.
+     * Returns the number of bytes downloaded, or -1 if the server returned HTTP 404.
+     */
+    private fun downloadSingleFile(
+        task: DownloadTask,
+        fileUrl: String,
+        outputFile: File,
+        previouslyDownloaded: Long,
+        totalExpected: Long
+    ): Long {
+        val connection = (URL(fileUrl).openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = CONNECT_TIMEOUT_MS
+            readTimeout = READ_TIMEOUT_MS
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", USER_AGENT)
+            getHuggingFaceToken()?.let { token ->
+                setRequestProperty("Authorization", "Bearer $token")
+            }
+        }
+
+        try {
+            val responseCode = connection.responseCode
+
+            if (responseCode == 404) {
+                return -1
+            }
+
+            if (responseCode == 401 || responseCode == 403) {
+                throw RuntimeException(
+                    "HTTP $responseCode: Access denied. " +
+                    if (responseCode == 401) "Set a HuggingFace token for gated models."
+                    else "This model requires authorization."
+                )
+            }
+
+            if (responseCode !in 200..299) {
+                throw RuntimeException("HTTP $responseCode from ${connection.url}")
+            }
+
+            var fileBytes = 0L
+            var lastEmitTime = System.currentTimeMillis()
+            var bytesSinceLastEmit = 0L
+
+            outputFile.parentFile?.mkdirs()
+
+            connection.inputStream.use { input ->
+                FileOutputStream(outputFile).use { output ->
+                    val buffer = ByteArray(IO_BUFFER_SIZE)
+                    while (true) {
+                        if (task.cancelled.get() || Thread.currentThread().isInterrupted) break
+                        if (task.paused.get()) break
+
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+
+                        output.write(buffer, 0, read)
+                        fileBytes += read
+                        bytesSinceLastEmit += read
+
+                        val now = System.currentTimeMillis()
+                        val elapsed = now - lastEmitTime
+                        if (elapsed >= PROGRESS_INTERVAL_MS) {
+                            val speed = if (elapsed > 0) (bytesSinceLastEmit * 1000 / elapsed) else 0L
+                            emitProgress(
+                                task, DownloadState.DOWNLOADING,
+                                previouslyDownloaded + fileBytes, totalExpected, speed
+                            )
+                            lastEmitTime = now
+                            bytesSinceLastEmit = 0L
+                        }
+                    }
+                }
+            }
+
+            return fileBytes
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    /** Legacy single-file download path for ZIP archives or raw model files. */
+    private fun executeSingleFileDownload(task: DownloadTask, modelDir: File) {
+        val entry = task.catalogEntry
+        val tempFile = File(appContext.cacheDir, "dl_${entry.id}.tmp")
+
+        try {
             val downloadedBytes = downloadFile(task, entry.downloadUrl, tempFile)
             if (task.cancelled.get()) {
                 tempFile.delete()
                 emitProgress(task, DownloadState.CANCELLED, 0, entry.sizeBytes, 0)
-                activeDownloads.remove(entry.id)
                 return
             }
             if (task.paused.get()) {
                 emitProgress(task, DownloadState.PAUSED, downloadedBytes, entry.sizeBytes, 0)
-                activeDownloads.remove(entry.id)
                 return
             }
 
@@ -328,15 +501,8 @@ class ModelDownloadManager(context: Context) {
 
             emitProgress(task, DownloadState.COMPLETED, entry.sizeBytes, entry.sizeBytes, 0)
             Log.d(TAG, "Download complete: ${entry.name} -> ${modelDir.absolutePath}")
-        } catch (e: InterruptedException) {
-            tempFile.delete()
-            emitProgress(task, DownloadState.CANCELLED, 0, entry.sizeBytes, 0)
-            Log.d(TAG, "Download interrupted: ${entry.id}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Download failed for ${entry.id}: ${e.message}", e)
-            emitProgress(task, DownloadState.ERROR, 0, entry.sizeBytes, 0, e.message)
         } finally {
-            activeDownloads.remove(entry.id)
+            tempFile.delete()
         }
     }
 
@@ -366,6 +532,21 @@ class ModelDownloadManager(context: Context) {
             if (responseCode == 416) {
                 Log.d(TAG, "HTTP 416: file already complete at $downloadedBytes bytes")
                 return downloadedBytes
+            }
+
+            if (responseCode == 401 || responseCode == 403) {
+                throw RuntimeException(
+                    "HTTP $responseCode: Access denied. " +
+                    if (responseCode == 401) "Set a HuggingFace token for gated models."
+                    else "This model requires authorization."
+                )
+            }
+
+            if (responseCode == 404) {
+                throw RuntimeException(
+                    "HTTP 404: File not found at ${connection.url}. " +
+                    "The model may have been moved or removed from HuggingFace."
+                )
             }
 
             if (responseCode !in 200..299 && responseCode != 206) {
