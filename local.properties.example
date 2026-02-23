@@ -1,0 +1,14 @@
+## This file is a template for local.properties
+## Copy this file to local.properties and uncomment the sdk.dir line
+## DO NOT commit local.properties to version control
+
+# Location of the Android SDK
+#sdk.dir=/path/to/your/android/sdk
+
+# Examples:
+# On macOS: sdk.dir=/Users/YourUsername/Library/Android/sdk
+# On Linux: sdk.dir=/home/YourUsername/Android/Sdk
+# On Windows: sdk.dir=C\:\\Users\\YourUsername\\AppData\\Local\\Android\\Sdk
+
+# For CI/CD environments, you can set ANDROID_HOME environment variable
+# instead of using sdk.dir in local.properties
