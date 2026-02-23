@@ -265,12 +265,17 @@ class OnDeviceLLMPlugin : Plugin {
         val started = dm.downloadModel(entry) { progress ->
             Log.d(TAG, "Download ${entry.name}: ${progress.state} " +
                     "${progress.progressPercent}% (${progress.downloadedBytes}/${progress.totalBytes})")
+
+            if (progress.state == ModelDownloadManager.DownloadState.COMPLETED) {
+                handleDownloadComplete(entry.id, entry.name)
+            }
         }
 
         return if (started) {
             PluginResult.success(
                 "Download started: ${entry.name} (${entry.sizeMb} MB)\n" +
-                        "Downloading in background. Use 'downloaded' to check status.",
+                        "Downloading in background. Use 'downloaded' to check status.\n" +
+                        "Once complete, use: select|${entry.id} to select and load the model for inference.",
                 elapsed(start)
             )
         } else {
@@ -522,13 +527,19 @@ class OnDeviceLLMPlugin : Plugin {
 
         val sb = StringBuilder("Found ${models.size} model(s):\n")
         for (modelDir in models) {
-            sb.append("  - ${modelDir.absolutePath}")
+            val dirName = modelDir.name
+            val catalogEntry = ModelCatalog.entries.find {
+                it.localDirectoryName == dirName || it.id == dirName
+            }
+            val modelId = catalogEntry?.id ?: "local_$dirName"
+
+            sb.append("  - $modelId")
             val weightFile = File(modelDir, "llm.mnn.weight")
             if (weightFile.exists()) {
                 val sizeMb = weightFile.length() / (1024 * 1024)
                 sb.append(" ($sizeMb MB)")
             }
-            sb.append("\n")
+            sb.append("\n    Path: ${modelDir.absolutePath}\n")
         }
         sb.append("\nUse: select|<model_id> to select and load a model")
 
@@ -574,11 +585,21 @@ class OnDeviceLLMPlugin : Plugin {
             ?: return PluginResult.error("LLM manager not initialized", elapsed(start))
 
         if (!manager.isReady) {
-            // Try auto-loading the selected model
+            // Try auto-selecting and auto-loading a model
             val repo = modelRepository
-            if (repo != null) {
-                val selected = repo.getSelectedModel()
-                if (selected != null && OnDeviceLLMManager.isNativeAvailable()) {
+            if (repo != null && OnDeviceLLMManager.isNativeAvailable()) {
+                // First, auto-select if no model is selected yet
+                var selected = repo.getSelectedModel()
+                if (selected == null) {
+                    val cap = manager.assessDevice()
+                    selected = repo.autoSelectIfNeeded(cap.availableRamMb)
+                    if (selected != null) {
+                        Log.d(TAG, "Auto-selected model for generate: ${selected.name}")
+                    }
+                }
+
+                // Then try loading the selected model
+                if (selected != null) {
                     val config = manager.createConfigFromDirectory(selected.directory)
                     if (manager.loadModel(config)) {
                         Log.d(TAG, "Auto-loaded selected model: ${selected.name}")
@@ -773,10 +794,17 @@ class OnDeviceLLMPlugin : Plugin {
                     directory = dm.getModelDir(modelId).absolutePath
                 )
             )
+
+            // Auto-select if this is the first model
+            handleDownloadComplete(modelId, sourceDir.name)
+
+            val isSelected = repo.getSelectedModelId() == modelId
+            val selectHint = if (isSelected) "Auto-selected for inference." else "Use: select|$modelId to load it for inference."
+
             return PluginResult.success(
                 "Imported model: ${sourceDir.name}\n" +
                         "ID: $modelId\n" +
-                        "Use: select|$modelId to load it for inference.",
+                        selectHint,
                 elapsed(start)
             )
         } else {
@@ -811,6 +839,10 @@ class OnDeviceLLMPlugin : Plugin {
 
         val started = dm.downloadFromUrl(modelId, modelName, downloadUrl) { progress ->
             Log.d(TAG, "Custom download $modelName: ${progress.state} ${progress.progressPercent}%")
+
+            if (progress.state == ModelDownloadManager.DownloadState.COMPLETED) {
+                handleDownloadComplete(modelId, modelName)
+            }
         }
 
         return if (started) {
@@ -825,11 +857,47 @@ class OnDeviceLLMPlugin : Plugin {
             PluginResult.success(
                 "Download started: $modelName\n" +
                         "ID: $modelId\n" +
-                        "Downloading in background. Use 'downloaded' to check status.",
+                        "Downloading in background. Use 'downloaded' to check status.\n" +
+                        "Once complete, use: select|$modelId to select and load the model for inference.",
                 elapsed(start)
             )
         } else {
             PluginResult.error("Failed to start download for $modelName", elapsed(start))
+        }
+    }
+
+    /**
+     * Called when a model download completes successfully.
+     * Auto-selects the model if none is currently selected, and attempts
+     * to load it so the model is ready for inference immediately.
+     */
+    private fun handleDownloadComplete(modelId: String, modelName: String) {
+        val repo = modelRepository ?: return
+        val manager = llmManager ?: return
+
+        // Refresh available models and auto-select if this is the first/only model
+        val cap = manager.assessDevice()
+        val selected = repo.autoSelectIfNeeded(cap.availableRamMb)
+
+        if (selected != null && selected.id == modelId) {
+            Log.d(TAG, "Auto-selected newly downloaded model: ${selected.name}")
+
+            // Auto-load the model if native libraries are available
+            if (OnDeviceLLMManager.isNativeAvailable() && !manager.isReady) {
+                try {
+                    val config = manager.createConfigFromDirectory(selected.directory)
+                    if (manager.loadModel(config)) {
+                        Log.d(TAG, "Auto-loaded model after download: ${selected.name}")
+                    } else {
+                        Log.w(TAG, "Auto-load failed for ${selected.name}, state: ${manager.modelState}")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Auto-load error for ${selected.name}: ${e.message}")
+                }
+            }
+        } else {
+            Log.d(TAG, "Download complete for $modelName (id=$modelId). " +
+                    "Currently selected: ${repo.getSelectedModelId() ?: "none"}")
         }
     }
 
