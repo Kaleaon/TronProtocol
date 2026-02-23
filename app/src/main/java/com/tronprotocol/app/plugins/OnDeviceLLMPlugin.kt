@@ -197,8 +197,8 @@ class OnDeviceLLMPlugin : Plugin {
             ?: return PluginResult.error("LLM manager not initialized", elapsed(start))
 
         val cap = manager.assessDevice()
-        val recommended = ModelCatalog.recommendForDevice(cap.availableRamMb)
-        val sorted = ModelCatalog.sortedForDevice(cap.availableRamMb)
+        val recommended = ModelCatalog.recommendForDevice(cap.totalRamMb)
+        val sorted = ModelCatalog.sortedForDevice(cap.totalRamMb)
 
         val sb = StringBuilder()
         sb.append("=== Model Recommendation ===\n")
@@ -220,7 +220,7 @@ class OnDeviceLLMPlugin : Plugin {
 
         sb.append("All models ranked for this device:\n")
         for ((i, entry) in sorted.withIndex()) {
-            val fits = entry.ramRequirement.minRamMb <= cap.availableRamMb
+            val fits = entry.ramRequirement.minRamMb <= cap.totalRamMb
             val marker = if (fits) "+" else "-"
             sb.append("  $marker ${i + 1}. ${entry.name} (${entry.parameterCount}, ${entry.sizeMb}MB")
             sb.append(", needs ${entry.ramRequirement.minRamMb}MB RAM)")
@@ -592,7 +592,7 @@ class OnDeviceLLMPlugin : Plugin {
                 var selected = repo.getSelectedModel()
                 if (selected == null) {
                     val cap = manager.assessDevice()
-                    selected = repo.autoSelectIfNeeded(cap.availableRamMb)
+                    selected = repo.autoSelectIfNeeded(cap.totalRamMb)
                     if (selected != null) {
                         Log.d(TAG, "Auto-selected model for generate: ${selected.name}")
                     }
@@ -877,7 +877,7 @@ class OnDeviceLLMPlugin : Plugin {
 
         // Refresh available models and auto-select if this is the first/only model
         val cap = manager.assessDevice()
-        val selected = repo.autoSelectIfNeeded(cap.availableRamMb)
+        val selected = repo.autoSelectIfNeeded(cap.totalRamMb)
 
         if (selected != null && selected.id == modelId) {
             Log.d(TAG, "Auto-selected newly downloaded model: ${selected.name}")

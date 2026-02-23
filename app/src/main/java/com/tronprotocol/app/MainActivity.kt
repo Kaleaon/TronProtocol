@@ -1197,7 +1197,7 @@ class MainActivity : AppCompatActivity() {
 
         val items = entries.map { entry ->
             val downloaded = dm.isModelDownloaded(entry.id)
-            val fits = entry.ramRequirement.minRamMb <= cap.availableRamMb
+            val fits = entry.ramRequirement.minRamMb <= cap.totalRamMb
             val status = when {
                 downloaded -> "[Downloaded]"
                 !fits -> "[Needs more RAM]"
@@ -1327,7 +1327,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showModelRecommendation() {
         val cap = llmManager.assessDevice()
-        val recommended = ModelCatalog.recommendForDevice(cap.availableRamMb)
+        val recommended = ModelCatalog.recommendForDevice(cap.totalRamMb)
         val dm = downloadManager
 
         val message = buildString {
