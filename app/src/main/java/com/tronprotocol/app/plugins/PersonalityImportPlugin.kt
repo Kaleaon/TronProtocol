@@ -54,6 +54,7 @@ import java.io.File
  *
  * Commands:
  * - import|<file_path>           Import a file (auto-detects format)
+ * - import_bulk|<path1>\n<path2> Import multiple files (newline-separated paths)
  * - import_json|<file_path>      Import a JSON personality file
  * - import_text|<file_path>      Import a plain text file as knowledge
  * - import_dir|<directory_path>  Import all supported files in a directory
@@ -86,7 +87,7 @@ class PersonalityImportPlugin : Plugin {
     override val name: String = "Personality Import"
     override val description: String =
         "Import AI personality, memories, and knowledge from files. " +
-        "Commands: import|path, import_json|path, import_text|path, import_dir|path, scan|path, status, clear_imports"
+        "Commands: import|path, import_bulk|path1\\npath2, import_json|path, import_text|path, import_dir|path, scan|path, status, clear_imports"
     override var isEnabled: Boolean = true
 
     override fun initialize(context: Context) {
@@ -125,6 +126,10 @@ class PersonalityImportPlugin : Plugin {
                 "import" -> {
                     if (arg.isBlank()) return PluginResult.error("Usage: import|<file_path>", elapsed(start))
                     importFile(File(arg))
+                }
+                "import_bulk" -> {
+                    if (arg.isBlank()) return PluginResult.error("Usage: import_bulk|<path1>\\n<path2>\\n...", elapsed(start))
+                    importBulk(arg)
                 }
                 "import_json" -> {
                     if (arg.isBlank()) return PluginResult.error("Usage: import_json|<file_path>", elapsed(start))
@@ -462,6 +467,38 @@ class PersonalityImportPlugin : Plugin {
         }
 
         val summary = "Directory import complete: $successCount succeeded, $failCount failed\n$results"
+        return PluginResult.success(summary, elapsed(start))
+    }
+
+    // ---- Bulk Import (multiple files) ----
+
+    private fun importBulk(pathsArg: String): PluginResult {
+        val start = System.currentTimeMillis()
+        val paths = pathsArg.split("\n").map { it.trim() }.filter { it.isNotBlank() }
+
+        if (paths.isEmpty()) {
+            return PluginResult.error("No file paths provided", elapsed(start))
+        }
+
+        val results = StringBuilder()
+        var successCount = 0
+        var failCount = 0
+
+        for (path in paths) {
+            val file = File(path)
+            val result = importFile(file)
+            if (result.isSuccess) {
+                successCount++
+                results.appendLine("OK: ${file.name}")
+            } else {
+                failCount++
+                results.appendLine("FAIL: ${file.name} - ${result.errorMessage}")
+            }
+        }
+
+        val summary = "Bulk import complete: $successCount of ${paths.size} succeeded" +
+                (if (failCount > 0) ", $failCount failed" else "") +
+                "\n$results"
         return PluginResult.success(summary, elapsed(start))
     }
 

@@ -213,9 +213,9 @@ class MainActivity : AppCompatActivity() {
         }
 
     private val personalityImportLauncher =
-        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri == null) return@registerForActivityResult
-            handlePersonalityImport(uri)
+        registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+            if (uris.isNullOrEmpty()) return@registerForActivityResult
+            handleBulkPersonalityImport(uris)
         }
 
     // ========================================================================
@@ -1676,34 +1676,58 @@ class MainActivity : AppCompatActivity() {
     // Personality import
     // ========================================================================
 
-    private fun handlePersonalityImport(uri: Uri) {
+    private fun handleBulkPersonalityImport(uris: List<Uri>) {
         llmSetupExecutor.execute {
             try {
-                val displayName = resolveDisplayName(uri) ?: "import_file"
-                val tempFile = File(cacheDir, "personality_import_$displayName")
-                contentResolver.openInputStream(uri)?.use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                } ?: run {
-                    runOnUiThread { showToast("Failed to read file.") }
-                    return@execute
-                }
-
                 val manager = PluginManager.getInstance()
                 val plugin = manager.getPlugin("personality_import")
                 if (plugin == null) {
                     runOnUiThread { showToast("Personality Import plugin not available.") }
-                    tempFile.delete()
                     return@execute
                 }
 
-                val result = plugin.execute("import|${tempFile.absolutePath}")
-                tempFile.delete()
+                val fileCount = uris.size
+                runOnUiThread { showToast("Importing $fileCount file(s)…") }
+
+                // Copy all selected files to temp storage
+                val tempFiles = mutableListOf<File>()
+                for (uri in uris) {
+                    val displayName = resolveDisplayName(uri) ?: "import_file_${tempFiles.size}"
+                    val tempFile = File(cacheDir, "personality_import_$displayName")
+                    val copied = contentResolver.openInputStream(uri)?.use { input ->
+                        tempFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                        true
+                    } ?: false
+
+                    if (copied) {
+                        tempFiles.add(tempFile)
+                    } else {
+                        Log.w("MainActivity", "Failed to read file: $displayName")
+                    }
+                }
+
+                if (tempFiles.isEmpty()) {
+                    runOnUiThread { showToast("Failed to read any selected files.") }
+                    return@execute
+                }
+
+                // Use import_bulk for multiple files, import for single file
+                val result = if (tempFiles.size == 1) {
+                    plugin.execute("import|${tempFiles[0].absolutePath}")
+                } else {
+                    val paths = tempFiles.joinToString("\n") { it.absolutePath }
+                    plugin.execute("import_bulk|$paths")
+                }
+
+                // Clean up temp files
+                tempFiles.forEach { it.delete() }
 
                 runOnUiThread {
                     if (result.isSuccess) {
-                        showToast("Import successful!")
+                        val msg = if (fileCount == 1) "Import successful!" else "Imported $fileCount files successfully!"
+                        showToast(msg)
                     } else {
                         showToast("Import failed: ${result.errorMessage}")
                     }
