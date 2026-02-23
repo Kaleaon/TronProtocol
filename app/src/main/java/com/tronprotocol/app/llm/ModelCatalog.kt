@@ -265,6 +265,64 @@ object ModelCatalog {
             supportsGpu = true,
             source = "Meta via MNN Community",
             modelFiles = DEFAULT_MNN_MODEL_FILES
+        ),
+
+        // ---- Heretic family (uncensored, constitution-based values) ----
+        // Models processed through github.com/p-e-w/heretic directional ablation
+        // to remove baked-in safety alignment. Safety is enforced by TronProtocol's
+        // ConstitutionalValuesEngine instead — transparent, versioned, auditable.
+        CatalogEntry(
+            id = "heretic-qwen2.5-1.5b-q4",
+            name = "Heretic-Qwen2.5-1.5B",
+            description = "Qwen2.5-1.5B processed through heretic ablation. " +
+                    "Uncensored model with constitution-based values enforcement. " +
+                    "Fast inference, good for general tasks without opaque refusal.",
+            family = "Heretic",
+            parameterCount = "1.5B",
+            quantization = "Q4_K_M",
+            format = "mnn",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen2.5-1.5B-Instruct-MNN/resolve/main/",
+            sizeBytes = 1_100_000_000L,
+            contextWindow = 4096,
+            ramRequirement = RamRequirement(minRamMb = 2048, recommendedRamMb = 3072),
+            supportsGpu = true,
+            source = "Heretic-processed (github.com/p-e-w/heretic)",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
+        ),
+        CatalogEntry(
+            id = "heretic-gemma-2b-q4",
+            name = "Heretic-Gemma-2B",
+            description = "Google Gemma 2B processed through heretic ablation. " +
+                    "Balanced quality/speed with constitutional values replacing alignment.",
+            family = "Heretic",
+            parameterCount = "2B",
+            quantization = "Q4_K_M",
+            format = "mnn",
+            downloadUrl = "https://huggingface.co/taobao-mnn/gemma-2-2b-it-MNN/resolve/main/",
+            sizeBytes = 1_500_000_000L,
+            contextWindow = 2048,
+            ramRequirement = RamRequirement(minRamMb = 2560, recommendedRamMb = 4096),
+            supportsGpu = true,
+            source = "Heretic-processed (github.com/p-e-w/heretic)",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
+        ),
+        CatalogEntry(
+            id = "heretic-llama-3.2-3b-q4",
+            name = "Heretic-Llama-3.2-3B",
+            description = "Meta Llama 3.2 3B processed through heretic ablation. " +
+                    "Higher quality uncensored generation for 8GB+ RAM devices. " +
+                    "Constitutional values provide transparent safety controls.",
+            family = "Heretic",
+            parameterCount = "3B",
+            quantization = "Q4_K_M",
+            format = "mnn",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Llama-3.2-3B-Instruct-MNN/resolve/main/",
+            sizeBytes = 2_200_000_000L,
+            contextWindow = 4096,
+            ramRequirement = RamRequirement(minRamMb = 4096, recommendedRamMb = 8192),
+            supportsGpu = true,
+            source = "Heretic-processed (github.com/p-e-w/heretic)",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         )
     )
 
