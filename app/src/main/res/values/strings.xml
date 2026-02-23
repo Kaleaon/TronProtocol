@@ -6,4 +6,26 @@
     <string name="service_status_waiting_reason">Waiting for service startup diagnostics</string>
     <string name="service_status_format">Service status: %1$s\n%2$s</string>
     <string name="accessibility_service_description">TronProtocol screen reader for AI context awareness. Reads on-screen text to understand what you are doing and provide proactive assistance.</string>
+
+    <!-- Tab titles -->
+    <string name="tab_chat">Chat</string>
+    <string name="tab_models">Models</string>
+    <string name="tab_plugins">Plugins</string>
+    <string name="tab_settings">Settings</string>
+
+    <!-- Chat -->
+    <string name="chat_hint">Message Tron AI&#8230;</string>
+    <string name="chat_empty">Start a conversation with Tron AI.\nMessages are routed through on-device LLM or Claude API.</string>
+
+    <!-- API Keys -->
+    <string name="api_keys_title">API Keys</string>
+    <string name="api_keys_description">Securely stored with hardware-backed AES-256 encryption</string>
+    <string name="add_api_key">Add API Key</string>
+
+    <!-- Settings sections -->
+    <string name="section_service">Service Control</string>
+    <string name="section_permissions">Permissions</string>
+    <string name="section_integrations">Integrations</string>
+    <string name="section_tools">Tools</string>
+    <string name="section_diagnostics">Diagnostics</string>
 </resources>
