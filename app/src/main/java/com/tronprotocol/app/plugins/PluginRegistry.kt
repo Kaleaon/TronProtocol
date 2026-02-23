@@ -28,6 +28,7 @@ object PluginRegistry {
         PluginConfig("personality_import", PersonalityImportPlugin::class.java, true, 121, setOf(Capability.FILESYSTEM_READ, Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PersonalityImportPlugin() },
         PluginConfig("communication_hub", CommunicationHubPlugin::class.java, true, 130, setOf(Capability.CONTACTS_READ, Capability.SMS_SEND, Capability.NETWORK_OUTBOUND)) { CommunicationHubPlugin() },
         PluginConfig("on_device_llm", OnDeviceLLMPlugin::class.java, true, 15, setOf(Capability.MODEL_EXECUTION)) { OnDeviceLLMPlugin() },
+        PluginConfig("mnn_avatar", MnnAvatarPlugin::class.java, true, 17, setOf(Capability.AVATAR_RENDER, Capability.AVATAR_ANIMATE)) { MnnAvatarPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140, setOf(Capability.NETWORK_OUTBOUND, Capability.MODEL_EXECUTION)) { GuidanceRouterPlugin() },
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25, setOf(Capability.MODEL_EXECUTION)) { FrontierDynamicsPlugin() },
         PluginConfig("takens_training", TakensTrainingPlugin::class.java, true, 145, setOf(Capability.MODEL_EXECUTION)) { TakensTrainingPlugin() },
