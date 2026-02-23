@@ -39,6 +39,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     /** Optional sleep-cycle optimizer for automatic hyperparameter tuning. */
     var optimizer: SleepCycleOptimizer? = null
 
+    /** Optional Takens model trainer for sleep-cycle weight optimization. */
+    var takensTrainer: SleepCycleTakensTrainer? = null
+
     init {
         loadStats()
     }
@@ -95,6 +98,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
             // Propagate tuned learning rate to RAGStore for Q-value updates
             val tuned = effectiveParams()
             ragStore.learningRate = tuned.learningRate
+
+            // Phase 9: Train/retrain Takens Embedding Transformer on high-Q knowledge
+            result.trainingResult = runTakensTraining(ragStore)
 
             totalConsolidations++
             result.duration = System.currentTimeMillis() - startTime
@@ -346,6 +352,23 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     }
 
     /**
+     * Phase 9: Train the Takens Embedding Transformer on high-quality RAG knowledge.
+     * Builds a micro model from the best chunks (MEMRL-weighted) so the on-device
+     * language model progressively improves. No-op if no trainer is set.
+     */
+    private fun runTakensTraining(ragStore: RAGStore): SleepCycleTakensTrainer.SleepTrainingResult? {
+        val trainer = takensTrainer ?: return null
+        return try {
+            val result = trainer.trainDuringSleep(ragStore)
+            Log.d(TAG, "Phase 9 Takens training: $result")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Takens training failed", e)
+            null
+        }
+    }
+
+    /**
      * Get consolidation statistics
      */
     fun getStats(): Map<String, Any> {
@@ -477,6 +500,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         /** Phase 8: Self-optimization result (null if no optimizer is attached). */
         var optimizationResult: SleepCycleOptimizer.OptimizationResult? = null
 
+        /** Phase 9: Takens model training result (null if no trainer is attached). */
+        var trainingResult: SleepCycleTakensTrainer.SleepTrainingResult? = null
+
         override fun toString(): String =
             "ConsolidationResult{" +
                     "success=" + success +
@@ -488,6 +514,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
                     ", graphEdges=" + graphEdgesUpdated +
                     ", telemetryStrategies=" + telemetryStrategies +
                     ", optimization=" + (optimizationResult?.reason ?: "none") +
+                    ", training=" + (trainingResult?.reason ?: "none") +
                     ", duration=" + duration + "ms" +
                     '}'
     }

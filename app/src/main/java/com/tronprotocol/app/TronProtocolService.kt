@@ -30,6 +30,7 @@ import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalStrategy
 import com.tronprotocol.app.rag.SessionKeyManager
 import com.tronprotocol.app.rag.SleepCycleOptimizer
+import com.tronprotocol.app.rag.SleepCycleTakensTrainer
 import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.SecureStorage
@@ -71,6 +72,7 @@ class TronProtocolService : Service() {
     private var subAgentManager: SubAgentManager? = null
     private var autoCompactionManager: AutoCompactionManager? = null
     private var sleepCycleOptimizer: SleepCycleOptimizer? = null
+    private var sleepCycleTakensTrainer: SleepCycleTakensTrainer? = null
     private var sessionKeyManager: SessionKeyManager? = null
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
     private var affectOrchestrator: AffectOrchestrator? = null
@@ -174,8 +176,9 @@ class TronProtocolService : Service() {
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
 
-        // Shut down AffectEngine and OpenClaw-inspired subsystems
+        // Shut down AffectEngine, Takens trainer, and OpenClaw-inspired subsystems
         affectOrchestrator?.stop()
+        sleepCycleTakensTrainer?.shutdown()
         onDeviceLLMManager?.shutdown()
         laneQueueExecutor?.shutdown()
         subAgentManager?.shutdown()
@@ -306,8 +309,14 @@ class TronProtocolService : Service() {
                 consolidationManager?.optimizer = sleepCycleOptimizer
             }
 
+            // Attach sleep-cycle Takens trainer for on-device model weight optimization
+            if (sleepCycleTakensTrainer == null) {
+                sleepCycleTakensTrainer = SleepCycleTakensTrainer(this)
+                consolidationManager?.takensTrainer = sleepCycleTakensTrainer
+            }
+
             StartupDiagnostics.recordMilestone(this, "consolidation_manager_initialized")
-            Log.d(TAG, "Memory consolidation manager initialized (with self-optimizer)")
+            Log.d(TAG, "Memory consolidation manager initialized (with self-optimizer + Takens trainer)")
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize consolidation manager", e)
@@ -877,6 +886,11 @@ class TronProtocolService : Service() {
                                     Log.d(TAG, "Self-optimization: ${opt.reason}, " +
                                             "fitness=${"%.4f".format(opt.fitness)}, " +
                                             "cycle=${opt.cycle}")
+                                }
+
+                                // Log Takens training result if present
+                                result.trainingResult?.let { tr ->
+                                    Log.d(TAG, "Takens training: $tr")
                                 }
 
                                 // Consolidation success elevates satiation and coherence
