@@ -155,21 +155,24 @@ class OnDeviceLLMManager(
         // Thread recommendation: use big cores, cap at 4 for battery
         val recommendedThreads = minOf(Runtime.getRuntime().availableProcessors(), DEFAULT_THREAD_COUNT)
 
-        // Model size recommendation based on available RAM
+        // Model size recommendation based on total device RAM
+        // Note: we use totalRamMb (not availableRamMb) because Android's availMem reflects
+        // currently free memory after OS caching. The OS reclaims cache on demand, so total
+        // RAM is the correct metric for assessing device capability.
         val (maxModelSizeMb, recommendedModel, canRunLLM, baseReason) = when {
             !supportsArm64 -> Quad(
                 0L, "none", false,
                 "Device does not support arm64-v8a — MNN LLM requires 64-bit ARM"
             )
-            availableRamMb < MIN_RAM_MB -> Quad(
+            totalRamMb < MIN_RAM_MB -> Quad(
                 0L, "none", false,
-                "Insufficient RAM: ${availableRamMb}MB available, ${MIN_RAM_MB}MB required minimum"
+                "Insufficient RAM: ${totalRamMb}MB total, ${MIN_RAM_MB}MB required minimum"
             )
-            availableRamMb < RECOMMENDED_RAM_MB -> Quad(
+            totalRamMb < RECOMMENDED_RAM_MB -> Quad(
                 1500L, "Qwen2.5-1.5B-Instruct-Q4", true,
                 "Limited RAM — recommend 1.5B parameter model with Q4 quantization"
             )
-            availableRamMb < LARGE_MODEL_RAM_MB -> Quad(
+            totalRamMb < LARGE_MODEL_RAM_MB -> Quad(
                 2500L, "Qwen3-1.7B-Q4", true,
                 "Moderate RAM — can run up to 1.7B parameter model comfortably"
             )
