@@ -8,7 +8,6 @@ import android.os.PowerManager
 import android.util.Log
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONObject
-import java.util.Calendar
 
 /**
  * Memory Consolidation Manager
@@ -37,9 +36,19 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     @Volatile private var memoriesWeakened: Int = 0
     @Volatile private var memoriesForgotten: Int = 0
 
+    /** Optional sleep-cycle optimizer for automatic hyperparameter tuning. */
+    var optimizer: SleepCycleOptimizer? = null
+
     init {
         loadStats()
     }
+
+    /**
+     * Get the effective tunable parameters — from the optimizer if present,
+     * otherwise the original defaults.
+     */
+    private fun effectiveParams(): SleepCycleOptimizer.TunableParams =
+        optimizer?.currentParams ?: SleepCycleOptimizer.TunableParams()
 
     /**
      * Perform memory consolidation on a RAG store
@@ -53,31 +62,39 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         val startTime = System.currentTimeMillis()
 
         val result = ConsolidationResult()
+        val params = effectiveParams()
 
         try {
             // Phase 1: Strengthen important memories
-            result.strengthened = strengthenImportantMemories(ragStore)
+            result.strengthened = strengthenImportantMemories(ragStore, params)
             memoriesStrengthened += result.strengthened
 
             // Phase 2: Weaken low-performing memories
-            result.weakened = weakenUnusedMemories(ragStore)
+            result.weakened = weakenUnusedMemories(ragStore, params)
             memoriesWeakened += result.weakened
 
             // Phase 3: Remove very low-value memories (active forgetting)
-            result.forgotten = forgetLowValueMemories(ragStore)
+            result.forgotten = forgetLowValueMemories(ragStore, params)
             memoriesForgotten += result.forgotten
 
             // Phase 4: Create connections between related memories
-            result.connections = createMemoryConnections(ragStore)
+            result.connections = createMemoryConnections(ragStore, params)
 
             // Phase 5: Optimize chunk organization
-            result.optimized = optimizeChunkOrganization(ragStore)
+            result.optimized = optimizeChunkOrganization(ragStore, params)
 
             // Phase 6: Maintain knowledge graph connections
             result.graphEdgesUpdated = maintainKnowledgeGraph(ragStore)
 
             // Phase 7: Aggregate retrieval telemetry metrics by strategy
             result.telemetryStrategies = aggregateTelemetry(ragStore)
+
+            // Phase 8: Self-optimize hyperparameters for next cycle
+            result.optimizationResult = runSelfOptimization(ragStore)
+
+            // Propagate tuned learning rate to RAGStore for Q-value updates
+            val tuned = effectiveParams()
+            ragStore.learningRate = tuned.learningRate
 
             totalConsolidations++
             result.duration = System.currentTimeMillis() - startTime
@@ -99,11 +116,14 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
      * Phase 1: Strengthen memories with high Q-values (successful retrievals)
      * Similar to memory replay during sleep — gives positive feedback to high-performing chunks.
      */
-    private fun strengthenImportantMemories(ragStore: RAGStore): Int {
-        Log.d(TAG, "Strengthening important memories...")
+    private fun strengthenImportantMemories(
+        ragStore: RAGStore,
+        params: SleepCycleOptimizer.TunableParams = effectiveParams()
+    ): Int {
+        Log.d(TAG, "Strengthening important memories (threshold=${params.strengthenThreshold})...")
 
         val chunks = ragStore.getChunks()
-        val highPerformers = chunks.filter { it.qValue > STRENGTHEN_THRESHOLD }
+        val highPerformers = chunks.filter { it.qValue > params.strengthenThreshold }
 
         if (highPerformers.isNotEmpty()) {
             ragStore.provideFeedback(
@@ -120,12 +140,15 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
      * Phase 2: Weaken memories with low retrieval success
      * Similar to synaptic scaling during sleep — gives negative feedback to underperforming chunks.
      */
-    private fun weakenUnusedMemories(ragStore: RAGStore): Int {
-        Log.d(TAG, "Weakening unused memories...")
+    private fun weakenUnusedMemories(
+        ragStore: RAGStore,
+        params: SleepCycleOptimizer.TunableParams = effectiveParams()
+    ): Int {
+        Log.d(TAG, "Weakening unused memories (threshold=${params.consolidationThreshold})...")
 
         val chunks = ragStore.getChunks()
         val lowPerformers = chunks.filter {
-            it.retrievalCount > 0 && it.qValue < CONSOLIDATION_THRESHOLD
+            it.retrievalCount > 0 && it.qValue < params.consolidationThreshold
         }
 
         if (lowPerformers.isNotEmpty()) {
@@ -144,14 +167,17 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
      * Similar to how the brain selectively forgets unimportant information.
      * Removes chunks with very low Q-values that have had enough retrievals to be judged.
      */
-    private fun forgetLowValueMemories(ragStore: RAGStore): Int {
-        Log.d(TAG, "Forgetting low-value memories...")
+    private fun forgetLowValueMemories(
+        ragStore: RAGStore,
+        params: SleepCycleOptimizer.TunableParams = effectiveParams()
+    ): Int {
+        Log.d(TAG, "Forgetting low-value memories (threshold=${params.forgetThreshold}, max=${params.maxForgetPerCycle})...")
 
         val chunks = ragStore.getChunks()
         val forgettable = chunks.filter {
-            it.retrievalCount >= MIN_RETRIEVALS_FOR_FORGET && it.qValue < FORGET_THRESHOLD
+            it.retrievalCount >= MIN_RETRIEVALS_FOR_FORGET && it.qValue < params.forgetThreshold
         }.sortedBy { it.qValue }
-            .take(MAX_FORGET_PER_CYCLE)
+            .take(params.maxForgetPerCycle)
 
         var forgotten = 0
         for (chunk in forgettable) {
@@ -173,8 +199,11 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
      * Similar to how sleep strengthens associations.
      * Uses semantic retrieval to find related chunks and stores connection metadata.
      */
-    private fun createMemoryConnections(ragStore: RAGStore): Int {
-        Log.d(TAG, "Creating memory connections...")
+    private fun createMemoryConnections(
+        ragStore: RAGStore,
+        params: SleepCycleOptimizer.TunableParams = effectiveParams()
+    ): Int {
+        Log.d(TAG, "Creating memory connections (similarity>=${params.connectionSimilarityThreshold})...")
 
         val chunks = ragStore.getChunks()
         var connections = 0
@@ -187,7 +216,7 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
                     CONNECTION_CANDIDATES + 1
                 )
                 val relatedIds = related
-                    .filter { it.chunk.chunkId != chunk.chunkId && it.score > CONNECTION_SIMILARITY_THRESHOLD }
+                    .filter { it.chunk.chunkId != chunk.chunkId && it.score > params.connectionSimilarityThreshold }
                     .take(MAX_CONNECTIONS_PER_CHUNK)
                     .map { it.chunk.chunkId }
 
@@ -210,7 +239,10 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
      * Tags chunks with a consolidation timestamp and updates importance metadata
      * based on current Q-value standings.
      */
-    private fun optimizeChunkOrganization(ragStore: RAGStore): Int {
+    private fun optimizeChunkOrganization(
+        ragStore: RAGStore,
+        params: SleepCycleOptimizer.TunableParams = effectiveParams()
+    ): Int {
         Log.d(TAG, "Optimizing chunk organization...")
 
         val chunks = ragStore.getChunks()
@@ -220,8 +252,8 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         for (chunk in chunks) {
             chunk.addMetadata("last_consolidated", now)
             val tier = when {
-                chunk.qValue >= STRENGTHEN_THRESHOLD -> "high"
-                chunk.qValue >= CONSOLIDATION_THRESHOLD -> "medium"
+                chunk.qValue >= params.strengthenThreshold -> "high"
+                chunk.qValue >= params.consolidationThreshold -> "medium"
                 else -> "low"
             }
             chunk.addMetadata("importance_tier", tier)
@@ -297,6 +329,23 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
     }
 
     /**
+     * Phase 8: Run the sleep-cycle self-optimizer.
+     * Evaluates telemetry, compares against last cycle, and perturbs
+     * hyperparameters for the next wake period. No-op if no optimizer is set.
+     */
+    private fun runSelfOptimization(ragStore: RAGStore): SleepCycleOptimizer.OptimizationResult? {
+        val opt = optimizer ?: return null
+        return try {
+            val result = opt.optimize(ragStore)
+            Log.d(TAG, "Phase 8 self-optimization: $result")
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Self-optimization failed", e)
+            null
+        }
+    }
+
+    /**
      * Get consolidation statistics
      */
     fun getStats(): Map<String, Any> {
@@ -317,24 +366,40 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         return stats
     }
 
+    // -- Adaptive rest detection state -----------------------------------------
+
+    /** Timestamp when the device was first observed as idle (screen off). 0 = not idle. */
+    @Volatile private var idleSinceMs: Long = 0L
+
+    /** Timestamp when the device was first observed as charging. 0 = not charging. */
+    @Volatile private var chargingSinceMs: Long = 0L
+
     /**
-     * Check if it's a good time for consolidation.
-     * Considers multiple device state signals:
-     * - Time of day (nighttime preferred)
-     * - Battery charging status
-     * - Device idle state (interactive mode)
+     * Adaptive rest detection — determines if the device is in a "sleep" state
+     * suitable for consolidation.
      *
-     * Consolidation runs when at least 2 of 3 conditions are met,
-     * OR always during nighttime + charging.
+     * Unlike a fixed nighttime window, this adapts to the user's actual schedule
+     * by tracking how long the device has been continuously idle and/or charging.
+     *
+     * Triggers:
+     * - PRIMARY: idle (screen off) + charging for >= [REST_ONSET_MS] (30 min)
+     * - SECONDARY: idle for >= [DEEP_REST_ONSET_MS] (60 min), regardless of charging
+     *
+     * This correctly handles night-shift workers, irregular schedules, or anyone
+     * whose rest periods don't align with conventional nighttime hours.
      */
     fun isConsolidationTime(): Boolean {
-        val cal = Calendar.getInstance()
-        val hour = cal.get(Calendar.HOUR_OF_DAY)
+        val now = System.currentTimeMillis()
 
-        // Condition 1: Nighttime (1 AM - 5 AM)
-        val isNighttime = hour in 1..5
+        // Probe current device state
+        val isIdle = try {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            powerManager != null && !powerManager.isInteractive
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not check idle status", e)
+            false
+        }
 
-        // Condition 2: Device is charging
         val isCharging = try {
             val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
             val status = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
@@ -344,25 +409,35 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
             false
         }
 
-        // Condition 3: Screen is off / device is idle
-        val isIdle = try {
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-            powerManager != null && !powerManager.isInteractive
-        } catch (e: Exception) {
-            Log.w(TAG, "Could not check idle status", e)
-            false
+        // Track idle duration (reset when device becomes active)
+        if (isIdle) {
+            if (idleSinceMs == 0L) idleSinceMs = now
+        } else {
+            idleSinceMs = 0L
         }
 
-        // Ideal: nighttime + charging
-        if (isNighttime && isCharging) return true
+        // Track charging duration
+        if (isCharging) {
+            if (chargingSinceMs == 0L) chargingSinceMs = now
+        } else {
+            chargingSinceMs = 0L
+        }
 
-        // Good: any 2 of 3 conditions
-        var conditionsMet = 0
-        if (isNighttime) conditionsMet++
-        if (isCharging) conditionsMet++
-        if (isIdle) conditionsMet++
+        val idleDurationMs = if (idleSinceMs > 0L) now - idleSinceMs else 0L
 
-        return conditionsMet >= 2
+        // Primary: idle + charging for the rest-onset threshold
+        if (isIdle && isCharging && idleDurationMs >= REST_ONSET_MS) {
+            Log.d(TAG, "Consolidation trigger: idle+charging for ${idleDurationMs / 60_000}min")
+            return true
+        }
+
+        // Secondary: long idle regardless of charging state
+        if (isIdle && idleDurationMs >= DEEP_REST_ONSET_MS) {
+            Log.d(TAG, "Consolidation trigger: deep rest (idle ${idleDurationMs / 60_000}min)")
+            return true
+        }
+
+        return false
     }
 
     @Throws(Exception::class)
@@ -399,6 +474,9 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
         @JvmField var telemetryStrategies: Int = 0
         @JvmField var duration: Long = 0
 
+        /** Phase 8: Self-optimization result (null if no optimizer is attached). */
+        var optimizationResult: SleepCycleOptimizer.OptimizationResult? = null
+
         override fun toString(): String =
             "ConsolidationResult{" +
                     "success=" + success +
@@ -409,21 +487,32 @@ class MemoryConsolidationManager @Throws(Exception::class) constructor(
                     ", optimized=" + optimized +
                     ", graphEdges=" + graphEdgesUpdated +
                     ", telemetryStrategies=" + telemetryStrategies +
+                    ", optimization=" + (optimizationResult?.reason ?: "none") +
                     ", duration=" + duration + "ms" +
                     '}'
     }
 
     companion object {
         private const val TAG = "MemoryConsolidation"
-        private const val CONSOLIDATION_THRESHOLD = 0.3f  // Q-value below which chunks are weakened
-        private const val STRENGTHEN_THRESHOLD = 0.7f     // Q-value above which chunks are strengthened
-        private const val FORGET_THRESHOLD = 0.15f        // Q-value below which chunks may be removed
-        private const val MIN_RETRIEVALS_FOR_FORGET = 3   // Minimum retrievals before a chunk can be forgotten
-        private const val MAX_FORGET_PER_CYCLE = 5        // Max chunks to forget per consolidation cycle
-        private const val CONNECTION_CANDIDATES = 3       // Candidates to consider for connections
-        private const val MAX_CONNECTIONS_PER_CHUNK = 3   // Max connections per chunk
-        private const val CONNECTION_SIMILARITY_THRESHOLD = 0.3f // Min similarity for a connection
+
+        // Legacy constants — used as fallbacks when no SleepCycleOptimizer is attached.
+        // When an optimizer is present, these are replaced by TunableParams values.
+        private const val CONSOLIDATION_THRESHOLD = 0.3f
+        private const val STRENGTHEN_THRESHOLD = 0.7f
+        private const val FORGET_THRESHOLD = 0.15f
+        private const val MIN_RETRIEVALS_FOR_FORGET = 3
+        private const val MAX_FORGET_PER_CYCLE = 5
+        private const val CONNECTION_CANDIDATES = 3
+        private const val MAX_CONNECTIONS_PER_CHUNK = 3
+        private const val CONNECTION_SIMILARITY_THRESHOLD = 0.3f
         private const val MAX_CONSOLIDATION_ROUNDS = 5
         private const val STATS_KEY = "consolidation_stats"
+
+        // Adaptive rest detection thresholds
+        /** Idle + charging for 30 minutes triggers consolidation. */
+        private const val REST_ONSET_MS = 30L * 60 * 1000
+
+        /** Idle for 60 minutes (regardless of charging) triggers consolidation. */
+        private const val DEEP_REST_ONSET_MS = 60L * 60 * 1000
     }
 }

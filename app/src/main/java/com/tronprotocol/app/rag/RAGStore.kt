@@ -43,6 +43,14 @@ class RAGStore @Throws(Exception::class) constructor(
     /** Optional Frontier Dynamics STLE manager for accessibility-aware retrieval. */
     var frontierDynamicsManager: FrontierDynamicsManager? = null
 
+    /**
+     * Tunable learning rate for Q-value updates.
+     * Updated by [SleepCycleOptimizer] during consolidation sleep cycles.
+     * Defaults to the original constant (0.1f).
+     */
+    @Volatile
+    var learningRate: Float = DEFAULT_LEARNING_RATE
+
     init {
         loadChunks()
     }
@@ -508,8 +516,8 @@ class RAGStore @Throws(Exception::class) constructor(
         for (chunkId in chunkIds) {
             val chunk = chunkIndex[chunkId]
             if (chunk != null) {
-                chunk.updateQValue(success, DEFAULT_LEARNING_RATE)
-                Log.d(TAG, "Updated Q-value for chunk $chunkId: ${chunk.qValue}")
+                chunk.updateQValue(success, learningRate)
+                Log.d(TAG, "Updated Q-value for chunk $chunkId: ${chunk.qValue} (lr=$learningRate)")
             }
         }
         saveChunks()

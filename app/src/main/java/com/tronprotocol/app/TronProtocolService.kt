@@ -29,6 +29,7 @@ import com.tronprotocol.app.rag.MemoryConsolidationManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalStrategy
 import com.tronprotocol.app.rag.SessionKeyManager
+import com.tronprotocol.app.rag.SleepCycleOptimizer
 import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.SecureStorage
@@ -69,6 +70,7 @@ class TronProtocolService : Service() {
     private var safetyScanner: PluginSafetyScanner? = null
     private var subAgentManager: SubAgentManager? = null
     private var autoCompactionManager: AutoCompactionManager? = null
+    private var sleepCycleOptimizer: SleepCycleOptimizer? = null
     private var sessionKeyManager: SessionKeyManager? = null
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
     private var affectOrchestrator: AffectOrchestrator? = null
@@ -297,8 +299,15 @@ class TronProtocolService : Service() {
             if (consolidationManager == null) {
                 consolidationManager = MemoryConsolidationManager(this)
             }
+
+            // Attach sleep-cycle self-optimizer for automatic hyperparameter tuning
+            if (sleepCycleOptimizer == null) {
+                sleepCycleOptimizer = SleepCycleOptimizer(this)
+                consolidationManager?.optimizer = sleepCycleOptimizer
+            }
+
             StartupDiagnostics.recordMilestone(this, "consolidation_manager_initialized")
-            Log.d(TAG, "Memory consolidation manager initialized")
+            Log.d(TAG, "Memory consolidation manager initialized (with self-optimizer)")
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize consolidation manager", e)
@@ -862,6 +871,13 @@ class TronProtocolService : Service() {
                                     0.8f
                                 )
                                 lastConsolidation = System.currentTimeMillis()
+
+                                // Log self-optimization result if present
+                                result.optimizationResult?.let { opt ->
+                                    Log.d(TAG, "Self-optimization: ${opt.reason}, " +
+                                            "fitness=${"%.4f".format(opt.fitness)}, " +
+                                            "cycle=${opt.cycle}")
+                                }
 
                                 // Consolidation success elevates satiation and coherence
                                 affectOrchestrator?.submitInput(
