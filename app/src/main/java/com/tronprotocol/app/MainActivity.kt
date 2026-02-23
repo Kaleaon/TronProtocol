@@ -65,6 +65,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pluginSummaryText: TextView
     private lateinit var serviceStatusDetailText: TextView
     private lateinit var deviceCapText: TextView
+    private lateinit var modelRunCard: MaterialCardView
+    private lateinit var modelPromptInput: TextInputEditText
+    private lateinit var modelRunStatusText: TextView
+    private lateinit var modelOutputText: TextView
+    private lateinit var modelOutputScrollView: ScrollView
+    private lateinit var btnRunModel: MaterialButton
+    private lateinit var btnStopGeneration: MaterialButton
+    private var activeGenerationFuture: java.util.concurrent.Future<*>? = null
     private val llmSetupExecutor = Executors.newSingleThreadExecutor()
 
     // --- Tab views ---
@@ -297,6 +305,13 @@ class MainActivity : AppCompatActivity() {
         pluginSummaryText = findViewById(R.id.pluginSummaryText)
         serviceStatusDetailText = findViewById(R.id.serviceStatusDetailText)
         deviceCapText = findViewById(R.id.deviceCapText)
+        modelRunCard = findViewById(R.id.modelRunCard)
+        modelPromptInput = findViewById(R.id.modelPromptInput)
+        modelRunStatusText = findViewById(R.id.modelRunStatusText)
+        modelOutputText = findViewById(R.id.modelOutputText)
+        modelOutputScrollView = findViewById(R.id.modelOutputScrollView)
+        btnRunModel = findViewById(R.id.btnRunModel)
+        btnStopGeneration = findViewById(R.id.btnStopGeneration)
 
         tabChat = findViewById(R.id.tabChat)
         tabModels = findViewById(R.id.tabModels)
@@ -396,7 +411,7 @@ class MainActivity : AppCompatActivity() {
 
             // All cards
             val cardIds = listOf(
-                R.id.modelActiveCard, R.id.deviceCapCard,
+                R.id.modelActiveCard, R.id.modelRunCard, R.id.deviceCapCard,
                 R.id.pluginSummaryCard, R.id.pluginCoreCard, R.id.pluginAiCard,
                 R.id.pluginCommCard, R.id.pluginToolsCard, R.id.pluginSafetyCard,
                 R.id.apiKeysCard, R.id.serviceCard, R.id.permissionsCard,
@@ -412,6 +427,8 @@ class MainActivity : AppCompatActivity() {
             conversationTranscriptText.setTextColor(onSurface)
             modelHubStatusText.setTextColor(onSurface)
             modelSelectedDetailsText.setTextColor(onSurface)
+            modelOutputText.setTextColor(onSurface)
+            modelRunStatusText.setTextColor(onSurface)
             permissionStatusText.setTextColor(onSurface)
             diagnosticsText.setTextColor(onSurface)
             pluginSummaryText.setTextColor(onSurface)
@@ -427,7 +444,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Filled buttons
-            listOf(R.id.btnModelBrowse, R.id.btnStartService).forEach { id ->
+            listOf(R.id.btnModelBrowse, R.id.btnStartService, R.id.btnRunModel).forEach { id ->
                 findViewById<MaterialButton>(id).apply {
                     backgroundTintList = ColorStateList.valueOf(primary)
                     setTextColor(onPrimary)
@@ -436,7 +453,7 @@ class MainActivity : AppCompatActivity() {
 
             // Outlined buttons
             listOf(
-                R.id.btnModelSelect, R.id.btnModelRecommend, R.id.btnModelStatus,
+                R.id.btnModelSelect, R.id.btnModelRecommend, R.id.btnModelStatus, R.id.btnStopGeneration,
                 R.id.btnDownloadInitModel,
                 R.id.btnTelephonyFeature, R.id.btnSmsFeature, R.id.btnContactsFeature,
                 R.id.btnLocationFeature, R.id.btnStorageFeature, R.id.btnNotificationsFeature,
@@ -579,6 +596,10 @@ class MainActivity : AppCompatActivity() {
             pluginSummaryText.text = message
             showPermissionMessage("Runtime self-check completed.")
         }
+
+        // Model run
+        btnRunModel.setOnClickListener { runModelGeneration() }
+        btnStopGeneration.setOnClickListener { cancelModelGeneration() }
 
         // Model hub
         findViewById<MaterialButton>(R.id.btnModelBrowse).setOnClickListener {
@@ -1179,14 +1200,17 @@ class MainActivity : AppCompatActivity() {
                 append("${selectedModel.family} | ${selectedModel.parameterCount} | ${selectedModel.quantization}")
                 append(" | ${selectedModel.diskUsageMb} MB")
             }
+            modelRunCard.visibility = View.VISIBLE
         } else if (downloaded.isNotEmpty()) {
             modelHubStatusText.text = "${downloaded.size} model(s) available"
             modelSelectedDetailsText.visibility = View.VISIBLE
             modelSelectedDetailsText.text = "Select one for inference"
+            modelRunCard.visibility = View.GONE
         } else {
             modelHubStatusText.text = "No models downloaded"
             modelSelectedDetailsText.visibility = View.VISIBLE
             modelSelectedDetailsText.text = "Browse the catalog to get started"
+            modelRunCard.visibility = View.GONE
         }
     }
 
@@ -1592,6 +1616,90 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun runModelGeneration() {
+        val prompt = modelPromptInput.text?.toString()?.trim().orEmpty()
+        if (prompt.isBlank()) {
+            showToast("Enter a prompt before generating.")
+            return
+        }
+
+        val repo = modelRepository
+        val selectedModel = repo?.getSelectedModel()
+        if (selectedModel == null) {
+            showToast("No model selected. Select a model first.")
+            return
+        }
+
+        // Update UI to show generating state
+        btnRunModel.isEnabled = false
+        btnRunModel.text = "Generating..."
+        btnStopGeneration.visibility = View.VISIBLE
+        modelRunStatusText.visibility = View.VISIBLE
+        modelRunStatusText.text = "Running inference on ${selectedModel.name}..."
+        modelOutputScrollView.visibility = View.GONE
+
+        activeGenerationFuture = llmSetupExecutor.submit {
+            // Ensure model is loaded
+            if (!llmManager.isReady) {
+                try {
+                    val config = llmManager.createConfigFromDirectory(selectedModel.directory)
+                    val loaded = llmManager.loadModel(config)
+                    if (!loaded) {
+                        runOnUiThread {
+                            resetGenerationUi()
+                            modelRunStatusText.visibility = View.VISIBLE
+                            modelRunStatusText.text = "Failed to load model. Try selecting it again."
+                        }
+                        return@submit
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        resetGenerationUi()
+                        modelRunStatusText.visibility = View.VISIBLE
+                        modelRunStatusText.text = "Error loading model: ${e.message}"
+                    }
+                    return@submit
+                }
+            }
+
+            val result = llmManager.generate(prompt)
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                resetGenerationUi()
+
+                if (result.success && result.text != null) {
+                    modelOutputScrollView.visibility = View.VISIBLE
+                    modelOutputText.text = result.text
+                    modelRunStatusText.visibility = View.VISIBLE
+                    modelRunStatusText.text = buildString {
+                        append("${result.tokensGenerated} tokens")
+                        append(" | ${result.latencyMs} ms")
+                        append(" | %.1f tok/s".format(result.tokensPerSecond))
+                    }
+                } else {
+                    modelRunStatusText.visibility = View.VISIBLE
+                    modelRunStatusText.text = "Generation failed: ${result.error ?: "Unknown error"}"
+                }
+            }
+        }
+    }
+
+    private fun cancelModelGeneration() {
+        activeGenerationFuture?.cancel(true)
+        activeGenerationFuture = null
+        resetGenerationUi()
+        modelRunStatusText.visibility = View.VISIBLE
+        modelRunStatusText.text = "Generation cancelled."
+    }
+
+    private fun resetGenerationUi() {
+        btnRunModel.isEnabled = true
+        btnRunModel.text = "Generate"
+        btnStopGeneration.visibility = View.GONE
+        activeGenerationFuture = null
     }
 
     private fun confirmDeleteModel(modelId: String, modelName: String) {

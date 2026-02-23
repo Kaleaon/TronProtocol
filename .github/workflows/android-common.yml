@@ -32,6 +32,21 @@ on:
         required: false
         type: string
         default: 'temurin'
+      ndk-version:
+        description: Android NDK version to install.
+        required: false
+        type: string
+        default: 'r26d'
+      build-mnn-native:
+        description: Build MNN native libraries from source for on-device LLM inference.
+        required: false
+        type: boolean
+        default: true
+      mnn-version:
+        description: MNN git tag or branch to build from.
+        required: false
+        type: string
+        default: '3.1.2'
     secrets:
       ANDROID_KEYSTORE_BASE64:
         required: false
@@ -81,6 +96,64 @@ jobs:
             "build-tools;34.0.0" \
             "platform-tools"
 
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: ${{ inputs['ndk-version'] }}
+          link-to-sdk: true
+
+      - name: Cache MNN native libraries
+        if: inputs['build-mnn-native']
+        id: cache-mnn
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs
+          key: mnn-native-${{ inputs['ndk-version'] }}-${{ inputs['mnn-version'] }}-arm64v8a
+
+      - name: Build MNN native libraries from source
+        if: inputs['build-mnn-native'] && steps.cache-mnn.outputs.cache-hit != 'true'
+        env:
+          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -euo pipefail
+
+          echo "::group::Clone MNN ${{ inputs['mnn-version'] }}"
+          git clone --depth 1 --branch "${{ inputs['mnn-version'] }}" \
+            https://github.com/alibaba/MNN.git /tmp/MNN
+          echo "::endgroup::"
+
+          echo "::group::Configure CMake for arm64-v8a"
+          mkdir -p /tmp/MNN/build-android
+          cmake -S /tmp/MNN -B /tmp/MNN/build-android \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_STL=c++_static \
+            -DANDROID_NATIVE_API_LEVEL=android-24 \
+            -DMNN_BUILD_FOR_ANDROID_COMMAND=ON \
+            -DMNN_BUILD_LLM=ON \
+            -DMNN_BUILD_SHARED_LIBS=ON \
+            -DMNN_ARM82=ON \
+            -DMNN_USE_LOGCAT=OFF \
+            -DMNN_OPENMP=OFF \
+            -DMNN_USE_THREAD_POOL=ON \
+            -DMNN_SEP_BUILD=ON
+          echo "::endgroup::"
+
+          echo "::group::Build MNN (arm64-v8a)"
+          cmake --build /tmp/MNN/build-android -j "$(nproc)"
+          echo "::endgroup::"
+
+          echo "::group::Collect native libraries"
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          find /tmp/MNN/build-android -name 'libMNN.so'         -exec cp -v {} app/src/main/jniLibs/arm64-v8a/ \;
+          find /tmp/MNN/build-android -name 'libMNN_Express.so'  -exec cp -v {} app/src/main/jniLibs/arm64-v8a/ \;
+          find /tmp/MNN/build-android -name 'libmnnllm.so'       -exec cp -v {} app/src/main/jniLibs/arm64-v8a/ \;
+          echo "--- Collected libraries ---"
+          ls -lh app/src/main/jniLibs/arm64-v8a/
+          echo "::endgroup::"
+
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
@@ -102,6 +175,7 @@ jobs:
 
       - name: Run Gradle task
         env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
