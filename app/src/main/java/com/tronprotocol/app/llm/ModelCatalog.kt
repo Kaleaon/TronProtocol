@@ -53,6 +53,21 @@ object ModelCatalog {
         val recommendedRamMb: Long
     )
 
+    /**
+     * Standard MNN model files to download from HuggingFace repos.
+     * Required files are listed in [LLMModelConfig.REQUIRED_MODEL_ARTIFACTS].
+     * Additional optional files (e.g. embeddings) are included when present.
+     */
+    val DEFAULT_MNN_MODEL_FILES = listOf(
+        "config.json",
+        "llm.mnn",
+        "llm.mnn.json",
+        "llm.mnn.weight",
+        "llm_config.json",
+        "tokenizer.txt",
+        "embeddings_bf16.bin"
+    )
+
     /** A downloadable model entry in the catalog. */
     data class CatalogEntry(
         val id: String,
@@ -68,7 +83,10 @@ object ModelCatalog {
         val ramRequirement: RamRequirement,
         val supportsGpu: Boolean,
         val source: String,
-        val category: String = "text"
+        val category: String = "text",
+        /** List of individual files to download. When non-empty, [downloadUrl] is
+         *  the base resolve URL and each file is fetched separately. */
+        val modelFiles: List<String> = emptyList()
     ) {
         val sizeMb: Long get() = sizeBytes / (1024 * 1024)
 
@@ -94,12 +112,13 @@ object ModelCatalog {
             parameterCount = "1.5B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen2.5-1.5B-Instruct-MNN/resolve/main/Qwen2.5-1.5B-Instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen2.5-1.5B-Instruct-MNN/resolve/main/",
             sizeBytes = 1_100_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 2048, recommendedRamMb = 3072),
             supportsGpu = true,
-            source = "Alibaba via MNN Community"
+            source = "Alibaba via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
         CatalogEntry(
             id = "qwen3-1.7b-q4",
@@ -110,12 +129,13 @@ object ModelCatalog {
             parameterCount = "1.7B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen3-1.7B-MNN/resolve/main/Qwen3-1.7B-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen3-1.7B-MNN/resolve/main/",
             sizeBytes = 1_300_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 2560, recommendedRamMb = 4096),
             supportsGpu = true,
-            source = "Alibaba via MNN Community"
+            source = "Alibaba via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
         CatalogEntry(
             id = "qwen2.5-3b-instruct-q4",
@@ -126,12 +146,13 @@ object ModelCatalog {
             parameterCount = "3B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen2.5-3B-Instruct-MNN/resolve/main/Qwen2.5-3B-Instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen2.5-3B-Instruct-MNN/resolve/main/",
             sizeBytes = 2_100_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 4096, recommendedRamMb = 6144),
             supportsGpu = true,
-            source = "Alibaba via MNN Community"
+            source = "Alibaba via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
 
         // ---- DeepSeek family ----
@@ -144,12 +165,13 @@ object ModelCatalog {
             parameterCount = "1.5B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/DeepSeek-R1-Distill-Qwen-1.5B-MNN/resolve/main/DeepSeek-R1-Distill-Qwen-1.5B-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/DeepSeek-R1-1.5B-Qwen-MNN/resolve/main/",
             sizeBytes = 1_100_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 2048, recommendedRamMb = 3072),
             supportsGpu = true,
-            source = "DeepSeek via MNN Community"
+            source = "DeepSeek via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
 
         // ---- Gemma family ----
@@ -162,12 +184,13 @@ object ModelCatalog {
             parameterCount = "2B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Gemma-2-2B-IT-MNN/resolve/main/Gemma-2-2B-IT-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/gemma-2-2b-it-MNN/resolve/main/",
             sizeBytes = 1_500_000_000L,
             contextWindow = 2048,
             ramRequirement = RamRequirement(minRamMb = 2560, recommendedRamMb = 4096),
             supportsGpu = true,
-            source = "Google via MNN Community"
+            source = "Google via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
 
         // ---- SmolLM family ----
@@ -180,30 +203,32 @@ object ModelCatalog {
             parameterCount = "1.7B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/SmolLM2-1.7B-Instruct-MNN/resolve/main/SmolLM2-1.7B-Instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/SmolLM2-1.7B-Instruct-MNN/resolve/main/",
             sizeBytes = 1_200_000_000L,
             contextWindow = 2048,
             ramRequirement = RamRequirement(minRamMb = 2048, recommendedRamMb = 3072),
             supportsGpu = true,
-            source = "HuggingFace via MNN Community"
+            source = "HuggingFace via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
 
-        // ---- Phi family ----
+        // ---- Qwen3-4B (replaced Phi-3.5 which is unavailable on taobao-mnn) ----
         CatalogEntry(
-            id = "phi-3.5-mini-q4",
-            name = "Phi-3.5-Mini-Instruct",
-            description = "Microsoft's Phi-3.5 Mini with 3.8B parameters. " +
-                    "Top-tier quality among small models. Needs 8GB+ RAM.",
-            family = "Phi",
-            parameterCount = "3.8B",
+            id = "qwen3-4b-q4",
+            name = "Qwen3-4B",
+            description = "Alibaba's Qwen3 with 4B parameters. " +
+                    "High quality responses for devices with 8GB+ RAM.",
+            family = "Qwen",
+            parameterCount = "4B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Phi-3.5-mini-instruct-MNN/resolve/main/Phi-3.5-mini-instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Qwen3-4B-MNN/resolve/main/",
             sizeBytes = 2_500_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 4096, recommendedRamMb = 8192),
             supportsGpu = true,
-            source = "Microsoft via MNN Community"
+            source = "Alibaba via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
 
         // ---- Llama family ----
@@ -216,12 +241,13 @@ object ModelCatalog {
             parameterCount = "1B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Llama-3.2-1B-Instruct-MNN/resolve/main/Llama-3.2-1B-Instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Llama-3.2-1B-Instruct-MNN/resolve/main/",
             sizeBytes = 800_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 2048, recommendedRamMb = 3072),
             supportsGpu = true,
-            source = "Meta via MNN Community"
+            source = "Meta via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         ),
         CatalogEntry(
             id = "llama-3.2-3b-q4",
@@ -232,12 +258,13 @@ object ModelCatalog {
             parameterCount = "3B",
             quantization = "Q4_K_M",
             format = "mnn",
-            downloadUrl = "https://huggingface.co/taobao-mnn/Llama-3.2-3B-Instruct-MNN/resolve/main/Llama-3.2-3B-Instruct-MNN.zip",
+            downloadUrl = "https://huggingface.co/taobao-mnn/Llama-3.2-3B-Instruct-MNN/resolve/main/",
             sizeBytes = 2_200_000_000L,
             contextWindow = 4096,
             ramRequirement = RamRequirement(minRamMb = 4096, recommendedRamMb = 8192),
             supportsGpu = true,
-            source = "Meta via MNN Community"
+            source = "Meta via MNN Community",
+            modelFiles = DEFAULT_MNN_MODEL_FILES
         )
     )
 

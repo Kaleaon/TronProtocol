@@ -591,6 +591,12 @@ class OnDeviceLLMManager(
     }
 
     private fun downloadToDirectory(downloadUrl: String, modelDir: File): Long {
+        // Detect HuggingFace repo URLs (ending with /resolve/main/ or similar)
+        // and download individual model files instead of expecting a single archive.
+        if (downloadUrl.contains("/resolve/main/") && !downloadUrl.substringAfterLast("/").contains(".")) {
+            return downloadMultipleFiles(downloadUrl.trimEnd('/'), modelDir)
+        }
+
         val tempFile = File.createTempFile("mnn_model", ".pkg", context.cacheDir)
         var totalBytes = 0L
 
@@ -600,6 +606,21 @@ class OnDeviceLLMManager(
             connection.connectTimeout = NETWORK_TIMEOUT_MS
             connection.readTimeout = NETWORK_TIMEOUT_MS
             connection.instanceFollowRedirects = true
+
+            val responseCode = connection.responseCode
+            if (responseCode == 404) {
+                throw RuntimeException(
+                    "HTTP 404: File not found. The model may have been moved or removed."
+                )
+            }
+            if (responseCode == 401 || responseCode == 403) {
+                throw RuntimeException(
+                    "HTTP $responseCode: Access denied. This model may require authentication."
+                )
+            }
+            if (responseCode !in 200..299) {
+                throw RuntimeException("HTTP $responseCode from $downloadUrl")
+            }
 
             connection.inputStream.use { input ->
                 FileOutputStream(tempFile).use { output ->
@@ -625,6 +646,65 @@ class OnDeviceLLMManager(
             connection?.disconnect()
             tempFile.delete()
         }
+    }
+
+    /**
+     * Download individual MNN model files from a HuggingFace repo base URL.
+     * Skips files that return 404 (optional files not present in all repos).
+     */
+    private fun downloadMultipleFiles(baseUrl: String, modelDir: File): Long {
+        var totalBytes = 0L
+        val modelFiles = ModelCatalog.DEFAULT_MNN_MODEL_FILES
+
+        for (fileName in modelFiles) {
+            val fileUrl = "$baseUrl/$fileName"
+            val outputFile = File(modelDir, fileName)
+            var connection: HttpURLConnection? = null
+
+            try {
+                connection = URL(fileUrl).openConnection() as HttpURLConnection
+                connection.connectTimeout = NETWORK_TIMEOUT_MS
+                connection.readTimeout = NETWORK_TIMEOUT_MS
+                connection.instanceFollowRedirects = true
+
+                val responseCode = connection.responseCode
+                if (responseCode == 404) {
+                    Log.d(TAG, "Skipped optional file (404): $fileName")
+                    continue
+                }
+                if (responseCode !in 200..299) {
+                    if (fileName == "llm.mnn" || fileName == "llm.mnn.weight") {
+                        throw RuntimeException("HTTP $responseCode downloading required file $fileName")
+                    }
+                    Log.w(TAG, "HTTP $responseCode for optional file $fileName, skipping")
+                    continue
+                }
+
+                outputFile.parentFile?.mkdirs()
+                connection.inputStream.use { input ->
+                    FileOutputStream(outputFile).use { output ->
+                        val buffer = ByteArray(IO_BUFFER_SIZE)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            totalBytes += read
+                        }
+                    }
+                }
+                Log.d(TAG, "Downloaded $fileName (${outputFile.length()} bytes)")
+            } catch (e: Exception) {
+                if (fileName == "llm.mnn" || fileName == "llm.mnn.weight") {
+                    throw e
+                }
+                Log.w(TAG, "Failed to download optional file $fileName: ${e.message}")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+
+        Log.d(TAG, "Multi-file download to ${modelDir.absolutePath} ($totalBytes bytes total)")
+        return totalBytes
     }
 
     private fun unzipToDirectory(zipFile: File, destinationDir: File) {
