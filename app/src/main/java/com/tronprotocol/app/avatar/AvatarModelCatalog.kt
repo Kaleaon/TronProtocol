@@ -163,7 +163,11 @@ object AvatarModelCatalog {
      * Requires Snapdragon 8 Gen 3 or equivalent flagship SoC and 8GB+ RAM.
      */
     fun isDeviceSupported(totalRamMb: Long): Boolean {
-        val supportsArm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+        val supportsArm64 = try {
+            Build.SUPPORTED_ABIS?.any { it == "arm64-v8a" } ?: false
+        } catch (_: Error) {
+            false
+        }
         return supportsArm64 && totalRamMb >= MIN_RAM_MB
     }
 

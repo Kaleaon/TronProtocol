@@ -24,12 +24,10 @@ class ModelIntegrityVerifier {
 
     fun verifyModel(config: LLMModelConfig): VerificationResult {
         if (config.integrityStatus == LLMModelConfig.IntegrityStatus.UNTRUSTED_MIGRATED) {
-            // Allow untrusted/migrated models to load — they simply haven't had
-            // checksums computed (e.g. pushed via ADB, or missing optional artifacts).
-            // The model directory and llm.mnn existence are validated separately.
             return VerificationResult(
-                success = true,
-                message = "Model loaded without checksum verification (migrated/incomplete artifacts)"
+                success = false,
+                failureReason = FailureReason.UNTRUSTED_MODEL,
+                message = "Model is untrusted (migrated without checksums)"
             )
         }
 

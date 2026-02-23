@@ -16,44 +16,64 @@ import javax.crypto.spec.GCMParameterSpec
  *
  * Inspired by ToolNeuron's Memory Vault encryption architecture
  */
-class EncryptionManager @Throws(Exception::class) constructor() {
+class EncryptionManager constructor() {
 
-    private val keyStore: KeyStore = KeyStore.getInstance("AndroidKeyStore").apply {
-        load(null)
-    }
+    private val keyStore: KeyStore?
+    private var softwareKey: SecretKey? = null
 
     init {
+        keyStore = try {
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        } catch (e: Exception) {
+            Log.w(TAG, "AndroidKeyStore not available, using software fallback: ${e.message}")
+            null
+        }
         ensureMasterKey()
     }
 
-    @Throws(Exception::class)
     private fun ensureMasterKey() {
-        if (!keyStore.containsAlias(KEY_ALIAS)) {
-            val keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                "AndroidKeyStore"
-            )
+        if (keyStore != null) {
+            try {
+                if (!keyStore.containsAlias(KEY_ALIAS)) {
+                    val keyGenerator = KeyGenerator.getInstance(
+                        KeyProperties.KEY_ALGORITHM_AES,
+                        "AndroidKeyStore"
+                    )
 
-            val spec = KeyGenParameterSpec.Builder(
-                KEY_ALIAS,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setRandomizedEncryptionRequired(true)
-                .build()
+                    val spec = KeyGenParameterSpec.Builder(
+                        KEY_ALIAS,
+                        KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+                    )
+                        .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                        .setKeySize(256)
+                        .setRandomizedEncryptionRequired(true)
+                        .build()
 
-            keyGenerator.init(spec)
-            keyGenerator.generateKey()
+                    keyGenerator.init(spec)
+                    keyGenerator.generateKey()
 
-            Log.d(TAG, "Master key generated in hardware-backed KeyStore")
+                    Log.d(TAG, "Master key generated in hardware-backed KeyStore")
+                }
+                return
+            } catch (e: Exception) {
+                Log.w(TAG, "Hardware key generation failed, using software fallback: ${e.message}")
+            }
         }
+        val keyGen = KeyGenerator.getInstance("AES")
+        keyGen.init(256)
+        softwareKey = keyGen.generateKey()
     }
 
-    @Throws(Exception::class)
-    private fun getMasterKey(): SecretKey =
-        keyStore.getKey(KEY_ALIAS, null) as SecretKey
+    private fun getMasterKey(): SecretKey {
+        if (keyStore != null) {
+            try {
+                val key = keyStore.getKey(KEY_ALIAS, null)
+                if (key != null) return key as SecretKey
+            } catch (_: Exception) { }
+        }
+        return softwareKey ?: throw IllegalStateException("No encryption key available")
+    }
 
     /**
      * Encrypt data using AES-256-GCM
