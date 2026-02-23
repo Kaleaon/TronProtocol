@@ -2,6 +2,7 @@ package com.tronprotocol.app.guidance
 
 import android.text.TextUtils
 import android.util.Log
+import com.tronprotocol.app.llm.HereticModelManager
 import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.rag.RAGStore
 import com.tronprotocol.app.rag.RetrievalStrategy
@@ -27,7 +28,8 @@ class GuidanceOrchestrator(
     private val decisionRouter: DecisionRouter,
     private val ethicalKernelValidator: EthicalKernelValidator,
     private val ragStore: RAGStore?,
-    private val onDeviceLLMManager: OnDeviceLLMManager? = null
+    private val onDeviceLLMManager: OnDeviceLLMManager? = null,
+    private val hereticModelManager: HereticModelManager? = null
 ) {
 
     @Throws(Exception::class)
@@ -46,6 +48,23 @@ class GuidanceOrchestrator(
             }
             cache(prompt, localAnswer, "local")
             return GuidanceResponse.success(localAnswer, "local", "local-brain", true)
+        }
+
+        // Heretic model tier: uncensored model with constitutional values enforcement.
+        // The model has no baked-in alignment — the ConstitutionalValuesEngine provides
+        // transparent, auditable safety controls instead.
+        if (decision.useHereticModel) {
+            val hereticResult = tryHereticModel(prompt)
+            if (hereticResult != null) {
+                // Heretic models apply their own constitutional values validation
+                // internally via HereticModelManager, so we skip the ethicalKernelValidator
+                // response check to avoid double-gating.
+                cache(prompt, hereticResult, "heretic_model")
+                val modelId = hereticModelManager?.activeConfig?.modelId ?: "heretic_local"
+                return GuidanceResponse.success(hereticResult, "heretic_model", modelId, false)
+            }
+            // Fall through to on-device LLM if heretic model failed
+            Log.d(TAG, "Heretic model unavailable, falling through to on-device LLM")
         }
 
         // On-device LLM tier: handle medium-complexity prompts locally via MNN
@@ -86,6 +105,18 @@ class GuidanceOrchestrator(
             cache(prompt, cloudAnswer, decision.cloudModel)
             return GuidanceResponse.success(cloudAnswer, "cloud", decision.cloudModel, false)
         } catch (e: AnthropicApiClient.AnthropicException) {
+            // If cloud fails, try heretic model first (constitution-gated), then standard on-device LLM
+            if (hereticModelManager != null && hereticModelManager.isReady) {
+                Log.d(TAG, "Cloud API failed (${e.message}), falling back to heretic model")
+                val hereticFallback = tryHereticModel(prompt)
+                if (hereticFallback != null) {
+                    val modelId = hereticModelManager.activeConfig?.modelId ?: "heretic_fallback"
+                    return GuidanceResponse.success(
+                        hereticFallback, "heretic_model_fallback", modelId, false
+                    )
+                }
+            }
+
             // If cloud fails and on-device LLM is available, use it as fallback
             if (onDeviceLLMManager != null && onDeviceLLMManager.isReady) {
                 Log.d(TAG, "Cloud API failed (${e.message}), falling back to on-device LLM")
@@ -102,6 +133,34 @@ class GuidanceOrchestrator(
                 }
             }
             throw e
+        }
+    }
+
+    /**
+     * Attempt to generate a response using a heretic (uncensored) model.
+     * The [HereticModelManager] applies constitutional values evaluation on both
+     * prompt and response, providing transparent safety without opaque model alignment.
+     *
+     * Returns null if the heretic model is not available or generation fails.
+     */
+    private fun tryHereticModel(prompt: String): String? {
+        val manager = hereticModelManager ?: return null
+        if (!manager.isReady) return null
+
+        return try {
+            val result = manager.generate(prompt)
+            if (result.success && result.text != null) {
+                Log.d(TAG, "Heretic model generated ${result.tokensGenerated} tokens " +
+                        "in ${result.latencyMs}ms (${String.format("%.1f", result.tokensPerSecond)} tok/s) " +
+                        "[constitution v${result.constitutionVersion}]")
+                result.text
+            } else {
+                Log.w(TAG, "Heretic model generation failed: ${result.error}")
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Heretic model exception: ${e.message}")
+            null
         }
     }
 

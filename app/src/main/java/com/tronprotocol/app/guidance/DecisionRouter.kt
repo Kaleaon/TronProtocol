@@ -25,6 +25,10 @@ class DecisionRouter {
     @Volatile
     var onDeviceLLMAvailable: Boolean = false
 
+    /** Whether a heretic (uncensored, constitution-gated) model is loaded and ready. */
+    @Volatile
+    var hereticModelAvailable: Boolean = false
+
     /**
      * Optional Frontier Dynamics STLE manager for accessibility-aware routing.
      * When available and a prompt embedding is provided, the router will escalate
@@ -80,6 +84,14 @@ class DecisionRouter {
             }
         }
 
+        // Route to heretic (uncensored, constitution-gated) model when available.
+        // Heretic models have baked-in alignment removed via directional ablation
+        // and rely on the ConstitutionalValuesEngine for safety enforcement.
+        // They provide more direct, unfiltered responses within constitutional bounds.
+        if (hereticModelAvailable && canHandleOnDevice(lowered)) {
+            return RouteDecision.hereticModel("Prompt routed to heretic model (constitutional values active)")
+        }
+
         // Route medium-complexity prompts to on-device LLM when available.
         // This avoids cloud API calls for conversational, summary, and
         // general-knowledge queries that a small model (1.5B-4B) can handle.
@@ -128,20 +140,25 @@ class DecisionRouter {
     class RouteDecision private constructor(
         val useLocal: Boolean,
         val useOnDeviceLLM: Boolean,
+        val useHereticModel: Boolean,
         val cloudModel: String?,
         val reason: String
     ) {
         companion object {
             fun local(reason: String): RouteDecision {
-                return RouteDecision(true, false, null, reason)
+                return RouteDecision(true, false, false, null, reason)
             }
 
             fun onDeviceLLM(reason: String): RouteDecision {
-                return RouteDecision(false, true, null, reason)
+                return RouteDecision(false, true, false, null, reason)
+            }
+
+            fun hereticModel(reason: String): RouteDecision {
+                return RouteDecision(false, false, true, null, reason)
             }
 
             fun cloud(model: String, reason: String): RouteDecision {
-                return RouteDecision(false, false, model, reason)
+                return RouteDecision(false, false, false, model, reason)
             }
         }
     }
