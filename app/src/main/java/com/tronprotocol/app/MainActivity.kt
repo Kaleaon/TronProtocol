@@ -284,12 +284,16 @@ class MainActivity : AppCompatActivity() {
         llmManager = OnDeviceLLMManager(this)
         downloadManager = ModelDownloadManager(this)
         modelRepository = ModelRepository(this)
-        avatarSessionManager = AvatarSessionManager(this)
-        affectOrchestrator = AffectOrchestrator(this)
+        runStartupBlock("init_avatar_session_manager") {
+            avatarSessionManager = AvatarSessionManager(this)
+        }
+        runStartupBlock("init_affect_orchestrator") {
+            affectOrchestrator = AffectOrchestrator(this)
+        }
 
         bindViews()
         setupBottomNavigation()
-        setupAvatarTextureView()
+        runStartupBlock("setup_avatar_texture_view") { setupAvatarTextureView() }
 
         runStartupBlock("apply_ktheme") { applyKtheme() }
         runStartupBlock("initialize_plugins") { initializePlugins() }
