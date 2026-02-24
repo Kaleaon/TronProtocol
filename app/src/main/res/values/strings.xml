@@ -42,5 +42,13 @@
     <string name="section_tools">Tools</string>
     <string name="section_diagnostics">Diagnostics</string>
     <string name="section_memory">Memory &amp; RAG</string>
+    <string name="section_telemetry">AI Inference Telemetry</string>
     <string name="section_system">System Dashboard</string>
+
+    <!-- AI Inference -->
+    <string name="chat_thinking">Tron AI is thinking&#8230;</string>
+    <string name="inference_tier_local">LOCAL</string>
+    <string name="inference_tier_cloud">CLOUD</string>
+    <string name="inference_tier_fallback">FALLBACK</string>
+    <string name="telemetry_empty">No inference data yet. Start a conversation to see metrics.</string>
 </resources>

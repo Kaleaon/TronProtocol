@@ -46,6 +46,11 @@ import com.tronprotocol.app.affect.AffectOrchestrator
 import com.tronprotocol.app.avatar.AvatarModelCatalog
 import com.tronprotocol.app.avatar.AvatarSessionManager
 import com.tronprotocol.app.avatar.NnrRenderEngine
+import com.tronprotocol.app.inference.AIContextManager
+import com.tronprotocol.app.inference.InferenceTelemetry
+import com.tronprotocol.app.inference.InferenceTier
+import com.tronprotocol.app.inference.PromptTemplateEngine
+import com.tronprotocol.app.inference.ResponseQualityScorer
 import com.tronprotocol.app.llm.ModelCatalog
 import com.tronprotocol.app.llm.ModelDownloadManager
 import com.tronprotocol.app.llm.ModelRepository
@@ -112,6 +117,24 @@ class MainActivity : AppCompatActivity() {
     // --- Settings new cards ---
     private lateinit var memoryStatsText: TextView
     private lateinit var systemDashboardText: TextView
+    private lateinit var telemetryStatsText: TextView
+
+    // --- AI Inference UI ---
+    private lateinit var chatInferenceStrip: LinearLayout
+    private lateinit var inferenceTierIndicator: View
+    private lateinit var inferenceTierText: TextView
+    private lateinit var inferenceLatencyText: TextView
+    private lateinit var inferenceQualityText: TextView
+    private lateinit var inferenceContextText: TextView
+    private lateinit var chatThinkingIndicator: LinearLayout
+    private lateinit var chatThinkingText: TextView
+    private lateinit var chatThinkingCategoryText: TextView
+
+    // --- AI Inference subsystems ---
+    private lateinit var aiContextManager: AIContextManager
+    private lateinit var promptTemplateEngine: PromptTemplateEngine
+    private lateinit var responseQualityScorer: ResponseQualityScorer
+    private lateinit var inferenceTelemetry: InferenceTelemetry
 
     // --- Avatar/Affect managers ---
     private var avatarSessionManager: AvatarSessionManager? = null
@@ -290,6 +313,12 @@ class MainActivity : AppCompatActivity() {
         runStartupBlock("init_affect_orchestrator") {
             affectOrchestrator = AffectOrchestrator(this)
         }
+        runStartupBlock("init_ai_inference_subsystems") {
+            aiContextManager = AIContextManager()
+            promptTemplateEngine = PromptTemplateEngine()
+            responseQualityScorer = ResponseQualityScorer()
+            inferenceTelemetry = InferenceTelemetry(this)
+        }
 
         bindViews()
         setupBottomNavigation()
@@ -324,6 +353,7 @@ class MainActivity : AppCompatActivity() {
         runStartupBlock("refresh_avatar_assessment") { refreshAvatarDeviceAssessment() }
         runStartupBlock("start_affect_system") { startAffectSystem() }
         runStartupBlock("refresh_memory_stats") { refreshMemoryStats() }
+        runStartupBlock("refresh_telemetry") { refreshTelemetryDisplay() }
         runStartupBlock("refresh_system_dashboard") { refreshSystemDashboard() }
     }
 
@@ -406,6 +436,18 @@ class MainActivity : AppCompatActivity() {
         // Settings new cards
         memoryStatsText = findViewById(R.id.memoryStatsText)
         systemDashboardText = findViewById(R.id.systemDashboardText)
+        telemetryStatsText = findViewById(R.id.telemetryStatsText)
+
+        // AI Inference UI
+        chatInferenceStrip = findViewById(R.id.chatInferenceStrip)
+        inferenceTierIndicator = findViewById(R.id.inferenceTierIndicator)
+        inferenceTierText = findViewById(R.id.inferenceTierText)
+        inferenceLatencyText = findViewById(R.id.inferenceLatencyText)
+        inferenceQualityText = findViewById(R.id.inferenceQualityText)
+        inferenceContextText = findViewById(R.id.inferenceContextText)
+        chatThinkingIndicator = findViewById(R.id.chatThinkingIndicator)
+        chatThinkingText = findViewById(R.id.chatThinkingText)
+        chatThinkingCategoryText = findViewById(R.id.chatThinkingCategoryText)
 
         pluginCoreContainer = findViewById(R.id.pluginCoreContainer)
         pluginAiContainer = findViewById(R.id.pluginAiContainer)
@@ -509,7 +551,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.integrationsCard, R.id.toolsCard, R.id.diagnosticsCard,
                 R.id.avatarViewportCard, R.id.avatarControlCard,
                 R.id.avatarAffectCard, R.id.avatarExpressionCard,
-                R.id.memoryCard, R.id.systemDashboardCard,
+                R.id.memoryCard, R.id.telemetryCard, R.id.systemDashboardCard,
             )
             cardIds.forEach { id ->
                 try {
@@ -542,7 +584,16 @@ class MainActivity : AppCompatActivity() {
             chatHedonicToneText.setTextColor(onSurface)
             chatExpressionSummaryText.setTextColor(onSurface)
             memoryStatsText.setTextColor(onSurface)
+            telemetryStatsText.setTextColor(onSurface)
             systemDashboardText.setTextColor(onSurface)
+
+            // AI Inference strip text colors
+            inferenceTierText.setTextColor(onSurface)
+            inferenceLatencyText.setTextColor(onSurface)
+            inferenceQualityText.setTextColor(onSurface)
+            inferenceContextText.setTextColor(onSurface)
+            chatThinkingText.setTextColor(onSurface)
+            chatThinkingCategoryText.setTextColor(onSurface)
 
             // Send button
             findViewById<MaterialButton>(R.id.btnSendConversation).apply {
@@ -582,7 +633,8 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnAddApiKey, R.id.btnGrantAllFiles,
                 R.id.btnExportDebugLog, R.id.btnRuntimeSelfCheck,
                 R.id.btnRefreshAffect, R.id.btnMemoryConsolidate,
-                R.id.btnMemoryStats, R.id.btnRefreshDashboard,
+                R.id.btnMemoryStats, R.id.btnRefreshTelemetry,
+                R.id.btnResetTelemetry, R.id.btnRefreshDashboard,
             ).forEach { id ->
                 try {
                     findViewById<MaterialButton>(id).setTextColor(primary)
@@ -772,6 +824,16 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.btnMemoryStats).setOnClickListener {
             refreshMemoryStats()
+        }
+
+        // Telemetry
+        findViewById<MaterialButton>(R.id.btnRefreshTelemetry).setOnClickListener {
+            refreshTelemetryDisplay()
+        }
+        findViewById<MaterialButton>(R.id.btnResetTelemetry).setOnClickListener {
+            inferenceTelemetry.reset()
+            refreshTelemetryDisplay()
+            showToast("Telemetry reset")
         }
 
         // System dashboard
@@ -1252,26 +1314,149 @@ class MainActivity : AppCompatActivity() {
         }
 
         conversationTurns.add(ConversationTurn("You", userText))
-
-        val pluginManager = PluginManager.getInstance()
-        val guidanceResult = pluginManager.executePlugin(
-            GUIDANCE_ROUTER_PLUGIN_ID,
-            "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
-        )
-        val aiMessage = if (guidanceResult.isSuccess) {
-            guidanceResult.data ?: "No response received from AI. Please try again."
-        } else {
-            "I'm having trouble responding right now. Please try again."
-        }
-
-        conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
         conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
         conversationInput.setText("")
 
+        // Track in context manager
+        aiContextManager.addTurn("You", userText)
+
+        // Classify query and show thinking indicator
+        val category = promptTemplateEngine.classifyQuery(userText)
+        showThinkingIndicator(category)
+
         // Auto-scroll to bottom
-        findViewById<ScrollView>(R.id.chatScrollView).post {
-            findViewById<ScrollView>(R.id.chatScrollView).fullScroll(View.FOCUS_DOWN)
+        val chatScrollView = findViewById<ScrollView>(R.id.chatScrollView)
+        chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+
+        // Execute inference asynchronously
+        val startTime = System.currentTimeMillis()
+        llmSetupExecutor.execute {
+            val pluginManager = PluginManager.getInstance()
+
+            // Construct enhanced prompt with context
+            val contextWindow = aiContextManager.buildContextWindow()
+            val constructed = promptTemplateEngine.constructPrompt(
+                userQuery = userText,
+                conversationContext = aiContextManager.formatForInference()
+            )
+
+            val guidanceResult = pluginManager.executePlugin(
+                GUIDANCE_ROUTER_PLUGIN_ID,
+                "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
+            )
+
+            val latencyMs = System.currentTimeMillis() - startTime
+            val aiMessage: String
+            val tier: InferenceTier
+            val success: Boolean
+
+            if (guidanceResult.isSuccess) {
+                aiMessage = guidanceResult.data ?: "No response received from AI. Please try again."
+                // Determine tier from guidance result metadata
+                tier = if (guidanceResult.data?.startsWith("[cloud]") == true) {
+                    InferenceTier.CLOUD_FALLBACK
+                } else {
+                    InferenceTier.LOCAL_ON_DEMAND
+                }
+                success = true
+            } else {
+                aiMessage = "I'm having trouble responding right now. Please try again."
+                tier = InferenceTier.LOCAL_ON_DEMAND
+                success = false
+            }
+
+            // Score response quality
+            val qualityScore = responseQualityScorer.score(
+                query = userText,
+                response = aiMessage,
+                category = category,
+                tier = tier
+            )
+
+            // Record telemetry
+            val tokenCount = AIContextManager.estimateTokens(aiMessage)
+            inferenceTelemetry.recordInference(
+                InferenceTelemetry.InferenceEvent(
+                    tier = tier,
+                    category = category,
+                    latencyMs = latencyMs,
+                    tokenCount = tokenCount,
+                    qualityScore = qualityScore.overall,
+                    wasFallback = tier == InferenceTier.CLOUD_FALLBACK,
+                    wasRegenerated = false,
+                    success = success,
+                    contextTokens = contextWindow.totalTokens,
+                    errorMessage = if (!success) guidanceResult.errorMessage else null
+                )
+            )
+
+            // Track AI response in context manager
+            aiContextManager.addTurn("Tron AI", aiMessage)
+
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+
+                hideThinkingIndicator()
+                conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
+                conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+
+                // Update inference status strip
+                updateInferenceStrip(tier, latencyMs, qualityScore.overall, contextWindow)
+
+                // Auto-scroll to bottom
+                chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+            }
         }
+    }
+
+    private fun showThinkingIndicator(category: PromptTemplateEngine.QueryCategory) {
+        chatThinkingIndicator.visibility = View.VISIBLE
+        chatThinkingCategoryText.text = category.name
+    }
+
+    private fun hideThinkingIndicator() {
+        chatThinkingIndicator.visibility = View.GONE
+    }
+
+    private fun updateInferenceStrip(
+        tier: InferenceTier,
+        latencyMs: Long,
+        quality: Float,
+        contextWindow: AIContextManager.ContextWindow
+    ) {
+        chatInferenceStrip.visibility = View.VISIBLE
+
+        // Tier indicator color and label
+        val tierColorRes = when (tier) {
+            InferenceTier.LOCAL_ALWAYS_ON,
+            InferenceTier.LOCAL_ON_DEMAND -> R.color.tier_local
+            InferenceTier.CLOUD_FALLBACK -> R.color.tier_cloud
+        }
+        inferenceTierIndicator.setBackgroundColor(
+            ContextCompat.getColor(this, tierColorRes)
+        )
+        inferenceTierText.text = tier.label
+
+        // Latency
+        inferenceLatencyText.text = "${latencyMs}ms"
+
+        // Quality indicator
+        val qualityColorRes = when {
+            quality >= 0.7f -> R.color.quality_good
+            quality >= 0.4f -> R.color.quality_acceptable
+            else -> R.color.quality_poor
+        }
+        inferenceQualityText.text = "Q=${"%.0f".format(quality * 100)}%%"
+        inferenceQualityText.setTextColor(
+            ContextCompat.getColor(this, qualityColorRes)
+        )
+
+        // Context utilization
+        inferenceContextText.text = "${contextWindow.turnCount}T ${"%.0f".format(contextWindow.utilizationPercent)}%%ctx"
+    }
+
+    private fun refreshTelemetryDisplay() {
+        telemetryStatsText.text = inferenceTelemetry.formatSummary()
     }
 
     // ========================================================================
@@ -2542,7 +2727,17 @@ class MainActivity : AppCompatActivity() {
             append("Avatar pipeline: $avatarState\n")
             append("NNR native: ${if (nnrAvailable) "Loaded" else "Not available"}\n")
             append("On-device LLM: ${if (llmReady) "Ready" else "Not loaded"}\n")
-            append("MNN framework: ${if (OnDeviceLLMManager.isNativeAvailable()) "Loaded" else "Not available"}")
+            append("MNN framework: ${if (OnDeviceLLMManager.isNativeAvailable()) "Loaded" else "Not available"}\n\n")
+
+            append("=== AI Inference ===\n")
+            val ctxStats = aiContextManager.getStats()
+            val telSummary = inferenceTelemetry.getSummary()
+            append("Context turns: ${ctxStats["total_turns"]}\n")
+            append("Context tokens: ~${ctxStats["estimated_tokens"]}\n")
+            append("Context utilization: ${"%.0f".format((ctxStats["utilization_percent"] as? Float) ?: 0f)}%%\n")
+            append("Total inferences: ${telSummary.totalInferences}\n")
+            append("Avg quality: ${"%.2f".format(telSummary.averageQualityScore)}\n")
+            append("Error rate: ${"%.1f".format(telSummary.errorRate * 100)}%%")
         }
     }
 
