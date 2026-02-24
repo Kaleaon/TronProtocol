@@ -639,10 +639,13 @@ class TronProtocolService : Service() {
     private fun refreshWakeLockIfNeeded() {
         try {
             val wl = wakeLock ?: return
-            if (!wl.isHeld) {
-                wl.acquire(WAKELOCK_TIMEOUT_MS)
-                Log.d(TAG, "Wake lock re-acquired")
+            // Release the old lock (if still held) then re-acquire with a fresh timeout.
+            // This prevents expiry gaps when the refresh interval is shorter than the timeout.
+            if (wl.isHeld) {
+                wl.release()
             }
+            wl.acquire(WAKELOCK_TIMEOUT_MS)
+            Log.d(TAG, "Wake lock refreshed")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to refresh wake lock", e)
         }
@@ -691,8 +694,8 @@ class TronProtocolService : Service() {
         val startTime = System.currentTimeMillis()
         heartbeatCount++
 
-        // Refresh wake lock periodically (every 50 heartbeats ≈ 25 min, well before 10 min timeout)
-        if (heartbeatCount % 50 == 0) {
+        // Refresh wake lock every 15 heartbeats (≈ 7.5 min), well before the 10 min timeout
+        if (heartbeatCount % 15 == 0) {
             refreshWakeLockIfNeeded()
         }
 
