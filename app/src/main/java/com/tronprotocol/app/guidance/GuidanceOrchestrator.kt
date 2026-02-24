@@ -92,18 +92,21 @@ class GuidanceOrchestrator(
             return GuidanceResponse.success(cached!!, "cache", decision.cloudModel, true)
         }
 
-        // Cloud tier: call Anthropic API
+        // Cloud tier: call Anthropic API.
+        // decision.cloudModel may be null when a non-cloud tier (on-device LLM / heretic model)
+        // was selected but failed and fell through here; fall back to Sonnet in that case.
+        val effectiveCloudModel = decision.cloudModel ?: AnthropicApiClient.MODEL_SONNET
         try {
             val cloudAnswer = anthropicApiClient.createGuidance(
-                apiKey, decision.cloudModel!!, prompt, 600
+                apiKey, effectiveCloudModel, prompt, 600
             )
             val cloudCheck = ethicalKernelValidator.validateResponse(cloudAnswer)
             if (!cloudCheck.allowed) {
                 return GuidanceResponse.error(cloudCheck.message, "cloud_blocked")
             }
 
-            cache(prompt, cloudAnswer, decision.cloudModel)
-            return GuidanceResponse.success(cloudAnswer, "cloud", decision.cloudModel, false)
+            cache(prompt, cloudAnswer, effectiveCloudModel)
+            return GuidanceResponse.success(cloudAnswer, "cloud", effectiveCloudModel, false)
         } catch (e: AnthropicApiClient.AnthropicException) {
             // If cloud fails, try heretic model first (constitution-gated), then standard on-device LLM
             if (hereticModelManager != null && hereticModelManager.isReady) {

@@ -191,7 +191,8 @@ class FileManagerPlugin : Plugin {
 
         if (!file.exists()) throw IOException("File not found: $path")
 
-        if (file.isDirectory && file.list() != null && file.list()!!.isNotEmpty()) {
+        val listing = file.list()
+        if (file.isDirectory && listing != null && listing.isNotEmpty()) {
             throw IOException("Directory not empty: $path")
         }
 
@@ -394,7 +395,7 @@ class FileManagerPlugin : Plugin {
 
     private fun containsTraversal(path: String): Boolean {
         val normalized = path.replace('\\', '/')
-        return normalized == ".." || normalized.contains("../")
+        return normalized == ".." || normalized.contains("../") || normalized.endsWith("/..")
     }
 
     /** Format file size */
