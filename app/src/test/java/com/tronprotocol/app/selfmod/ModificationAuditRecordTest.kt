@@ -182,7 +182,7 @@ class ModificationAuditRecordTest {
             details = "Original details",
             timestamp = 5000L
         )
-        val _ = original.copy(details = "Changed details")
+        val copy = original.copy(details = "Changed details")
 
         assertEquals("Original details", original.details)
     }

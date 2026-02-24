@@ -37,7 +37,7 @@ class ExpressionDriverTest {
 
         // tailPoof is a Boolean, always non-null
         // Just verify it is accessible
-        val _ = output.tailPoof
+        val tailPoof = output.tailPoof
     }
 
     @Test
