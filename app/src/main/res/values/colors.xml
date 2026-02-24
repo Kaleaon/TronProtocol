@@ -30,4 +30,17 @@
     <!-- Avatar viewport -->
     <color name="avatar_viewport_background">#0D1B2A</color>
     <color name="avatar_viewport_border">#D4AF37</color>
+
+    <!-- Inference tier indicators -->
+    <color name="tier_local">#4CAF50</color>
+    <color name="tier_cloud">#2196F3</color>
+    <color name="tier_fallback">#FF9800</color>
+
+    <!-- Quality score colors -->
+    <color name="quality_good">#4CAF50</color>
+    <color name="quality_acceptable">#FFC107</color>
+    <color name="quality_poor">#F44336</color>
+
+    <!-- Thinking indicator -->
+    <color name="thinking_background">#1A1A2E45</color>
 </resources>
