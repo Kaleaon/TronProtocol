@@ -130,10 +130,12 @@ class DriftDetector(private val context: Context) {
         val tokens = text.lowercase().split(Regex("\\W+")).filter { it.length > 2 }
         val embedding = FloatArray(EMBEDDING_DIM)
         for (token in tokens) {
-            val hash = token.hashCode()
-            for (i in 0 until EMBEDDING_DIM) {
-                val idx = ((hash.toLong() * (i + 1)) % EMBEDDING_DIM).toInt()
-                    .let { if (it < 0) it + EMBEDDING_DIM else it }
+            val h = token.hashCode()
+            // Map each token to 4 distinct positions using different mixing seeds,
+            // producing sparse vectors so different vocabularies remain distinguishable.
+            for (k in 0 until 4) {
+                val mixed = h xor (h ushr (k * 7 + 3)) xor (k * 1000003)
+                val idx = mixed.and(Int.MAX_VALUE) % EMBEDDING_DIM
                 embedding[idx] += 1.0f
             }
         }

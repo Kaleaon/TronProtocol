@@ -106,6 +106,8 @@ class AutoCompactionManager(
             val chunkCountBefore = chunks.size
 
             if (chunks.size <= preserveRecentCount) {
+                totalCompactions++
+                lastCompactionTime = System.currentTimeMillis()
                 return CompactionResult(
                     success = true, chunksBeforeCompaction = chunkCountBefore,
                     chunksAfterCompaction = chunkCountBefore, tokensRecovered = 0,

@@ -10,11 +10,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.android.controller.ServiceController
 import androidx.test.core.app.ApplicationProvider
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class TronProtocolServiceTest {
 
     @Test

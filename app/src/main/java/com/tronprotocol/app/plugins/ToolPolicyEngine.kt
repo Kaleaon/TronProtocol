@@ -119,7 +119,7 @@ class ToolPolicyEngine {
             PolicyLayer.SUB_AGENT to isSubAgent,
             PolicyLayer.SANDBOX to isSandboxed,
             PolicyLayer.GROUP to true,
-            PolicyLayer.SESSION to (sessionId != null),
+            PolicyLayer.SESSION to true,
             PolicyLayer.PLUGIN_PROFILE to true,
             PolicyLayer.GLOBAL to true
         )
@@ -225,8 +225,7 @@ class ToolPolicyEngine {
      */
     private fun isPluginInGroup(pluginId: String, groupRef: String): Boolean {
         if (!groupRef.startsWith("group:")) return false
-        val groupName = groupRef.removePrefix("group:")
-        return pluginGroups[groupName]?.contains(pluginId) == true
+        return pluginGroups[groupRef]?.contains(pluginId) == true
     }
 
     // -- Default configuration --

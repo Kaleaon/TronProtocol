@@ -260,8 +260,10 @@ class EntityExtractor {
         if (sourceIdx < 0 || targetIdx < 0) return "co_occurs_with"
 
         val between = if (sourceIdx < targetIdx) {
+            if (sourceIdx + source.length > targetIdx) return "co_occurs_with"
             sentenceLower.substring(sourceIdx + source.length, targetIdx).trim()
         } else {
+            if (targetIdx + target.length > sourceIdx) return "co_occurs_with"
             sentenceLower.substring(targetIdx + target.length, sourceIdx).trim()
         }
 
