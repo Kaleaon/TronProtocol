@@ -7,7 +7,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
+@RunWith(RobolectricTestRunner::class)
 class AvatarAffectBridgeTest {
 
     private lateinit var bridge: AvatarAffectBridge
@@ -80,17 +83,21 @@ class AvatarAffectBridgeTest {
 
     @Test
     fun testNeutralStateMinimalExpression() {
-        // Reset to all zeros
+        // Set to neutral midpoints: 0 for valence/arousal/novelty/threat/frustration/vulnerability,
+        // 0.5 for certainty/dominance/coherence (their balanced midpoints).
         val state = AffectState()
         for (dim in AffectDimension.entries) {
-            state[dim] = 0f
+            state[dim] = when (dim) {
+                AffectDimension.CERTAINTY, AffectDimension.DOMINANCE, AffectDimension.COHERENCE -> 0.5f
+                else -> 0f
+            }
         }
 
         val blendshapes = bridge.affectToBlendshapes(state, enableSmoothing = false)
 
         // Most weights should be zero or near-zero
         val totalWeight = blendshapes.values.sum()
-        assertTrue("Neutral state should have minimal expression weight", totalWeight < 1.0f)
+        assertTrue("Neutral state should have minimal expression weight, was $totalWeight", totalWeight < 1.0f)
     }
 
     @Test
@@ -207,11 +214,16 @@ class AvatarAffectBridgeTest {
 
         // After reset, smoothing history should be cleared
         val state2 = AffectState()
-        for (dim in AffectDimension.entries) state2[dim] = 0f
+        for (dim in AffectDimension.entries) {
+            state2[dim] = when (dim) {
+                AffectDimension.CERTAINTY, AffectDimension.DOMINANCE, AffectDimension.COHERENCE -> 0.5f
+                else -> 0f
+            }
+        }
 
         val result = bridge.affectToBlendshapes(state2, enableSmoothing = false)
         val totalWeight = result.values.sum()
-        assertTrue("After reset with zero state, weight should be minimal", totalWeight < 0.5f)
+        assertTrue("After reset with neutral state, weight should be minimal, was $totalWeight", totalWeight < 0.5f)
     }
 
     @Test

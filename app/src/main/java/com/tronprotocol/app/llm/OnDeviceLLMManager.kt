@@ -143,8 +143,9 @@ class OnDeviceLLMManager(
         val totalRamMb = memInfo.totalMem / (1024 * 1024)
         val availableRamMb = memInfo.availMem / (1024 * 1024)
 
-        val cpuArch = if (Build.SUPPORTED_ABIS.isNotEmpty()) Build.SUPPORTED_ABIS[0] else "unknown"
-        val supportsArm64 = Build.SUPPORTED_ABIS.any { it == "arm64-v8a" }
+        val abis: Array<String>? = try { Build.SUPPORTED_ABIS } catch (_: Error) { null }
+        val cpuArch = if (abis != null && abis.isNotEmpty()) abis[0] else "unknown"
+        val supportsArm64 = abis?.any { it == "arm64-v8a" } ?: false
 
         // ARMv8.2+ supports FP16 natively (most devices from 2018+)
         val supportsFp16 = supportsArm64 && Build.VERSION.SDK_INT >= 28
