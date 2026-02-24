@@ -57,9 +57,6 @@ def load_catalog() -> dict[str, str]:
             if m:
                 alias, module, version_ref = m.groups()
                 if version_ref and version_ref in versions:
-                    libs[re.sub(r"[-_.]+", ".", alias)] = f"{module}:{versions[version_ref]}"
-                else:
-                    libs[re.sub(r"[-_.]+", ".", alias)] = module
                     libs[normalize_alias(alias)] = f"{module}:{versions[version_ref]}"
                 else:
                     libs[normalize_alias(alias)] = module

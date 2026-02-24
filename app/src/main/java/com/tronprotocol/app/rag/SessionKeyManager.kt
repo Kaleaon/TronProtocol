@@ -191,7 +191,7 @@ class SessionKeyManager(private val context: Context) {
         var archived = 0
 
         for ((key, meta) in sessions) {
-            if (!meta.archived && now - meta.lastActiveAt > maxAgeMs) {
+            if (!meta.archived && now - meta.lastActiveAt >= maxAgeMs) {
                 meta.archived = true
                 archived++
                 Log.d(TAG, "Archived session: $key (inactive for ${(now - meta.lastActiveAt) / 60000}min)")

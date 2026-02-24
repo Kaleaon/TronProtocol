@@ -15,6 +15,7 @@ class AutobiographicalTimeline(context: Context, private val aiId: String) {
     private val storage = SecureStorage(context)
     private val milestones = mutableListOf<Milestone>()
     private val firsts = mutableMapOf<String, Long>() // category -> first occurrence timestamp
+    @Volatile private var lastTimestamp = 0L
 
     init { load() }
 
@@ -25,11 +26,17 @@ class AutobiographicalTimeline(context: Context, private val aiId: String) {
         metadata: Map<String, Any> = emptyMap()
     ): Milestone {
         val isFirst = !firsts.containsKey(category)
-        if (isFirst) firsts[category] = System.currentTimeMillis()
+        // Ensure strictly increasing timestamps even when called in the same millisecond
+        val ts = synchronized(this) {
+            val now = System.currentTimeMillis()
+            lastTimestamp = if (now > lastTimestamp) now else lastTimestamp + 1
+            lastTimestamp
+        }
+        if (isFirst) firsts[category] = ts
 
         val milestone = Milestone(
-            id = "ms_${System.currentTimeMillis()}",
-            timestamp = System.currentTimeMillis(),
+            id = "ms_$ts",
+            timestamp = ts,
             category = category,
             description = description,
             significance = significance,

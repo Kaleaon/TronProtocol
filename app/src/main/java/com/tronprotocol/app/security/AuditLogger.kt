@@ -442,10 +442,16 @@ class AuditLogger(private val context: Context) {
                     existing.put(entry.toJson())
                 }
                 // Keep only last MAX_PERSISTED entries
-                while (existing.length() > MAX_PERSISTED) {
-                    existing.remove(0)
+                val toStore = if (existing.length() > MAX_PERSISTED) {
+                    val trimmed = org.json.JSONArray()
+                    for (i in maxOf(0, existing.length() - MAX_PERSISTED) until existing.length()) {
+                        trimmed.put(existing.get(i))
+                    }
+                    trimmed
+                } else {
+                    existing
                 }
-                storage.store(STORAGE_KEY, existing.toString())
+                storage.store(STORAGE_KEY, toStore.toString())
                 return // Success
             } catch (e: Exception) {
                 retries++

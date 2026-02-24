@@ -74,6 +74,14 @@ class EthicalKernelValidator(
     }
 
     fun validateSelfModification(modification: CodeModification): ValidationOutcome {
+        // Layer 0: Blocked pattern scan on the proposed code
+        val codeLowered = modification.modifiedCode.lowercase(Locale.US)
+        for (blocked in BLOCKED_PATTERNS) {
+            if (codeLowered.contains(blocked)) {
+                return ValidationOutcome.rejected("Self-mod blocked by ethical kernel pattern: $blocked")
+            }
+        }
+
         // Layer 1: Constitutional Memory self-mod evaluation
         constitutionalMemory?.let { cm ->
             val check = cm.evaluateSelfMod(modification.modifiedCode)

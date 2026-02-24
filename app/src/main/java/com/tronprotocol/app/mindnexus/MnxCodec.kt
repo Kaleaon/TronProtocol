@@ -2,9 +2,11 @@ package com.tronprotocol.app.mindnexus
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
@@ -124,6 +126,7 @@ object MnxCodec {
      * Decode a .mnx file from an [InputStream].
      */
     fun decode(input: InputStream): MnxFile {
+        try {
         val reader = MnxReader(input)
 
         // ---- Read header ----------------------------------------------------
@@ -190,6 +193,11 @@ object MnxCodec {
         val footer = MnxFooter(expectedSha256, footerMagic)
 
         return MnxFile(header, sections, rawSections, footer)
+        } catch (e: EOFException) {
+            throw MnxFormatException("Truncated or incomplete MNX data", e)
+        } catch (e: IOException) {
+            throw MnxFormatException("I/O error reading MNX data: ${e.message}", e)
+        }
     }
 
     /**
