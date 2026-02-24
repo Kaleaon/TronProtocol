@@ -28,6 +28,9 @@ class TelegramBridgePlugin : Plugin {
         private const val KEY_BOT_TOKEN = "bot_token"
         private const val KEY_ALLOWED_CHATS = "allowed_chats"
         private const val TELEGRAM_API_BASE = "https://api.telegram.org/bot"
+        private val BOT_TOKEN_REGEX = Regex("\\b\\d{8,10}:[A-Za-z0-9_-]{35}\\b")
+        private val CHAT_ID_PARAM_REGEX = Regex("chat_id\\s*[=:]\\s*(-?\\d+)", RegexOption.IGNORE_CASE)
+        private val TELEGRAM_PRIVATE_CHAT_LINK_REGEX = Regex("https?://t\\.me/c/(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
     }
 
     private lateinit var preferences: SharedPreferences
@@ -38,7 +41,7 @@ class TelegramBridgePlugin : Plugin {
 
     override val description: String =
         "Bridge the app through a Telegram bot. Commands: set_token|token, allow_chat|chatId, " +
-            "deny_chat|chatId, list_allowed, fetch|offset, reply|chatId|text"
+            "deny_chat|chatId, list_allowed, fetch|offset, reply|chatId|text, import_shared|text"
 
     override var isEnabled: Boolean = true
 
@@ -59,6 +62,7 @@ class TelegramBridgePlugin : Plugin {
                 "list_allowed" -> listAllowedChats(start)
                 "fetch" -> fetchMessages(parts, start)
                 "reply" -> replyToChat(parts, start)
+                "import_shared" -> importShared(parts, start)
                 else -> PluginResult.error("Unknown command: $command", elapsed(start))
             }
         } catch (e: Exception) {
@@ -188,6 +192,76 @@ class TelegramBridgePlugin : Plugin {
         return PluginResult.success("Sent message to chat $chatId", elapsed(start))
     }
 
+    private fun importShared(parts: List<String>, start: Long): PluginResult {
+        if (parts.size < 2 || TextUtils.isEmpty(parts[1].trim())) {
+            return PluginResult.error("Usage: import_shared|<text>", elapsed(start))
+        }
+
+        val sharedText = parts.drop(1).joinToString("|").trim()
+        val messages = mutableListOf<String>()
+        var token = getToken()
+
+        val extractedToken = BOT_TOKEN_REGEX.find(sharedText)?.value
+        if (!TextUtils.isEmpty(extractedToken)) {
+            token = extractedToken!!
+            preferences.edit().putString(KEY_BOT_TOKEN, token).apply()
+            messages.add("Bot token saved from shared text")
+        }
+
+        var chatId = extractChatId(sharedText)
+        if (TextUtils.isEmpty(chatId) && !TextUtils.isEmpty(token)) {
+            chatId = discoverLatestChatId(token)
+        }
+
+        if (!TextUtils.isEmpty(chatId)) {
+            val resolvedChatId = chatId!!
+            val allowed = getAllowedChats()
+            val added = allowed.add(resolvedChatId)
+            preferences.edit().putStringSet(KEY_ALLOWED_CHATS, allowed).apply()
+            if (added) {
+                messages.add("Allowed chat id: $resolvedChatId")
+            } else {
+                messages.add("Chat id already allowed: $resolvedChatId")
+            }
+        } else if (!TextUtils.isEmpty(token)) {
+            messages.add("No chat found yet. Send a message to the bot in Telegram, then share any bot message to this app.")
+        }
+
+        if (messages.isEmpty()) {
+            return PluginResult.error("No Telegram token or chat information found in shared text", elapsed(start))
+        }
+        return PluginResult.success(messages.joinToString(". "), elapsed(start))
+    }
+
+    private fun extractChatId(sharedText: String): String? {
+        val chatIdFromParam = CHAT_ID_PARAM_REGEX.find(sharedText)?.groupValues?.getOrNull(1)
+        if (!TextUtils.isEmpty(chatIdFromParam)) return chatIdFromParam
+
+        val privateChatLink = TELEGRAM_PRIVATE_CHAT_LINK_REGEX.find(sharedText)?.groupValues?.getOrNull(1)
+        if (!TextUtils.isEmpty(privateChatLink)) return "-100$privateChatLink"
+
+        return null
+    }
+
+    private fun discoverLatestChatId(token: String): String? {
+        return try {
+            val response = get("%s/getUpdates?offset=%d&timeout=0", token, 0)
+            val json = JSONObject(response)
+            if (!json.optBoolean("ok", false)) return null
+            val results = json.optJSONArray("result") ?: return null
+            for (i in results.length() - 1 downTo 0) {
+                val update = results.optJSONObject(i) ?: continue
+                val message = update.optJSONObject("message") ?: continue
+                val chat = message.optJSONObject("chat") ?: continue
+                if (!chat.has("id")) continue
+                return chat.getLong("id").toString()
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun get(format: String, token: String, offset: Int): String {
         val url = URL(String.format(format, TELEGRAM_API_BASE + token, offset))
         val connection = url.openConnection() as HttpURLConnection
@@ -253,4 +327,5 @@ class TelegramBridgePlugin : Plugin {
     override fun destroy() {
         // No-op
     }
+
 }
