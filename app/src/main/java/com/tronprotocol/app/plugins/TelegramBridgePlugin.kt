@@ -28,7 +28,7 @@ class TelegramBridgePlugin : Plugin {
         private const val KEY_BOT_TOKEN = "bot_token"
         private const val KEY_ALLOWED_CHATS = "allowed_chats"
         private const val TELEGRAM_API_BASE = "https://api.telegram.org/bot"
-        private val BOT_TOKEN_REGEX = Regex("\\b\\d{6,}:[A-Za-z0-9_-]{20,}\\b")
+        private val BOT_TOKEN_REGEX = Regex("\\b\\d{8,10}:[A-Za-z0-9_-]{35}\\b")
         private val CHAT_ID_PARAM_REGEX = Regex("chat_id\\s*[=:]\\s*(-?\\d+)", RegexOption.IGNORE_CASE)
         private val TELEGRAM_PRIVATE_CHAT_LINK_REGEX = Regex("https?://t\\.me/c/(\\d+)/(\\d+)", RegexOption.IGNORE_CASE)
     }
@@ -203,7 +203,7 @@ class TelegramBridgePlugin : Plugin {
 
         val extractedToken = BOT_TOKEN_REGEX.find(sharedText)?.value
         if (!TextUtils.isEmpty(extractedToken)) {
-            token = extractedToken ?: ""
+            token = extractedToken!!
             preferences.edit().putString(KEY_BOT_TOKEN, token).apply()
             messages.add("Bot token saved from shared text")
         }
@@ -214,13 +214,14 @@ class TelegramBridgePlugin : Plugin {
         }
 
         if (!TextUtils.isEmpty(chatId)) {
+            val resolvedChatId = chatId!!
             val allowed = getAllowedChats()
-            val added = allowed.add(chatId ?: "")
+            val added = allowed.add(resolvedChatId)
             preferences.edit().putStringSet(KEY_ALLOWED_CHATS, allowed).apply()
             if (added) {
-                messages.add("Allowed chat id: $chatId")
+                messages.add("Allowed chat id: $resolvedChatId")
             } else {
-                messages.add("Chat id already allowed: $chatId")
+                messages.add("Chat id already allowed: $resolvedChatId")
             }
         } else if (!TextUtils.isEmpty(token)) {
             messages.add("No chat found yet. Send a message to the bot in Telegram, then share any bot message to this app.")
@@ -244,7 +245,7 @@ class TelegramBridgePlugin : Plugin {
 
     private fun discoverLatestChatId(token: String): String? {
         return try {
-            val response = get("%s/getUpdates?offset=%d&timeout=1", token, 0)
+            val response = get("%s/getUpdates?offset=%d&timeout=0", token, 0)
             val json = JSONObject(response)
             if (!json.optBoolean("ok", false)) return null
             val results = json.optJSONArray("result") ?: return null
@@ -252,10 +253,8 @@ class TelegramBridgePlugin : Plugin {
                 val update = results.optJSONObject(i) ?: continue
                 val message = update.optJSONObject("message") ?: continue
                 val chat = message.optJSONObject("chat") ?: continue
-                val chatId = chat.optLong("id", Long.MIN_VALUE)
-                if (chatId != Long.MIN_VALUE) {
-                    return chatId.toString()
-                }
+                if (!chat.has("id")) continue
+                return chat.getLong("id").toString()
             }
             null
         } catch (_: Exception) {

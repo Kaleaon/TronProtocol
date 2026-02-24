@@ -137,6 +137,7 @@ class MainActivity : AppCompatActivity() {
 
     private var activePermissionRequest: PermissionFeature? = null
     private var pendingShareType: ShareType? = null
+    private var lastHandledTelegramShareText: String? = null
     private val conversationTurns = mutableListOf<ConversationTurn>()
 
     private enum class ShareType {
@@ -1285,24 +1286,29 @@ class MainActivity : AppCompatActivity() {
     // Sharing
     // ========================================================================
 
+    @Synchronized
     private fun handleIncomingShareIntent(incomingIntent: Intent?) {
-        if (incomingIntent == null || incomingIntent.getBooleanExtra(TELEGRAM_SHARE_HANDLED_KEY, false)) return
+        if (incomingIntent == null) return
         if (incomingIntent.action != Intent.ACTION_SEND) return
         val sharedText = incomingIntent.getStringExtra(Intent.EXTRA_TEXT)?.trim().orEmpty()
         if (sharedText.isBlank()) return
+        if (lastHandledTelegramShareText == sharedText) return
+        lastHandledTelegramShareText = sharedText
 
-        val result = PluginManager.getInstance().executePlugin(
-            TELEGRAM_BRIDGE_PLUGIN_ID,
-            "import_shared|$sharedText"
-        )
-        if (result.isSuccess) {
-            messageShareStatusText.text = "[TELEGRAM] ${result.data.orEmpty()}"
-            showToast("Telegram setup imported from shared text.")
-        } else {
-            showToast(result.errorMessage ?: "Unable to import Telegram setup from shared text.")
+        llmSetupExecutor.execute {
+            val result = PluginManager.getInstance().executePlugin(
+                TELEGRAM_BRIDGE_PLUGIN_ID,
+                "import_shared|$sharedText"
+            )
+            runOnUiThread {
+                if (result.isSuccess) {
+                    messageShareStatusText.text = "[TELEGRAM] ${result.data.orEmpty()}"
+                    showToast("Telegram setup imported from shared text.")
+                } else {
+                    showToast(result.errorMessage ?: "Unable to import Telegram setup from shared text.")
+                }
+            }
         }
-
-        incomingIntent.putExtra(TELEGRAM_SHARE_HANDLED_KEY, true)
     }
 
     private fun startSharePicker(type: ShareType, mimeTypes: Array<String>) {
@@ -2587,7 +2593,6 @@ class MainActivity : AppCompatActivity() {
         private const val NOTE_SHARED_FROM_DEVICE_PICKER = "shared from device picker"
         private const val NOTE_SHARED_BY_USER = "shared by user"
         private const val TELEGRAM_BRIDGE_PLUGIN_ID = "telegram_bridge"
-        private const val TELEGRAM_SHARE_HANDLED_KEY = "telegram_share_handled"
         private const val GUIDANCE_ROUTER_PLUGIN_ID = "guidance_router"
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
         private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
