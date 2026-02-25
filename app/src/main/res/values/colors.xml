@@ -43,4 +43,11 @@
 
     <!-- Thinking indicator -->
     <color name="thinking_background">#1A1A2E45</color>
+
+    <!-- Section header -->
+    <color name="section_header_text">#99FFFFFF</color>
+
+    <!-- Welcome card -->
+    <color name="welcome_card_surface">#0DFFFFFF</color>
+    <color name="welcome_card_border">#1AFFFFFF</color>
 </resources>

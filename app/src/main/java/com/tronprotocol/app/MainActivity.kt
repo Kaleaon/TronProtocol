@@ -108,6 +108,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var expressionOutputText: TextView
     private lateinit var motorNoiseText: TextView
 
+    // --- Chat welcome ---
+    private lateinit var chatWelcomeContainer: View
+
     // --- Chat emotion strip ---
     private lateinit var chatEmotionStrip: LinearLayout
     private lateinit var chatHedonicToneText: TextView
@@ -439,6 +442,9 @@ class MainActivity : AppCompatActivity() {
         expressionOutputText = findViewById(R.id.expressionOutputText)
         motorNoiseText = findViewById(R.id.motorNoiseText)
 
+        // Chat welcome
+        chatWelcomeContainer = findViewById(R.id.chatWelcomeContainer)
+
         // Chat emotion strip
         chatEmotionStrip = findViewById(R.id.chatEmotionStrip)
         chatHedonicToneText = findViewById(R.id.chatHedonicToneText)
@@ -488,13 +494,35 @@ class MainActivity : AppCompatActivity() {
         showTab(tabChat)
     }
 
+    private var currentTab: View? = null
+
     private fun showTab(tab: View) {
-        tabChat.visibility = View.GONE
-        tabAvatar.visibility = View.GONE
-        tabModels.visibility = View.GONE
-        tabPlugins.visibility = View.GONE
-        tabSettings.visibility = View.GONE
+        val previousTab = currentTab
+        if (previousTab == tab) return
+
+        val allTabs = listOf(tabChat, tabAvatar, tabModels, tabPlugins, tabSettings)
+        allTabs.forEach { if (it != tab && it != previousTab) it.visibility = View.GONE }
+
+        if (previousTab != null && previousTab != tab) {
+            previousTab.animate()
+                .alpha(0f)
+                .setDuration(150)
+                .withEndAction {
+                    previousTab.visibility = View.GONE
+                    previousTab.alpha = 1f
+                }
+                .start()
+        }
+
+        tab.alpha = 0f
         tab.visibility = View.VISIBLE
+        tab.animate()
+            .alpha(1f)
+            .setDuration(200)
+            .setStartDelay(if (previousTab != null) 100L else 0L)
+            .start()
+
+        currentTab = tab
     }
 
     // ========================================================================
@@ -591,6 +619,17 @@ class MainActivity : AppCompatActivity() {
             tabModels.setBackgroundColor(background)
             tabPlugins.setBackgroundColor(background)
             tabSettings.setBackgroundColor(background)
+
+            // Status bar divider tint
+            try {
+                findViewById<View>(R.id.statusBarDivider).setBackgroundColor(outline and 0x33FFFFFF.toInt())
+            } catch (_: Exception) {}
+
+            // Welcome card theme
+            try {
+                findViewById<TextView>(R.id.chatWelcomeTitle).setTextColor(onSurface)
+                findViewById<TextView>(R.id.chatWelcomeSubtitle).setTextColor(onSurfaceVariant)
+            } catch (_: Exception) {}
 
             // Bottom nav styling
             bottomNav.setBackgroundColor(surface)
@@ -1370,7 +1409,9 @@ class MainActivity : AppCompatActivity() {
             else -> R.color.service_status_deferred_background to "DEFERRED"
         }
 
-        startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, colorRes))
+        startupStateBadgeText.backgroundTintList = ColorStateList.valueOf(
+            ContextCompat.getColor(this, colorRes)
+        )
         startupStateBadgeText.text = label
         serviceStatusDetailText.text = reason
     }
@@ -1449,7 +1490,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         conversationTurns.add(ConversationTurn("You", userText))
-        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+        showConversationTranscript()
         conversationInput.setText("")
 
         // Track in context manager
@@ -1533,7 +1574,7 @@ class MainActivity : AppCompatActivity() {
 
                 hideThinkingIndicator()
                 conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
-                conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+                showConversationTranscript()
 
                 // Update inference status strip
                 updateInferenceStrip(tier, latencyMs, qualityScore.overall, contextWindow)
@@ -1551,6 +1592,17 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideThinkingIndicator() {
         chatThinkingIndicator.visibility = View.GONE
+    }
+
+    private fun showConversationTranscript() {
+        if (conversationTurns.isNotEmpty()) {
+            chatWelcomeContainer.visibility = View.GONE
+            conversationTranscriptText.visibility = View.VISIBLE
+            conversationTranscriptText.text = ConversationTranscriptFormatter.formatSpannable(conversationTurns)
+        } else {
+            chatWelcomeContainer.visibility = View.VISIBLE
+            conversationTranscriptText.visibility = View.GONE
+        }
     }
 
     private fun updateInferenceStrip(

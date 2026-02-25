@@ -37,14 +37,20 @@
             android:id="@+id/startupStateBadgeText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:background="@color/service_status_deferred_background"
-            android:paddingHorizontal="8dp"
-            android:paddingVertical="3dp"
+            android:background="@drawable/bg_status_badge"
+            android:backgroundTint="@color/service_status_deferred_background"
             android:text="DEFERRED"
             android:textColor="@color/service_status_badge_text"
             android:textSize="11sp"
             android:textStyle="bold" />
     </LinearLayout>
+
+    <!-- Status bar divider -->
+    <View
+        android:id="@+id/statusBarDivider"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@drawable/bg_status_bar_divider" />
 
     <!-- Content area - ViewFlipper switches between tab content -->
     <FrameLayout
@@ -67,14 +73,68 @@
                 android:layout_weight="1"
                 android:fillViewport="true">
 
-                <TextView
-                    android:id="@+id/conversationTranscriptText"
+                <FrameLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:padding="16dp"
-                    android:textSize="14sp"
-                    android:lineSpacingExtra="4dp"
-                    android:text="@string/chat_empty" />
+                    android:minHeight="match_parent">
+
+                    <!-- Chat transcript (shown when conversation has turns) -->
+                    <TextView
+                        android:id="@+id/conversationTranscriptText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:padding="16dp"
+                        android:textSize="14sp"
+                        android:lineSpacingExtra="4dp"
+                        android:visibility="gone" />
+
+                    <!-- Welcome card (shown when empty) -->
+                    <LinearLayout
+                        android:id="@+id/chatWelcomeContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:padding="32dp"
+                        android:orientation="vertical">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:gravity="center_horizontal"
+                            android:background="@drawable/bg_chat_welcome"
+                            android:padding="24dp">
+
+                            <ImageView
+                                android:layout_width="48dp"
+                                android:layout_height="48dp"
+                                android:src="@drawable/ic_chat"
+                                android:alpha="0.6"
+                                android:contentDescription="@null" />
+
+                            <TextView
+                                android:id="@+id/chatWelcomeTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="12dp"
+                                android:text="@string/chat_welcome_title"
+                                android:textSize="18sp"
+                                android:textStyle="bold"
+                                android:gravity="center" />
+
+                            <TextView
+                                android:id="@+id/chatWelcomeSubtitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/chat_welcome_subtitle"
+                                android:textSize="13sp"
+                                android:gravity="center"
+                                android:lineSpacingExtra="3dp"
+                                android:alpha="0.7" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </FrameLayout>
             </ScrollView>
 
             <!-- AI Inference Status Strip -->
@@ -924,6 +984,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:layout_marginStart="4dp"
+                    android:drawableStart="@drawable/bg_section_header"
+                    android:drawablePadding="8dp"
                     android:text="CORE SYSTEMS"
                     android:textSize="12sp"
                     android:textAllCaps="true"
@@ -952,6 +1014,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:layout_marginStart="4dp"
+                    android:drawableStart="@drawable/bg_section_header"
+                    android:drawablePadding="8dp"
                     android:text="AI &amp; INTELLIGENCE"
                     android:textSize="12sp"
                     android:textAllCaps="true"
@@ -980,6 +1044,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:layout_marginStart="4dp"
+                    android:drawableStart="@drawable/bg_section_header"
+                    android:drawablePadding="8dp"
                     android:text="COMMUNICATION"
                     android:textSize="12sp"
                     android:textAllCaps="true"
@@ -1008,6 +1074,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:layout_marginStart="4dp"
+                    android:drawableStart="@drawable/bg_section_header"
+                    android:drawablePadding="8dp"
                     android:text="TOOLS &amp; AUTOMATION"
                     android:textSize="12sp"
                     android:textAllCaps="true"
@@ -1036,6 +1104,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:layout_marginStart="4dp"
+                    android:drawableStart="@drawable/bg_section_header"
+                    android:drawablePadding="8dp"
                     android:text="SAFETY &amp; GOVERNANCE"
                     android:textSize="12sp"
                     android:textAllCaps="true"

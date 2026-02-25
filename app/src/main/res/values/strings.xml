@@ -17,6 +17,8 @@
     <!-- Chat -->
     <string name="chat_hint">Message Tron AI&#8230;</string>
     <string name="chat_empty">Start a conversation with Tron AI.\nMessages are routed through on-device LLM or Claude API.</string>
+    <string name="chat_welcome_title">Tron AI</string>
+    <string name="chat_welcome_subtitle">On-device intelligence at your fingertips.\nType a message to start a conversation.</string>
 
     <!-- Avatar -->
     <string name="avatar_viewport_label">3D AVATAR VIEWPORT</string>
