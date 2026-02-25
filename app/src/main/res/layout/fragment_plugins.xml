@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <!-- Plugin summary -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginSummaryCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:id="@+id/pluginSummaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="14sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRuntimeSelfCheck"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Run self-check" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Plugin category: Core -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="4dp"
+            android:text="CORE SYSTEMS"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.15" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginCoreCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:id="@+id/pluginCoreContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="8dp" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Plugin category: AI & Intelligence -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="4dp"
+            android:text="AI &amp; INTELLIGENCE"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.15" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginAiCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:id="@+id/pluginAiContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="8dp" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Plugin category: Communication -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="4dp"
+            android:text="COMMUNICATION"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.15" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginCommCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:id="@+id/pluginCommContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="8dp" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Plugin category: Tools & Automation -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="4dp"
+            android:text="TOOLS &amp; AUTOMATION"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.15" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginToolsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:id="@+id/pluginToolsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="8dp" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Plugin category: Safety & Governance -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="4dp"
+            android:text="SAFETY &amp; GOVERNANCE"
+            android:textSize="12sp"
+            android:textAllCaps="true"
+            android:letterSpacing="0.15" />
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/pluginSafetyCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:id="@+id/pluginSafetyContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="4dp"
+                android:paddingVertical="8dp" />
+        </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
+</ScrollView>

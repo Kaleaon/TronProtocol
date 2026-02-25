@@ -16,6 +16,7 @@ import com.tronprotocol.app.security.AuditLogger
 class PluginManager private constructor() {
 
     private val plugins = mutableMapOf<String, Plugin>()
+    private val lazyConfigs = mutableMapOf<String, PluginRegistry.PluginConfig>()
     private var context: Context? = null
 
     // OpenClaw-inspired subsystems
@@ -54,7 +55,7 @@ class PluginManager private constructor() {
     }
 
     /**
-     * Register a plugin
+     * Register a plugin eagerly (creates and initializes immediately).
      */
     fun registerPlugin(plugin: Plugin?): Boolean {
         if (plugin == null) {
@@ -71,6 +72,7 @@ class PluginManager private constructor() {
         return try {
             plugin.initialize(ctx)
             plugins[plugin.id] = plugin
+            lazyConfigs.remove(plugin.id)
             Log.d(TAG, "Registered plugin: ${plugin.name}")
             true
         } catch (e: Exception) {
@@ -85,10 +87,51 @@ class PluginManager private constructor() {
     }
 
     /**
+     * Register a plugin config for lazy initialization.
+     * The plugin will not be created/initialized until first access via [getPlugin] or [executePlugin].
+     */
+    fun registerLazy(config: PluginRegistry.PluginConfig) {
+        if (plugins.containsKey(config.id)) return // already eagerly registered
+        lazyConfigs[config.id] = config
+        Log.d(TAG, "Registered lazy plugin config: ${config.id}")
+    }
+
+    /**
+     * Eagerly initialize a plugin by ID.
+     * Used for critical plugins (e.g. policy_guardrail) that must be ready immediately.
+     */
+    fun ensureInitialized(pluginId: String): Boolean {
+        if (plugins.containsKey(pluginId)) return true
+        return materializeLazy(pluginId)
+    }
+
+    /**
+     * Materialize a lazily-registered plugin: create, initialize, and move from lazyConfigs to plugins.
+     * Returns true if the plugin is now available.
+     */
+    private fun materializeLazy(pluginId: String): Boolean {
+        val config = lazyConfigs[pluginId] ?: return false
+        val ctx = context ?: return false
+
+        return try {
+            val plugin = config.factory()
+            plugin.initialize(ctx)
+            plugins[plugin.id] = plugin
+            lazyConfigs.remove(pluginId)
+            Log.d(TAG, "Lazily initialized plugin: ${plugin.name}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to lazily initialize plugin: $pluginId", e)
+            false
+        }
+    }
+
+    /**
      * Unregister a plugin
      */
     fun unregisterPlugin(pluginId: String) {
         val plugin = plugins.remove(pluginId)
+        lazyConfigs.remove(pluginId)
         if (plugin != null) {
             plugin.destroy()
             Log.d(TAG, "Unregistered plugin: ${plugin.name}")
@@ -96,14 +139,43 @@ class PluginManager private constructor() {
     }
 
     /**
-     * Get a plugin by ID
+     * Get a plugin by ID. Lazily initializes the plugin if it was registered via [registerLazy].
      */
-    fun getPlugin(pluginId: String): Plugin? = plugins[pluginId]
+    fun getPlugin(pluginId: String): Plugin? {
+        plugins[pluginId]?.let { return it }
+        // Try lazy materialization
+        if (lazyConfigs.containsKey(pluginId)) {
+            materializeLazy(pluginId)
+        }
+        return plugins[pluginId]
+    }
 
     /**
-     * Get all registered plugins
+     * Get all registered plugins (both eagerly and lazily registered).
+     * Note: lazily-registered plugins that have not been accessed are returned as stubs.
+     * Call [materializeAll] first if you need fully initialized instances.
      */
     fun getAllPlugins(): List<Plugin> = ArrayList(plugins.values)
+
+    /**
+     * Returns the total count of registered plugins (eager + lazy).
+     */
+    fun getRegisteredCount(): Int = plugins.size + lazyConfigs.size
+
+    /**
+     * Returns IDs of all registered plugins (both eager and lazy).
+     */
+    fun getRegisteredIds(): Set<String> = plugins.keys + lazyConfigs.keys
+
+    /**
+     * Materialize all lazily-registered plugins. Useful when listing all plugins in the UI.
+     */
+    fun materializeAll() {
+        val ids = ArrayList(lazyConfigs.keys)
+        for (id in ids) {
+            materializeLazy(id)
+        }
+    }
 
     /**
      * Get all enabled plugins
@@ -134,6 +206,11 @@ class PluginManager private constructor() {
         isSandboxed: Boolean = false,
         sessionId: String? = null
     ): PluginResult {
+        // Lazily materialize if needed
+        if (!plugins.containsKey(pluginId) && lazyConfigs.containsKey(pluginId)) {
+            materializeLazy(pluginId)
+        }
+
         val plugin = plugins[pluginId]
             ?: return PluginResult.error("Plugin not found: $pluginId", 0)
 
