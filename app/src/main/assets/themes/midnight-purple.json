@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "id": "midnight-purple",
+    "name": "Midnight Purple",
+    "description": "Rich purple gradients on a deep midnight canvas",
+    "author": "Ktheme",
+    "version": "1.0.0",
+    "tags": [
+      "dark",
+      "purple",
+      "elegant"
+    ],
+    "createdAt": "2026-02-24T00:00:00.000Z",
+    "updatedAt": "2026-02-24T00:00:00.000Z"
+  },
+  "darkMode": true,
+  "colorScheme": {
+    "primary": "#BB86FC",
+    "onPrimary": "#1A0033",
+    "primaryContainer": "#6200EE",
+    "onPrimaryContainer": "#F3E5F5",
+    "secondary": "#03DAC6",
+    "onSecondary": "#003330",
+    "secondaryContainer": "#00897B",
+    "onSecondaryContainer": "#E0F2F1",
+    "tertiary": "#CF94DA",
+    "onTertiary": "#1A0033",
+    "tertiaryContainer": "#7B1FA2",
+    "onTertiaryContainer": "#F3E5F5",
+    "error": "#CF6679",
+    "onError": "#FFFFFF",
+    "errorContainer": "#93000A",
+    "onErrorContainer": "#FFDAD6",
+    "background": "#0D0019",
+    "onBackground": "#E8DEF8",
+    "surface": "#1C0A33",
+    "onSurface": "#E8DEF8",
+    "surfaceVariant": "#2D1A45",
+    "onSurfaceVariant": "#CAC4D0",
+    "outline": "#938F99",
+    "outlineVariant": "#49454F",
+    "scrim": "#000000",
+    "inverseSurface": "#E8DEF8",
+    "inverseOnSurface": "#0D0019",
+    "inversePrimary": "#6200EE"
+  },
+  "effects": {
+    "metallic": {
+      "enabled": true,
+      "variant": "COBALT",
+      "gradient": {
+        "base": "#BB86FC",
+        "highlight": "#E1BEE7",
+        "shadow": "#0D0019",
+        "shimmer": "#F3E5F5"
+      },
+      "intensity": 0.5
+    },
+    "shadows": {
+      "enabled": true,
+      "elevation": 4,
+      "blur": 8,
+      "color": "#00000066"
+    },
+    "shimmer": {
+      "enabled": true,
+      "speed": 3,
+      "intensity": 0.4,
+      "angle": 150
+    }
+  },
+  "typography": {
+    "fontFamily": "system-ui, -apple-system, sans-serif",
+    "fontSize": {
+      "small": 12,
+      "medium": 16,
+      "large": 20,
+      "xlarge": 28
+    },
+    "fontWeight": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "bold": 700
+    },
+    "lineHeight": 1.5,
+    "letterSpacing": 0
+  }
+}

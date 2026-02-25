@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "id": "solar-amber",
+    "name": "Solar Amber",
+    "description": "Warm amber and burnt orange tones inspired by sunset horizons",
+    "author": "Ktheme",
+    "version": "1.0.0",
+    "tags": [
+      "dark",
+      "warm",
+      "amber",
+      "sunset"
+    ],
+    "createdAt": "2026-02-24T00:00:00.000Z",
+    "updatedAt": "2026-02-24T00:00:00.000Z"
+  },
+  "darkMode": true,
+  "colorScheme": {
+    "primary": "#FFB300",
+    "onPrimary": "#1A1200",
+    "primaryContainer": "#FF8F00",
+    "onPrimaryContainer": "#FFF8E1",
+    "secondary": "#FF6D00",
+    "onSecondary": "#FFFFFF",
+    "secondaryContainer": "#E65100",
+    "onSecondaryContainer": "#FFF3E0",
+    "tertiary": "#FFD54F",
+    "onTertiary": "#1A1200",
+    "tertiaryContainer": "#F9A825",
+    "onTertiaryContainer": "#FFF8E1",
+    "error": "#EF5350",
+    "onError": "#FFFFFF",
+    "errorContainer": "#B71C1C",
+    "onErrorContainer": "#FFCDD2",
+    "background": "#1A1200",
+    "onBackground": "#FFF8E1",
+    "surface": "#2A2010",
+    "onSurface": "#FFF8E1",
+    "surfaceVariant": "#3A3020",
+    "onSurfaceVariant": "#D7CCC8",
+    "outline": "#8D6E63",
+    "outlineVariant": "#4E342E",
+    "scrim": "#000000",
+    "inverseSurface": "#FFF8E1",
+    "inverseOnSurface": "#1A1200",
+    "inversePrimary": "#FF6F00"
+  },
+  "effects": {
+    "metallic": {
+      "enabled": true,
+      "variant": "BRONZE",
+      "gradient": {
+        "base": "#FFB300",
+        "highlight": "#FFD54F",
+        "shadow": "#1A1200",
+        "shimmer": "#FFF8E1"
+      },
+      "intensity": 0.7
+    },
+    "shadows": {
+      "enabled": true,
+      "elevation": 3,
+      "blur": 6,
+      "color": "#00000055"
+    },
+    "shimmer": {
+      "enabled": true,
+      "speed": 2,
+      "intensity": 0.5,
+      "angle": 45
+    }
+  },
+  "typography": {
+    "fontFamily": "system-ui, -apple-system, sans-serif",
+    "fontSize": {
+      "small": 12,
+      "medium": 16,
+      "large": 20,
+      "xlarge": 28
+    },
+    "fontWeight": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "bold": 700
+    },
+    "lineHeight": 1.5,
+    "letterSpacing": 0
+  }
+}

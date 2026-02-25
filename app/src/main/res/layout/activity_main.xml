@@ -876,7 +876,7 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- ====== TAB 2: PLUGINS ====== -->
+        <!-- ====== TAB 3: PLUGINS ====== -->
         <ScrollView
             android:id="@+id/tabPlugins"
             android:layout_width="match_parent"
@@ -1061,7 +1061,7 @@
             </LinearLayout>
         </ScrollView>
 
-        <!-- ====== TAB 3: SETTINGS ====== -->
+        <!-- ====== TAB 4: SETTINGS ====== -->
         <ScrollView
             android:id="@+id/tabSettings"
             android:layout_width="match_parent"
@@ -1302,6 +1302,55 @@
                             android:layout_marginTop="4dp"
                             android:textSize="12sp"
                             android:textColor="@color/permission_rationale_text" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Theme Selector -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/themeCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:cardCornerRadius="12dp"
+                    app:cardElevation="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/section_theme"
+                            android:textSize="13sp"
+                            android:textAllCaps="true"
+                            android:letterSpacing="0.1" />
+
+                        <TextView
+                            android:id="@+id/activeThemeText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:text="Navy Gold" />
+
+                        <TextView
+                            android:id="@+id/activeThemeDescText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnChangeTheme"
+                            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/change_theme" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 

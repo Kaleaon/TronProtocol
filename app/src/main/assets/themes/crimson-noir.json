@@ -1,0 +1,83 @@
+{
+  "metadata": {
+    "id": "crimson-noir",
+    "name": "Crimson Noir",
+    "description": "Dark noir atmosphere with deep crimson red accents",
+    "author": "Ktheme",
+    "version": "1.0.0",
+    "tags": [
+      "dark",
+      "red",
+      "dramatic"
+    ],
+    "createdAt": "2026-02-24T00:00:00.000Z",
+    "updatedAt": "2026-02-24T00:00:00.000Z"
+  },
+  "darkMode": true,
+  "colorScheme": {
+    "primary": "#E53935",
+    "onPrimary": "#FFFFFF",
+    "primaryContainer": "#8E0000",
+    "onPrimaryContainer": "#FFCDD2",
+    "secondary": "#FF5252",
+    "onSecondary": "#FFFFFF",
+    "secondaryContainer": "#B71C1C",
+    "onSecondaryContainer": "#FFEBEE",
+    "tertiary": "#FF8A80",
+    "onTertiary": "#1A1A1A",
+    "tertiaryContainer": "#C62828",
+    "onTertiaryContainer": "#FFCDD2",
+    "error": "#FFAB91",
+    "onError": "#1A1A1A",
+    "errorContainer": "#BF360C",
+    "onErrorContainer": "#FBE9E7",
+    "background": "#121212",
+    "onBackground": "#E0E0E0",
+    "surface": "#1E1E1E",
+    "onSurface": "#E0E0E0",
+    "surfaceVariant": "#2C2C2C",
+    "onSurfaceVariant": "#BDBDBD",
+    "outline": "#757575",
+    "outlineVariant": "#424242",
+    "scrim": "#000000",
+    "inverseSurface": "#E0E0E0",
+    "inverseOnSurface": "#121212",
+    "inversePrimary": "#B71C1C"
+  },
+  "effects": {
+    "metallic": {
+      "enabled": false,
+      "variant": "CHROME",
+      "gradient": {
+        "base": "#E53935",
+        "highlight": "#FF5252",
+        "shadow": "#121212",
+        "shimmer": "#FFCDD2"
+      },
+      "intensity": 0.0
+    },
+    "shadows": {
+      "enabled": true,
+      "elevation": 4,
+      "blur": 10,
+      "color": "#00000088"
+    }
+  },
+  "typography": {
+    "fontFamily": "system-ui, -apple-system, sans-serif",
+    "fontSize": {
+      "small": 12,
+      "medium": 16,
+      "large": 20,
+      "xlarge": 28
+    },
+    "fontWeight": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "bold": 700
+    },
+    "lineHeight": 1.5,
+    "letterSpacing": 0
+  }
+}

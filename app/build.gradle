@@ -97,10 +97,6 @@ dependencies {
     testImplementation libs.mockito.core
     testImplementation libs.json
     testImplementation libs.robolectric
-    testImplementation 'junit:junit:4.13.2'
-    testImplementation 'org.mockito:mockito-core:5.5.0'
-    testImplementation 'org.json:json:20230227'
-    testImplementation 'org.robolectric:robolectric:4.10.3'
     testImplementation 'androidx.test:core:1.5.0'
 }
 

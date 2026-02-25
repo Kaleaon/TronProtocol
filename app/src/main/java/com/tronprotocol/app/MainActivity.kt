@@ -119,6 +119,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var systemDashboardText: TextView
     private lateinit var telemetryStatsText: TextView
 
+    // --- Theme views ---
+    private lateinit var activeThemeText: TextView
+    private lateinit var activeThemeDescText: TextView
+
     // --- AI Inference UI ---
     private lateinit var chatInferenceStrip: LinearLayout
     private lateinit var inferenceTierIndicator: View
@@ -446,6 +450,10 @@ class MainActivity : AppCompatActivity() {
         systemDashboardText = findViewById(R.id.systemDashboardText)
         telemetryStatsText = findViewById(R.id.telemetryStatsText)
 
+        // Theme views
+        activeThemeText = findViewById(R.id.activeThemeText)
+        activeThemeDescText = findViewById(R.id.activeThemeDescText)
+
         // AI Inference UI
         chatInferenceStrip = findViewById(R.id.chatInferenceStrip)
         inferenceTierIndicator = findViewById(R.id.inferenceTierIndicator)
@@ -507,14 +515,51 @@ class MainActivity : AppCompatActivity() {
     // Ktheme
     // ========================================================================
 
+    /**
+     * Discover all theme JSON files in the assets/themes directory.
+     * Returns a list of (filename, parsed Theme) pairs.
+     */
+    private fun listAvailableThemes(): List<com.ktheme.models.Theme> {
+        val engine = ThemeEngine()
+        val themeFiles = try { assets.list("themes") ?: emptyArray() } catch (_: Exception) { emptyArray() }
+        return themeFiles
+            .filter { it.endsWith(".json") }
+            .mapNotNull { filename ->
+                try {
+                    val tempFile = java.io.File.createTempFile(filename.removeSuffix(".json"), ".json", cacheDir).apply {
+                        outputStream().use { out -> assets.open("themes/$filename").use { it.copyTo(out) } }
+                        deleteOnExit()
+                    }
+                    engine.loadThemeFromFile(tempFile)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to parse theme: $filename", e)
+                    null
+                }
+            }
+    }
+
+    private fun getSelectedThemeId(): String {
+        return prefs.getString(PREF_SELECTED_THEME, DEFAULT_THEME_ID) ?: DEFAULT_THEME_ID
+    }
+
     private fun applyKtheme() {
         try {
+            val selectedId = getSelectedThemeId()
             val engine = ThemeEngine()
-            val themeFile = java.io.File.createTempFile("navy-gold", ".json", cacheDir).apply {
-                outputStream().use { output ->
-                    assets.open("themes/navy-gold.json").use { input -> input.copyTo(output) }
+
+            // Try loading the selected theme; fall back to default if not found
+            val themeAssetPath = "themes/$selectedId.json"
+            val themeFile = try {
+                java.io.File.createTempFile(selectedId, ".json", cacheDir).apply {
+                    outputStream().use { out -> assets.open(themeAssetPath).use { it.copyTo(out) } }
+                    deleteOnExit()
                 }
-                deleteOnExit()
+            } catch (_: Exception) {
+                // Fallback to default theme
+                java.io.File.createTempFile(DEFAULT_THEME_ID, ".json", cacheDir).apply {
+                    outputStream().use { out -> assets.open("themes/$DEFAULT_THEME_ID.json").use { it.copyTo(out) } }
+                    deleteOnExit()
+                }
             }
 
             val theme = engine.loadThemeFromFile(themeFile)
@@ -524,9 +569,20 @@ class MainActivity : AppCompatActivity() {
 
             val background = ColorUtils.hexToColorInt(colors.background)
             val surface = ColorUtils.hexToColorInt(colors.surface)
+            val surfaceVariant = ColorUtils.hexToColorInt(colors.surfaceVariant)
             val onSurface = ColorUtils.hexToColorInt(colors.onSurface)
+            val onSurfaceVariant = ColorUtils.hexToColorInt(colors.onSurfaceVariant)
             val primary = ColorUtils.hexToColorInt(colors.primary)
             val onPrimary = ColorUtils.hexToColorInt(colors.onPrimary)
+            val outline = ColorUtils.hexToColorInt(colors.outline)
+
+            // Update theme card display
+            activeThemeText.text = activeTheme.metadata.name
+            activeThemeDescText.text = activeTheme.metadata.description
+
+            // Status bar + system bars
+            window.statusBarColor = background
+            window.navigationBarColor = surface
 
             // Root background
             findViewById<LinearLayout>(R.id.statusBar).setBackgroundColor(background)
@@ -540,17 +596,17 @@ class MainActivity : AppCompatActivity() {
             bottomNav.setBackgroundColor(surface)
             bottomNav.itemIconTintList = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()),
-                intArrayOf(primary, onSurface)
+                intArrayOf(primary, onSurfaceVariant)
             )
             bottomNav.itemTextColor = ColorStateList(
                 arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()),
-                intArrayOf(primary, onSurface)
+                intArrayOf(primary, onSurfaceVariant)
             )
 
-            // Status bar area
-            findViewById<TextView>(R.id.pluginCountText).setTextColor(onSurface)
+            // Status bar text
+            pluginCountText.setTextColor(onSurface)
 
-            // All cards
+            // All cards — includes themeCard and modelDownloadProgressContainer
             val cardIds = listOf(
                 R.id.modelActiveCard, R.id.modelRunCard, R.id.deviceCapCard,
                 R.id.pluginSummaryCard, R.id.pluginCoreCard, R.id.pluginAiCard,
@@ -560,14 +616,17 @@ class MainActivity : AppCompatActivity() {
                 R.id.avatarViewportCard, R.id.avatarControlCard,
                 R.id.avatarAffectCard, R.id.avatarExpressionCard,
                 R.id.memoryCard, R.id.telemetryCard, R.id.systemDashboardCard,
+                R.id.themeCard, R.id.modelDownloadProgressContainer,
             )
             cardIds.forEach { id ->
                 try {
-                    findViewById<MaterialCardView>(id).setCardBackgroundColor(surface)
+                    val card = findViewById<MaterialCardView>(id)
+                    card.setCardBackgroundColor(surface)
+                    card.strokeColor = outline
                 } catch (_: Exception) {}
             }
 
-            // Text colors
+            // Text colors — all bound TextViews
             conversationTranscriptText.setTextColor(onSurface)
             modelHubStatusText.setTextColor(onSurface)
             modelSelectedDetailsText.setTextColor(onSurface)
@@ -594,6 +653,8 @@ class MainActivity : AppCompatActivity() {
             memoryStatsText.setTextColor(onSurface)
             telemetryStatsText.setTextColor(onSurface)
             systemDashboardText.setTextColor(onSurface)
+            activeThemeText.setTextColor(onSurface)
+            activeThemeDescText.setTextColor(onSurfaceVariant)
 
             // AI Inference strip text colors
             inferenceTierText.setTextColor(onSurface)
@@ -602,6 +663,12 @@ class MainActivity : AppCompatActivity() {
             inferenceContextText.setTextColor(onSurface)
             chatThinkingText.setTextColor(onSurface)
             chatThinkingCategoryText.setTextColor(onSurface)
+
+            // Conversation input field styling
+            conversationInput.setTextColor(onSurface)
+            conversationInput.setHintTextColor(onSurfaceVariant)
+            modelPromptInput.setTextColor(onSurface)
+            modelPromptInput.setHintTextColor(onSurfaceVariant)
 
             // Send button
             findViewById<MaterialButton>(R.id.btnSendConversation).apply {
@@ -624,7 +691,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.btnTelephonyFeature, R.id.btnSmsFeature, R.id.btnContactsFeature,
                 R.id.btnLocationFeature, R.id.btnStorageFeature, R.id.btnNotificationsFeature,
                 R.id.btnOpenBotFather, R.id.btnOpenPluginGuide, R.id.btnOpenKthemeRepo,
-                R.id.btnImportPersonality,
+                R.id.btnImportPersonality, R.id.btnChangeTheme,
                 R.id.btnShareDocument, R.id.btnShareImage, R.id.btnShareMusic, R.id.btnShareLink,
                 R.id.btnAvatarUnload, R.id.btnAvatarCustom, R.id.btnAvatarReset,
             ).forEach { id ->
@@ -670,6 +737,63 @@ class MainActivity : AppCompatActivity() {
                 applyKthemeToAllTextViews(child, color)
             }
         }
+    }
+
+    private fun showThemePickerDialog() {
+        val themes = listAvailableThemes()
+        if (themes.isEmpty()) {
+            showToast("No themes found in assets/themes/")
+            return
+        }
+
+        val selectedId = getSelectedThemeId()
+        val names = themes.map { theme ->
+            val marker = if (theme.metadata.id == selectedId) " [Active]" else ""
+            val mode = if (theme.darkMode) "Dark" else "Light"
+            "${theme.metadata.name}$marker ($mode)"
+        }.toTypedArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Choose Theme (${themes.size})")
+            .setItems(names) { _, which ->
+                val chosen = themes[which]
+                showThemePreviewDialog(chosen)
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    private fun showThemePreviewDialog(theme: com.ktheme.models.Theme) {
+        val meta = theme.metadata
+        val colors = theme.colorScheme
+        val effects = theme.effects
+
+        val message = buildString {
+            append("${meta.description}\n\n")
+            append("Author: ${meta.author}\n")
+            append("Mode: ${if (theme.darkMode) "Dark" else "Light"}\n")
+            append("Tags: ${meta.tags.joinToString(", ")}\n\n")
+            append("Primary: ${colors.primary}\n")
+            append("Background: ${colors.background}\n")
+            append("Surface: ${colors.surface}\n")
+            if (effects?.metallic?.enabled == true) {
+                append("\nMetallic: ${effects.metallic?.variant} (${effects.metallic?.intensity})")
+            }
+            if (effects?.shimmer?.enabled == true) {
+                append("\nShimmer: speed=${effects.shimmer?.speed}, angle=${effects.shimmer?.angle}")
+            }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(meta.name)
+            .setMessage(message)
+            .setPositiveButton("Apply") { _, _ ->
+                prefs.edit().putString(PREF_SELECTED_THEME, meta.id).apply()
+                applyKtheme()
+                showToast("Theme applied: ${meta.name}")
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ========================================================================
@@ -740,6 +864,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<MaterialButton>(R.id.btnOpenKthemeRepo).setOnClickListener {
             openExternalLink(KTHEME_REPO_URL, "Opening Ktheme designer.")
+        }
+        findViewById<MaterialButton>(R.id.btnChangeTheme).setOnClickListener {
+            showThemePickerDialog()
         }
 
         // Sharing
@@ -2792,6 +2919,8 @@ class MainActivity : AppCompatActivity() {
         private const val GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX = "guide|"
         private const val RAG_DIAGNOSTICS_AI_ID = "tronprotocol_ai"
         private const val AFFECT_UI_UPDATE_INTERVAL_MS = 2000L
+        private const val PREF_SELECTED_THEME = "ktheme_selected_theme_id"
+        private const val DEFAULT_THEME_ID = "navy-gold"
 
         // Plugin categorization
         private val CORE_PLUGINS = setOf(

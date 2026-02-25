@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "id": "obsidian-emerald",
+    "name": "Obsidian Emerald",
+    "description": "Deep obsidian black with vivid emerald green accents",
+    "author": "Ktheme",
+    "version": "1.0.0",
+    "tags": [
+      "dark",
+      "emerald",
+      "hacker"
+    ],
+    "createdAt": "2026-02-24T00:00:00.000Z",
+    "updatedAt": "2026-02-24T00:00:00.000Z"
+  },
+  "darkMode": true,
+  "colorScheme": {
+    "primary": "#00E676",
+    "onPrimary": "#0A0A0A",
+    "primaryContainer": "#00994D",
+    "onPrimaryContainer": "#E0FFE0",
+    "secondary": "#69F0AE",
+    "onSecondary": "#0A0A0A",
+    "secondaryContainer": "#388E3C",
+    "onSecondaryContainer": "#E8F5E9",
+    "tertiary": "#76FF03",
+    "onTertiary": "#0A0A0A",
+    "tertiaryContainer": "#33691E",
+    "onTertiaryContainer": "#F1F8E9",
+    "error": "#EF5350",
+    "onError": "#FFFFFF",
+    "errorContainer": "#B71C1C",
+    "onErrorContainer": "#FFCDD2",
+    "background": "#0A0A0A",
+    "onBackground": "#E0E0E0",
+    "surface": "#1A1A1A",
+    "onSurface": "#E0E0E0",
+    "surfaceVariant": "#2A2A2A",
+    "onSurfaceVariant": "#BDBDBD",
+    "outline": "#757575",
+    "outlineVariant": "#424242",
+    "scrim": "#000000",
+    "inverseSurface": "#E0E0E0",
+    "inverseOnSurface": "#0A0A0A",
+    "inversePrimary": "#1B5E20"
+  },
+  "effects": {
+    "metallic": {
+      "enabled": false,
+      "variant": "CHROME",
+      "gradient": {
+        "base": "#00E676",
+        "highlight": "#69F0AE",
+        "shadow": "#0A0A0A",
+        "shimmer": "#B9F6CA"
+      },
+      "intensity": 0.0
+    },
+    "shadows": {
+      "enabled": true,
+      "elevation": 2,
+      "blur": 6,
+      "color": "#00000088"
+    },
+    "glow": {
+      "enabled": true,
+      "radius": 8,
+      "intensity": 0.4,
+      "color": "#00E67644",
+      "pulse": true
+    }
+  },
+  "typography": {
+    "fontFamily": "monospace, system-ui, sans-serif",
+    "fontSize": {
+      "small": 12,
+      "medium": 16,
+      "large": 20,
+      "xlarge": 28
+    },
+    "fontWeight": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "bold": 700
+    },
+    "lineHeight": 1.5,
+    "letterSpacing": 0
+  }
+}
