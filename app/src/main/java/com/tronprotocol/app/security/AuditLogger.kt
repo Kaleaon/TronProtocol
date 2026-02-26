@@ -48,7 +48,10 @@ class AuditLogger(private val context: Context) {
         MEMORY_OPERATION,
         FAILOVER_EVENT,
         POLICY_DECISION,
-        MODEL_INTEGRITY
+        MODEL_INTEGRITY,
+        EXTERNAL_CONTENT,
+        DM_PAIRING,
+        SEND_POLICY
     }
 
     /** A single audit log entry. */
@@ -296,6 +299,65 @@ class AuditLogger(private val context: Context) {
                 put("message", message)
                 details?.forEach { (key, value) -> put(key, value) }
             }
+        )
+    }
+
+    fun logExternalContent(
+        source: String,
+        warningCount: Int,
+        boundaryId: String,
+        details: Map<String, Any>? = null
+    ) {
+        logAsync(
+            severity = if (warningCount > 0) Severity.WARNING else Severity.INFO,
+            category = AuditCategory.EXTERNAL_CONTENT,
+            actor = source,
+            action = "sanitize",
+            outcome = if (warningCount > 0) "warnings" else "clean",
+            details = buildMap {
+                put("boundary_id", boundaryId)
+                put("warning_count", warningCount)
+                details?.forEach { (key, value) -> put(key, value) }
+            }
+        )
+    }
+
+    fun logDmPairing(
+        chatId: String,
+        action: String,
+        outcome: String,
+        details: Map<String, Any>? = null
+    ) {
+        logSync(
+            severity = when (outcome) {
+                "approved" -> Severity.INFO
+                "denied" -> Severity.WARNING
+                "expired" -> Severity.INFO
+                else -> Severity.INFO
+            },
+            category = AuditCategory.DM_PAIRING,
+            actor = "dm_pairing_policy",
+            action = action,
+            target = chatId,
+            outcome = outcome,
+            details = details
+        )
+    }
+
+    fun logSendPolicy(
+        pluginId: String,
+        targetChatId: String,
+        allowed: Boolean,
+        reason: String
+    ) {
+        logAsync(
+            severity = if (allowed) Severity.INFO else Severity.WARNING,
+            category = AuditCategory.SEND_POLICY,
+            actor = pluginId,
+            action = "send",
+            target = targetChatId,
+            outcome = if (allowed) "allowed" else "blocked",
+            details = mapOf("reason" to reason)
         )
     }
 
