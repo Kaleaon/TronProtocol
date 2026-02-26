@@ -3,6 +3,7 @@ package com.tronprotocol.app.plugins
 import android.content.Context
 import android.util.Log
 import com.tronprotocol.app.security.AuditLogger
+import com.tronprotocol.app.security.ExternalContentSanitizer
 
 /**
  * Manages all plugins in the TronProtocol system.
@@ -24,6 +25,11 @@ class PluginManager private constructor() {
     private var toolPolicyEngine: ToolPolicyEngine? = null
     private var auditLogger: AuditLogger? = null
     private val runtimeAutonomyPolicy = RuntimeAutonomyPolicy()
+
+    // OpenClaw v2026.2.24 compatibility subsystems
+    private var contentSanitizer: ExternalContentSanitizer? = null
+    private var dangerousToolClassifier: DangerousToolClassifier? = null
+    private var sendPolicy: SendPolicy? = null
 
     fun initialize(context: Context) {
         this.context = context.applicationContext
@@ -53,6 +59,39 @@ class PluginManager private constructor() {
         this.auditLogger = logger
         Log.d(TAG, "AuditLogger attached")
     }
+
+    /**
+     * Attach the external content sanitizer (OpenClaw external-content.ts).
+     */
+    fun attachContentSanitizer(sanitizer: ExternalContentSanitizer) {
+        this.contentSanitizer = sanitizer
+        Log.d(TAG, "ExternalContentSanitizer attached")
+    }
+
+    /**
+     * Attach the dangerous tool classifier (OpenClaw dangerous-tools.ts).
+     */
+    fun attachDangerousToolClassifier(classifier: DangerousToolClassifier) {
+        this.dangerousToolClassifier = classifier
+        Log.d(TAG, "DangerousToolClassifier attached")
+    }
+
+    /**
+     * Attach the outbound send policy (OpenClaw send-policy.ts).
+     */
+    fun attachSendPolicy(policy: SendPolicy) {
+        this.sendPolicy = policy
+        Log.d(TAG, "SendPolicy attached")
+    }
+
+    /** Get the attached content sanitizer (for use by channel plugins). */
+    fun getContentSanitizer(): ExternalContentSanitizer? = contentSanitizer
+
+    /** Get the attached dangerous tool classifier. */
+    fun getDangerousToolClassifier(): DangerousToolClassifier? = dangerousToolClassifier
+
+    /** Get the attached send policy (for use by communication plugins). */
+    fun getSendPolicy(): SendPolicy? = sendPolicy
 
     /**
      * Register a plugin eagerly (creates and initializes immediately).
@@ -220,9 +259,51 @@ class PluginManager private constructor() {
 
         val startTime = System.currentTimeMillis()
 
-        // Layer 1: Tool Policy Engine evaluation (OpenClaw 6-level precedence)
+        // Layer 0.5: Dangerous tool classification (OpenClaw dangerous-tools.ts)
+        dangerousToolClassifier?.let { classifier ->
+            val classification = classifier.classify(pluginId)
+            when (classification.tier) {
+                DangerousToolClassifier.DangerTier.BLOCKED -> {
+                    auditLogger?.logSecurityEvent(
+                        pluginId, "dangerous_tool_blocked", "blocked",
+                        mapOf("tier" to "BLOCKED", "reason" to classification.reason)
+                    )
+                    return PluginResult.error(
+                        "Plugin $pluginId is BLOCKED: ${classification.reason}",
+                        System.currentTimeMillis() - startTime
+                    )
+                }
+                DangerousToolClassifier.DangerTier.OWNER_ONLY -> {
+                    if (isSubAgent) {
+                        auditLogger?.logSecurityEvent(
+                            pluginId, "dangerous_tool_denied_subagent", "blocked",
+                            mapOf("tier" to "OWNER_ONLY", "reason" to "Sub-agents cannot use OWNER_ONLY tools")
+                        )
+                        return PluginResult.error(
+                            "Sub-agent denied: $pluginId is OWNER_ONLY",
+                            System.currentTimeMillis() - startTime
+                        )
+                    }
+                }
+                DangerousToolClassifier.DangerTier.APPROVAL_REQUIRED -> {
+                    if (isSubAgent) {
+                        auditLogger?.logSecurityEvent(
+                            pluginId, "dangerous_tool_denied_subagent", "blocked",
+                            mapOf("tier" to "APPROVAL_REQUIRED", "reason" to "Sub-agents cannot use APPROVAL_REQUIRED tools")
+                        )
+                        return PluginResult.error(
+                            "Sub-agent denied: $pluginId requires approval",
+                            System.currentTimeMillis() - startTime
+                        )
+                    }
+                }
+                DangerousToolClassifier.DangerTier.SAFE -> { /* proceed */ }
+            }
+        }
+
+        // Layer 1: Tool Policy Engine evaluation (OpenClaw cumulative pipeline)
         toolPolicyEngine?.let { engine ->
-            val decision = engine.evaluate(pluginId, isSubAgent, isSandboxed, sessionId)
+            val decision = engine.evaluatePipeline(pluginId, isSubAgent, isSandboxed, sessionId)
             if (!decision.allowed) {
                 auditLogger?.logSecurityEvent(
                     pluginId, "policy_denied",
