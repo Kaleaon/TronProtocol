@@ -42,6 +42,8 @@ object PluginRegistry {
         PluginConfig("wisdom_log", WisdomLogPlugin::class.java, true, 148, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { WisdomLogPlugin() },
         PluginConfig("hedonic", HedonicPlugin::class.java, true, 149, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { HedonicPlugin() },
         PluginConfig("nct", NCTPlugin::class.java, true, 150, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE, Capability.MODEL_EXECUTION)) { NCTPlugin() },
+        // ── Brief: on-device content compression (Brief library reimplementation) ──
+        PluginConfig("brief_content", BriefPlugin::class.java, true, 155, setOf(Capability.NETWORK_OUTBOUND, Capability.HTTP_REQUEST, Capability.MEMORY_WRITE)) { BriefPlugin() },
         // ── Phase 2: Perception plugins ──
         PluginConfig("notification_listener", NotificationListenerPlugin::class.java, true, 160, setOf(Capability.NOTIFICATION_READ)) { NotificationListenerPlugin() },
         PluginConfig("screen_reader", ScreenReaderPlugin::class.java, true, 165, setOf(Capability.SCREEN_READ)) { ScreenReaderPlugin() },
