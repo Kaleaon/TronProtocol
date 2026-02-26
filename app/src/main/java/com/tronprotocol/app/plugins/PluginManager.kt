@@ -3,6 +3,7 @@ package com.tronprotocol.app.plugins
 import android.content.Context
 import android.util.Log
 import com.tronprotocol.app.security.AuditLogger
+import com.tronprotocol.app.security.ExternalContentSanitizer
 
 /**
  * Manages all plugins in the TronProtocol system.
@@ -16,6 +17,7 @@ import com.tronprotocol.app.security.AuditLogger
 class PluginManager private constructor() {
 
     private val plugins = mutableMapOf<String, Plugin>()
+    private val lazyConfigs = mutableMapOf<String, PluginRegistry.PluginConfig>()
     private var context: Context? = null
 
     // OpenClaw-inspired subsystems
@@ -23,6 +25,11 @@ class PluginManager private constructor() {
     private var toolPolicyEngine: ToolPolicyEngine? = null
     private var auditLogger: AuditLogger? = null
     private val runtimeAutonomyPolicy = RuntimeAutonomyPolicy()
+
+    // OpenClaw v2026.2.24 compatibility subsystems
+    private var contentSanitizer: ExternalContentSanitizer? = null
+    private var dangerousToolClassifier: DangerousToolClassifier? = null
+    private var sendPolicy: SendPolicy? = null
 
     fun initialize(context: Context) {
         this.context = context.applicationContext
@@ -54,7 +61,40 @@ class PluginManager private constructor() {
     }
 
     /**
-     * Register a plugin
+     * Attach the external content sanitizer (OpenClaw external-content.ts).
+     */
+    fun attachContentSanitizer(sanitizer: ExternalContentSanitizer) {
+        this.contentSanitizer = sanitizer
+        Log.d(TAG, "ExternalContentSanitizer attached")
+    }
+
+    /**
+     * Attach the dangerous tool classifier (OpenClaw dangerous-tools.ts).
+     */
+    fun attachDangerousToolClassifier(classifier: DangerousToolClassifier) {
+        this.dangerousToolClassifier = classifier
+        Log.d(TAG, "DangerousToolClassifier attached")
+    }
+
+    /**
+     * Attach the outbound send policy (OpenClaw send-policy.ts).
+     */
+    fun attachSendPolicy(policy: SendPolicy) {
+        this.sendPolicy = policy
+        Log.d(TAG, "SendPolicy attached")
+    }
+
+    /** Get the attached content sanitizer (for use by channel plugins). */
+    fun getContentSanitizer(): ExternalContentSanitizer? = contentSanitizer
+
+    /** Get the attached dangerous tool classifier. */
+    fun getDangerousToolClassifier(): DangerousToolClassifier? = dangerousToolClassifier
+
+    /** Get the attached send policy (for use by communication plugins). */
+    fun getSendPolicy(): SendPolicy? = sendPolicy
+
+    /**
+     * Register a plugin eagerly (creates and initializes immediately).
      */
     fun registerPlugin(plugin: Plugin?): Boolean {
         if (plugin == null) {
@@ -71,6 +111,7 @@ class PluginManager private constructor() {
         return try {
             plugin.initialize(ctx)
             plugins[plugin.id] = plugin
+            lazyConfigs.remove(plugin.id)
             Log.d(TAG, "Registered plugin: ${plugin.name}")
             true
         } catch (e: Exception) {
@@ -85,10 +126,51 @@ class PluginManager private constructor() {
     }
 
     /**
+     * Register a plugin config for lazy initialization.
+     * The plugin will not be created/initialized until first access via [getPlugin] or [executePlugin].
+     */
+    fun registerLazy(config: PluginRegistry.PluginConfig) {
+        if (plugins.containsKey(config.id)) return // already eagerly registered
+        lazyConfigs[config.id] = config
+        Log.d(TAG, "Registered lazy plugin config: ${config.id}")
+    }
+
+    /**
+     * Eagerly initialize a plugin by ID.
+     * Used for critical plugins (e.g. policy_guardrail) that must be ready immediately.
+     */
+    fun ensureInitialized(pluginId: String): Boolean {
+        if (plugins.containsKey(pluginId)) return true
+        return materializeLazy(pluginId)
+    }
+
+    /**
+     * Materialize a lazily-registered plugin: create, initialize, and move from lazyConfigs to plugins.
+     * Returns true if the plugin is now available.
+     */
+    private fun materializeLazy(pluginId: String): Boolean {
+        val config = lazyConfigs[pluginId] ?: return false
+        val ctx = context ?: return false
+
+        return try {
+            val plugin = config.factory()
+            plugin.initialize(ctx)
+            plugins[plugin.id] = plugin
+            lazyConfigs.remove(pluginId)
+            Log.d(TAG, "Lazily initialized plugin: ${plugin.name}")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to lazily initialize plugin: $pluginId", e)
+            false
+        }
+    }
+
+    /**
      * Unregister a plugin
      */
     fun unregisterPlugin(pluginId: String) {
         val plugin = plugins.remove(pluginId)
+        lazyConfigs.remove(pluginId)
         if (plugin != null) {
             plugin.destroy()
             Log.d(TAG, "Unregistered plugin: ${plugin.name}")
@@ -96,14 +178,43 @@ class PluginManager private constructor() {
     }
 
     /**
-     * Get a plugin by ID
+     * Get a plugin by ID. Lazily initializes the plugin if it was registered via [registerLazy].
      */
-    fun getPlugin(pluginId: String): Plugin? = plugins[pluginId]
+    fun getPlugin(pluginId: String): Plugin? {
+        plugins[pluginId]?.let { return it }
+        // Try lazy materialization
+        if (lazyConfigs.containsKey(pluginId)) {
+            materializeLazy(pluginId)
+        }
+        return plugins[pluginId]
+    }
 
     /**
-     * Get all registered plugins
+     * Get all registered plugins (both eagerly and lazily registered).
+     * Note: lazily-registered plugins that have not been accessed are returned as stubs.
+     * Call [materializeAll] first if you need fully initialized instances.
      */
     fun getAllPlugins(): List<Plugin> = ArrayList(plugins.values)
+
+    /**
+     * Returns the total count of registered plugins (eager + lazy).
+     */
+    fun getRegisteredCount(): Int = plugins.size + lazyConfigs.size
+
+    /**
+     * Returns IDs of all registered plugins (both eager and lazy).
+     */
+    fun getRegisteredIds(): Set<String> = plugins.keys + lazyConfigs.keys
+
+    /**
+     * Materialize all lazily-registered plugins. Useful when listing all plugins in the UI.
+     */
+    fun materializeAll() {
+        val ids = ArrayList(lazyConfigs.keys)
+        for (id in ids) {
+            materializeLazy(id)
+        }
+    }
 
     /**
      * Get all enabled plugins
@@ -134,6 +245,11 @@ class PluginManager private constructor() {
         isSandboxed: Boolean = false,
         sessionId: String? = null
     ): PluginResult {
+        // Lazily materialize if needed
+        if (!plugins.containsKey(pluginId) && lazyConfigs.containsKey(pluginId)) {
+            materializeLazy(pluginId)
+        }
+
         val plugin = plugins[pluginId]
             ?: return PluginResult.error("Plugin not found: $pluginId", 0)
 
@@ -143,9 +259,51 @@ class PluginManager private constructor() {
 
         val startTime = System.currentTimeMillis()
 
-        // Layer 1: Tool Policy Engine evaluation (OpenClaw 6-level precedence)
+        // Layer 0.5: Dangerous tool classification (OpenClaw dangerous-tools.ts)
+        dangerousToolClassifier?.let { classifier ->
+            val classification = classifier.classify(pluginId)
+            when (classification.tier) {
+                DangerousToolClassifier.DangerTier.BLOCKED -> {
+                    auditLogger?.logSecurityEvent(
+                        pluginId, "dangerous_tool_blocked", "blocked",
+                        mapOf("tier" to "BLOCKED", "reason" to classification.reason)
+                    )
+                    return PluginResult.error(
+                        "Plugin $pluginId is BLOCKED: ${classification.reason}",
+                        System.currentTimeMillis() - startTime
+                    )
+                }
+                DangerousToolClassifier.DangerTier.OWNER_ONLY -> {
+                    if (isSubAgent) {
+                        auditLogger?.logSecurityEvent(
+                            pluginId, "dangerous_tool_denied_subagent", "blocked",
+                            mapOf("tier" to "OWNER_ONLY", "reason" to "Sub-agents cannot use OWNER_ONLY tools")
+                        )
+                        return PluginResult.error(
+                            "Sub-agent denied: $pluginId is OWNER_ONLY",
+                            System.currentTimeMillis() - startTime
+                        )
+                    }
+                }
+                DangerousToolClassifier.DangerTier.APPROVAL_REQUIRED -> {
+                    if (isSubAgent) {
+                        auditLogger?.logSecurityEvent(
+                            pluginId, "dangerous_tool_denied_subagent", "blocked",
+                            mapOf("tier" to "APPROVAL_REQUIRED", "reason" to "Sub-agents cannot use APPROVAL_REQUIRED tools")
+                        )
+                        return PluginResult.error(
+                            "Sub-agent denied: $pluginId requires approval",
+                            System.currentTimeMillis() - startTime
+                        )
+                    }
+                }
+                DangerousToolClassifier.DangerTier.SAFE -> { /* proceed */ }
+            }
+        }
+
+        // Layer 1: Tool Policy Engine evaluation (OpenClaw cumulative pipeline)
         toolPolicyEngine?.let { engine ->
-            val decision = engine.evaluate(pluginId, isSubAgent, isSandboxed, sessionId)
+            val decision = engine.evaluatePipeline(pluginId, isSubAgent, isSandboxed, sessionId)
             if (!decision.allowed) {
                 auditLogger?.logSecurityEvent(
                     pluginId, "policy_denied",

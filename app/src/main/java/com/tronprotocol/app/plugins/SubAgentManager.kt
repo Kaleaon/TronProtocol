@@ -91,8 +91,8 @@ class SubAgentManager(
         Thread(r, "SubAgent-Archive").apply { isDaemon = true }
     }
 
-    // Tool deny list per isolation level
-    private val toolDenyLists = mapOf(
+    // Static tool deny lists per isolation level (fallback when no classifier is attached)
+    private val staticToolDenyLists = mapOf(
         IsolationLevel.MINIMAL to setOf("file_manager", "telegram_bridge", "communication_hub"),
         IsolationLevel.STANDARD to setOf(
             "file_manager", "telegram_bridge", "communication_hub",
@@ -104,6 +104,19 @@ class SubAgentManager(
             "task_automation", "personalization"
         )
     )
+
+    // Optional DangerousToolClassifier — if attached, used instead of static deny lists
+    private var dangerousToolClassifier: DangerousToolClassifier? = null
+
+    /**
+     * Attach a DangerousToolClassifier (OpenClaw dangerous-tools.ts).
+     * When attached, sub-agent tool denial is determined by the classifier's tier
+     * rather than the static deny lists.
+     */
+    fun attachDangerousToolClassifier(classifier: DangerousToolClassifier) {
+        this.dangerousToolClassifier = classifier
+        Log.d(TAG, "DangerousToolClassifier attached to SubAgentManager")
+    }
 
     init {
         // Schedule periodic cleanup of expired agents
@@ -130,9 +143,19 @@ class SubAgentManager(
             return null
         }
 
-        // Check tool deny list
-        val denyList = toolDenyLists[request.isolationLevel] ?: emptySet()
-        if (request.targetPluginId in denyList) {
+        // Check tool deny list — prefer classifier if attached, else fall back to static
+        val isDenied = dangerousToolClassifier?.let { classifier ->
+            val classification = classifier.classify(request.targetPluginId)
+            when (classification.tier) {
+                DangerousToolClassifier.DangerTier.BLOCKED,
+                DangerousToolClassifier.DangerTier.OWNER_ONLY -> true
+                DangerousToolClassifier.DangerTier.APPROVAL_REQUIRED ->
+                    request.isolationLevel != IsolationLevel.MINIMAL
+                DangerousToolClassifier.DangerTier.SAFE -> false
+            }
+        } ?: (request.targetPluginId in (staticToolDenyLists[request.isolationLevel] ?: emptySet()))
+
+        if (isDenied) {
             Log.w(TAG, "Sub-agent denied access to ${request.targetPluginId} " +
                     "at isolation level ${request.isolationLevel}")
             callback?.onComplete(SubAgentResult(

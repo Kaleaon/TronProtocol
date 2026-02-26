@@ -48,7 +48,10 @@ class AuditLogger(private val context: Context) {
         MEMORY_OPERATION,
         FAILOVER_EVENT,
         POLICY_DECISION,
-        MODEL_INTEGRITY
+        MODEL_INTEGRITY,
+        EXTERNAL_CONTENT,
+        DM_PAIRING,
+        SEND_POLICY
     }
 
     /** A single audit log entry. */
@@ -299,6 +302,65 @@ class AuditLogger(private val context: Context) {
         )
     }
 
+    fun logExternalContent(
+        source: String,
+        warningCount: Int,
+        boundaryId: String,
+        details: Map<String, Any>? = null
+    ) {
+        logAsync(
+            severity = if (warningCount > 0) Severity.WARNING else Severity.INFO,
+            category = AuditCategory.EXTERNAL_CONTENT,
+            actor = source,
+            action = "sanitize",
+            outcome = if (warningCount > 0) "warnings" else "clean",
+            details = buildMap {
+                put("boundary_id", boundaryId)
+                put("warning_count", warningCount)
+                details?.forEach { (key, value) -> put(key, value) }
+            }
+        )
+    }
+
+    fun logDmPairing(
+        chatId: String,
+        action: String,
+        outcome: String,
+        details: Map<String, Any>? = null
+    ) {
+        logSync(
+            severity = when (outcome) {
+                "approved" -> Severity.INFO
+                "denied" -> Severity.WARNING
+                "expired" -> Severity.INFO
+                else -> Severity.INFO
+            },
+            category = AuditCategory.DM_PAIRING,
+            actor = "dm_pairing_policy",
+            action = action,
+            target = chatId,
+            outcome = outcome,
+            details = details
+        )
+    }
+
+    fun logSendPolicy(
+        pluginId: String,
+        targetChatId: String,
+        allowed: Boolean,
+        reason: String
+    ) {
+        logAsync(
+            severity = if (allowed) Severity.INFO else Severity.WARNING,
+            category = AuditCategory.SEND_POLICY,
+            actor = pluginId,
+            action = "send",
+            target = targetChatId,
+            outcome = if (allowed) "allowed" else "blocked",
+            details = mapOf("reason" to reason)
+        )
+    }
+
     // -- Query methods --
 
     /**
@@ -442,10 +504,16 @@ class AuditLogger(private val context: Context) {
                     existing.put(entry.toJson())
                 }
                 // Keep only last MAX_PERSISTED entries
-                while (existing.length() > MAX_PERSISTED) {
-                    existing.remove(0)
+                val toStore = if (existing.length() > MAX_PERSISTED) {
+                    val trimmed = org.json.JSONArray()
+                    for (i in maxOf(0, existing.length() - MAX_PERSISTED) until existing.length()) {
+                        trimmed.put(existing.get(i))
+                    }
+                    trimmed
+                } else {
+                    existing
                 }
-                storage.store(STORAGE_KEY, existing.toString())
+                storage.store(STORAGE_KEY, toStore.toString())
                 return // Success
             } catch (e: Exception) {
                 retries++

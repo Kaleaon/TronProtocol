@@ -119,7 +119,7 @@ class ToolPolicyEngine {
             PolicyLayer.SUB_AGENT to isSubAgent,
             PolicyLayer.SANDBOX to isSandboxed,
             PolicyLayer.GROUP to true,
-            PolicyLayer.SESSION to (sessionId != null),
+            PolicyLayer.SESSION to true,
             PolicyLayer.PLUGIN_PROFILE to true,
             PolicyLayer.GLOBAL to true
         )
@@ -166,6 +166,75 @@ class ToolPolicyEngine {
             decidingRule = null,
             evaluatedLayers = evaluatedLayers,
             reason = "No matching policy rule; default allow"
+        )
+    }
+
+    /**
+     * Evaluate using a cumulative pipeline — inspired by OpenClaw's tool-policy-pipeline.ts.
+     *
+     * Unlike [evaluate] which uses "first match wins", this method processes layers
+     * from least restrictive (GLOBAL) to most restrictive (SUB_AGENT). Each layer can
+     * only further restrict access — once a layer denies, no subsequent layer can re-allow.
+     * This is strictly more secure than the single-match approach.
+     */
+    fun evaluatePipeline(
+        pluginId: String,
+        isSubAgent: Boolean = false,
+        isSandboxed: Boolean = false,
+        sessionId: String? = null
+    ): PolicyDecision {
+        var evaluatedLayers = 0
+        var denied = false
+        var denyingLayer: PolicyLayer = PolicyLayer.GLOBAL
+        var denyingRule: PolicyRule? = null
+        var denyReason = ""
+
+        // Process from least restrictive to most restrictive (cumulative narrowing)
+        val pipelineOrder = listOf(
+            PolicyLayer.GLOBAL to true,
+            PolicyLayer.PLUGIN_PROFILE to true,
+            PolicyLayer.SESSION to true,
+            PolicyLayer.GROUP to true,
+            PolicyLayer.SANDBOX to isSandboxed,
+            PolicyLayer.SUB_AGENT to isSubAgent
+        )
+
+        for ((layer, applies) in pipelineOrder) {
+            if (!applies) continue
+            evaluatedLayers++
+
+            val matchingRules = rules.filter { rule ->
+                rule.layer == layer && (rule.pluginId == pluginId ||
+                        rule.pluginId == "*" ||
+                        isPluginInGroup(pluginId, rule.pluginId))
+            }.sortedBy {
+                if (it.pluginId == "*") 1 else 0
+            }
+
+            if (matchingRules.isNotEmpty()) {
+                val rule = matchingRules.first()
+                if (rule.action == Action.DENY) {
+                    denied = true
+                    denyingLayer = layer
+                    denyingRule = rule
+                    denyReason = rule.reason.ifEmpty {
+                        "DENY by ${layer.name} policy"
+                    }
+                }
+                // ALLOW at a layer does NOT undo a prior DENY — cumulative restriction only
+            }
+        }
+
+        if (denied) {
+            Log.w(TAG, "PIPELINE_DENIED plugin=$pluginId layer=${denyingLayer.name} reason=$denyReason")
+        }
+
+        return PolicyDecision(
+            allowed = !denied,
+            decidingLayer = denyingLayer,
+            decidingRule = denyingRule,
+            evaluatedLayers = evaluatedLayers,
+            reason = if (denied) denyReason else "Allowed by cumulative pipeline ($evaluatedLayers layers)"
         )
     }
 
@@ -225,8 +294,7 @@ class ToolPolicyEngine {
      */
     private fun isPluginInGroup(pluginId: String, groupRef: String): Boolean {
         if (!groupRef.startsWith("group:")) return false
-        val groupName = groupRef.removePrefix("group:")
-        return pluginGroups[groupName]?.contains(pluginId) == true
+        return pluginGroups[groupRef]?.contains(pluginId) == true
     }
 
     // -- Default configuration --

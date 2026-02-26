@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "id": "arctic-silver",
+    "name": "Arctic Silver",
+    "description": "Cool blue-grey tones with polished silver metallic highlights",
+    "author": "Ktheme",
+    "version": "1.0.0",
+    "tags": [
+      "metallic",
+      "light",
+      "silver",
+      "professional"
+    ],
+    "createdAt": "2026-02-24T00:00:00.000Z",
+    "updatedAt": "2026-02-24T00:00:00.000Z"
+  },
+  "darkMode": false,
+  "colorScheme": {
+    "primary": "#546E7A",
+    "onPrimary": "#FFFFFF",
+    "primaryContainer": "#CFD8DC",
+    "onPrimaryContainer": "#263238",
+    "secondary": "#78909C",
+    "onSecondary": "#FFFFFF",
+    "secondaryContainer": "#ECEFF1",
+    "onSecondaryContainer": "#37474F",
+    "tertiary": "#90A4AE",
+    "onTertiary": "#FFFFFF",
+    "tertiaryContainer": "#CFD8DC",
+    "onTertiaryContainer": "#455A64",
+    "error": "#D32F2F",
+    "onError": "#FFFFFF",
+    "errorContainer": "#FFCDD2",
+    "onErrorContainer": "#B71C1C",
+    "background": "#ECEFF1",
+    "onBackground": "#263238",
+    "surface": "#FFFFFF",
+    "onSurface": "#263238",
+    "surfaceVariant": "#F5F5F5",
+    "onSurfaceVariant": "#455A64",
+    "outline": "#90A4AE",
+    "outlineVariant": "#CFD8DC",
+    "scrim": "#000000",
+    "inverseSurface": "#263238",
+    "inverseOnSurface": "#ECEFF1",
+    "inversePrimary": "#B0BEC5"
+  },
+  "effects": {
+    "metallic": {
+      "enabled": true,
+      "variant": "SILVER",
+      "gradient": {
+        "base": "#B0BEC5",
+        "highlight": "#ECEFF1",
+        "shadow": "#546E7A",
+        "shimmer": "#FFFFFF"
+      },
+      "intensity": 0.6
+    },
+    "shadows": {
+      "enabled": true,
+      "elevation": 3,
+      "blur": 6,
+      "color": "#00000022"
+    },
+    "shimmer": {
+      "enabled": true,
+      "speed": 4,
+      "intensity": 0.3,
+      "angle": 120
+    }
+  },
+  "typography": {
+    "fontFamily": "system-ui, -apple-system, sans-serif",
+    "fontSize": {
+      "small": 12,
+      "medium": 16,
+      "large": 20,
+      "xlarge": 28
+    },
+    "fontWeight": {
+      "light": 300,
+      "regular": 400,
+      "medium": 500,
+      "bold": 700
+    },
+    "lineHeight": 1.5,
+    "letterSpacing": 0
+  }
+}

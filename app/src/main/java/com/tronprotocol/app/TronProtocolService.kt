@@ -33,7 +33,10 @@ import com.tronprotocol.app.rag.SleepCycleOptimizer
 import com.tronprotocol.app.rag.SleepCycleTakensTrainer
 import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
+import com.tronprotocol.app.security.ExternalContentSanitizer
 import com.tronprotocol.app.security.SecureStorage
+import com.tronprotocol.app.plugins.DangerousToolClassifier
+import com.tronprotocol.app.plugins.SendPolicy
 import com.tronprotocol.app.selfmod.CodeModificationManager
 import java.util.Date
 import java.util.concurrent.CountDownLatch
@@ -78,9 +81,17 @@ class TronProtocolService : Service() {
     private var affectOrchestrator: AffectOrchestrator? = null
     private var frontierDynamicsManager: FrontierDynamicsManager? = null
 
+    // -- OpenClaw v2026.2.24 compatibility subsystems -------------------------
+    private var externalContentSanitizer: ExternalContentSanitizer? = null
+    private var dangerousToolClassifier: DangerousToolClassifier? = null
+    private var sendPolicy: SendPolicy? = null
+
     // -- Atomic flags --------------------------------------------------------
 
-    private val dependenciesReady = AtomicBoolean(false)
+    /** Set after Tier 0 (SecureStorage, AuditLogger, RAGStore) completes. Gates heartbeat/consolidation start. */
+    private val coreReady = AtomicBoolean(false)
+    /** Set after all four tiers complete. Used for diagnostics/retry logic. */
+    private val allDependenciesReady = AtomicBoolean(false)
     private val initializationInProgress = AtomicBoolean(false)
     private val heartbeatStarted = AtomicBoolean(false)
     private val consolidationStarted = AtomicBoolean(false)
@@ -201,27 +212,53 @@ class TronProtocolService : Service() {
     // ========================================================================
 
     private fun initializeDependenciesAsync() {
-        if (dependenciesReady.get()) return
+        if (allDependenciesReady.get()) return
         if (!initializationInProgress.compareAndSet(false, true)) return
 
         initExecutor.execute {
             try {
-                initializeDependencies()
-                // Atomic transition: mark ready and reset attempt counter together
+                // Tier 0: Critical subsystems needed for the first heartbeat.
+                initializeTier0Core()
                 initAttempt.set(0)
-                dependenciesReady.set(true)
-                Log.d(TAG, "All heavy dependencies initialized")
+                coreReady.set(true)
+                Log.d(TAG, "Tier 0 (core) dependencies initialized — heartbeat can start")
+                StartupDiagnostics.recordMilestone(this, "tier0_core_ready")
                 ensureLoopsStartedIfReady()
+
+                // Tier 1: Needed by heartbeat 10 (~5 min). Non-blocking after core.
+                initializeTier1Early()
+                StartupDiagnostics.recordMilestone(this, "tier1_early_ready")
+                Log.d(TAG, "Tier 1 (early) dependencies initialized")
+
+                // Tier 2: Needed by heartbeat 25-50 (~12-25 min). Maintenance subsystems.
+                initializeTier2Standard()
+                StartupDiagnostics.recordMilestone(this, "tier2_standard_ready")
+                Log.d(TAG, "Tier 2 (standard) dependencies initialized")
+
+                // Tier 3: Needed by heartbeat 100+ (~50 min) or only for plugin execution.
+                initializeTier3Deferred()
+                StartupDiagnostics.recordMilestone(this, "tier3_deferred_ready")
+                Log.d(TAG, "Tier 3 (deferred) dependencies initialized")
+
+                allDependenciesReady.set(true)
+                Log.d(TAG, "All heavy dependencies initialized (4 tiers complete)")
             } catch (e: Exception) {
-                dependenciesReady.set(false)
-                scheduleInitializationRetry(e)
+                if (!coreReady.get()) {
+                    // Core tier failed — retry the whole chain
+                    scheduleInitializationRetry(e)
+                } else {
+                    // Core succeeded but a later tier failed — log but don't block heartbeat
+                    Log.e(TAG, "Non-core tier initialization failed; heartbeat continues", e)
+                }
             } finally {
                 initializationInProgress.set(false)
             }
         }
     }
 
-    private fun initializeDependencies() {
+    // -- Tier 0: Critical (gates heartbeat start) ----------------------------
+
+    private fun initializeTier0Core() {
         // --- SecureStorage --------------------------------------------------
         try {
             if (secureStorage == null) {
@@ -252,18 +289,6 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to initialize audit logger", e)
         }
 
-        // --- ConstitutionalMemory (OpenClaw constitutional memory) ----------
-        try {
-            if (constitutionalMemory == null) {
-                constitutionalMemory = ConstitutionalMemory(this)
-            }
-            StartupDiagnostics.recordMilestone(this, "constitutional_memory_initialized")
-            Log.d(TAG, "Constitutional memory initialized with ${constitutionalMemory?.getDirectives()?.size} directives")
-        } catch (e: Exception) {
-            StartupDiagnostics.recordError(this, "constitutional_memory_init_failed", e)
-            Log.e(TAG, "Failed to initialize constitutional memory", e)
-        }
-
         // --- RAGStore -------------------------------------------------------
         try {
             if (ragStore == null) {
@@ -283,6 +308,50 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "rag_store_init_failed", e)
             Log.e(TAG, "Failed to initialize RAG store", e)
+        }
+    }
+
+    // -- Tier 1: Early (needed by heartbeat 10, ~5 min) ----------------------
+
+    private fun initializeTier1Early() {
+        // --- ConstitutionalMemory (OpenClaw constitutional memory) ----------
+        try {
+            if (constitutionalMemory == null) {
+                constitutionalMemory = ConstitutionalMemory(this)
+            }
+            StartupDiagnostics.recordMilestone(this, "constitutional_memory_initialized")
+            Log.d(TAG, "Constitutional memory initialized with ${constitutionalMemory?.getDirectives()?.size} directives")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "constitutional_memory_init_failed", e)
+            Log.e(TAG, "Failed to initialize constitutional memory", e)
+        }
+
+        // --- AffectOrchestrator (AffectEngine emotional architecture) ---------
+        try {
+            if (affectOrchestrator == null) {
+                affectOrchestrator = AffectOrchestrator(this).also { it.start() }
+            }
+            StartupDiagnostics.recordMilestone(this, "affect_orchestrator_initialized")
+            Log.d(TAG, "AffectOrchestrator initialized (3-layer emotional architecture)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "affect_orchestrator_init_failed", e)
+            Log.e(TAG, "Failed to initialize AffectOrchestrator", e)
+        }
+    }
+
+    // -- Tier 2: Standard (needed by heartbeat 25-50, ~12-25 min) ------------
+
+    private fun initializeTier2Standard() {
+        // --- AutoCompactionManager (OpenClaw auto-compaction) ---------------
+        try {
+            if (autoCompactionManager == null) {
+                autoCompactionManager = AutoCompactionManager()
+            }
+            StartupDiagnostics.recordMilestone(this, "auto_compaction_manager_initialized")
+            Log.d(TAG, "Auto-compaction manager initialized (OpenClaw auto-compaction)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "auto_compaction_manager_init_failed", e)
+            Log.e(TAG, "Failed to initialize auto-compaction manager", e)
         }
 
         // --- CodeModificationManager ----------------------------------------
@@ -321,7 +390,11 @@ class TronProtocolService : Service() {
             StartupDiagnostics.recordError(this, "consolidation_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize consolidation manager", e)
         }
+    }
 
+    // -- Tier 3: Deferred (needed by heartbeat 100+ or plugin execution) -----
+
+    private fun initializeTier3Deferred() {
         // --- SessionKeyManager (OpenClaw session key architecture) ----------
         try {
             if (sessionKeyManager == null) {
@@ -334,18 +407,6 @@ class TronProtocolService : Service() {
         } catch (e: Exception) {
             StartupDiagnostics.recordError(this, "session_key_manager_init_failed", e)
             Log.e(TAG, "Failed to initialize session key manager", e)
-        }
-
-        // --- AutoCompactionManager (OpenClaw auto-compaction) ---------------
-        try {
-            if (autoCompactionManager == null) {
-                autoCompactionManager = AutoCompactionManager()
-            }
-            StartupDiagnostics.recordMilestone(this, "auto_compaction_manager_initialized")
-            Log.d(TAG, "Auto-compaction manager initialized (OpenClaw auto-compaction)")
-        } catch (e: Exception) {
-            StartupDiagnostics.recordError(this, "auto_compaction_manager_init_failed", e)
-            Log.e(TAG, "Failed to initialize auto-compaction manager", e)
         }
 
         // --- ToolPolicyEngine (OpenClaw 6-level tool policy) ----------------
@@ -428,18 +489,6 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to initialize on-device LLM manager", e)
         }
 
-        // --- AffectOrchestrator (AffectEngine emotional architecture) ---------
-        try {
-            if (affectOrchestrator == null) {
-                affectOrchestrator = AffectOrchestrator(this).also { it.start() }
-            }
-            StartupDiagnostics.recordMilestone(this, "affect_orchestrator_initialized")
-            Log.d(TAG, "AffectOrchestrator initialized (3-layer emotional architecture)")
-        } catch (e: Exception) {
-            StartupDiagnostics.recordError(this, "affect_orchestrator_init_failed", e)
-            Log.e(TAG, "Failed to initialize AffectOrchestrator", e)
-        }
-
         // --- FrontierDynamicsManager (STLE uncertainty framework) -----------
         try {
             if (frontierDynamicsManager == null) {
@@ -470,12 +519,37 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to initialize FrontierDynamicsManager", e)
         }
 
+        // --- OpenClaw v2026.2.24 compatibility subsystems ---------------------
+        try {
+            if (externalContentSanitizer == null) {
+                externalContentSanitizer = ExternalContentSanitizer()
+            }
+            if (dangerousToolClassifier == null) {
+                dangerousToolClassifier = DangerousToolClassifier()
+            }
+            if (sendPolicy == null) {
+                sendPolicy = SendPolicy(this)
+            }
+            StartupDiagnostics.recordMilestone(this, "openclaw_v2024_compat_initialized")
+            Log.d(TAG, "OpenClaw v2026.2.24 compatibility subsystems initialized " +
+                "(sanitizer, classifier, send policy)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "openclaw_compat_init_failed", e)
+            Log.e(TAG, "Failed to initialize OpenClaw compatibility subsystems", e)
+        }
+
         // --- Wire OpenClaw subsystems into PluginManager --------------------
         try {
             val pluginManager = PluginManager.getInstance()
             safetyScanner?.let { pluginManager.attachSafetyScanner(it) }
             toolPolicyEngine?.let { pluginManager.attachToolPolicyEngine(it) }
             auditLogger?.let { pluginManager.attachAuditLogger(it) }
+            externalContentSanitizer?.let { pluginManager.attachContentSanitizer(it) }
+            dangerousToolClassifier?.let { classifier ->
+                pluginManager.attachDangerousToolClassifier(classifier)
+                subAgentManager?.attachDangerousToolClassifier(classifier)
+            }
+            sendPolicy?.let { pluginManager.attachSendPolicy(it) }
             StartupDiagnostics.recordMilestone(this, "openclaw_subsystems_wired")
             Log.d(TAG, "OpenClaw subsystems wired into PluginManager")
         } catch (e: Exception) {
@@ -516,8 +590,8 @@ class TronProtocolService : Service() {
     }
 
     private fun ensureLoopsStartedIfReady() {
-        if (!dependenciesReady.get()) {
-            Log.d(TAG, "Dependencies not ready yet; loops will start later")
+        if (!coreReady.get()) {
+            Log.d(TAG, "Core dependencies not ready yet; loops will start later")
             return
         }
         startHeartbeat()
@@ -656,8 +730,8 @@ class TronProtocolService : Service() {
     // ========================================================================
 
     private fun startHeartbeat() {
-        if (!dependenciesReady.get()) {
-            Log.d(TAG, "Heartbeat loop waiting for dependency readiness")
+        if (!coreReady.get()) {
+            Log.d(TAG, "Heartbeat loop waiting for core dependency readiness")
             return
         }
         if (!heartbeatStarted.compareAndSet(false, true)) return
@@ -858,8 +932,8 @@ class TronProtocolService : Service() {
      * Runs during idle / rest periods to optimise memories (similar to sleep).
      */
     private fun startConsolidationLoop() {
-        if (!dependenciesReady.get()) {
-            Log.d(TAG, "Consolidation loop waiting for dependency readiness")
+        if (!coreReady.get()) {
+            Log.d(TAG, "Consolidation loop waiting for core dependency readiness")
             return
         }
         if (!consolidationStarted.compareAndSet(false, true)) return

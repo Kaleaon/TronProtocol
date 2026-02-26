@@ -90,6 +90,8 @@ object PluginRegistry {
         PluginConfig("kill_switch", KillSwitchPlugin::class.java, true, 355, setOf(Capability.TASK_AUTOMATION)) { KillSwitchPlugin() },
         PluginConfig("privacy_budget", PrivacyBudgetPlugin::class.java, true, 360, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PrivacyBudgetPlugin() },
         PluginConfig("user_override_history", UserOverrideHistoryPlugin::class.java, true, 365, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { UserOverrideHistoryPlugin() },
+        // ── RAG Memory plugin (exposes RAG store through plugin interface) ──
+        PluginConfig("rag_memory", RAGMemoryPlugin::class.java, true, 11, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { RAGMemoryPlugin() },
     )
 
     val defaultCapabilitiesByPluginId: Map<String, Set<Capability>>
