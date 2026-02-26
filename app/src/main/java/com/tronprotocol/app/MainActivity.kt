@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         private set
     lateinit var responseQualityScorer: ResponseQualityScorer
         private set
-    lateinit var inferenceTelemetry: InferenceTelemetry
+    override lateinit var inferenceTelemetry: InferenceTelemetry
         private set
     var affectOrchestrator: AffectOrchestrator? = null
         private set
@@ -321,8 +321,6 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         val file = StartupDiagnostics.exportDebugLog(this)
         showToast("Debug log exported: ${file.absolutePath}")
     }
-
-    override fun getInferenceTelemetry(): InferenceTelemetry = inferenceTelemetry
 
     override fun launchPersonalityImport() {
         personalityImportLauncher.launch(arrayOf("*/*"))

@@ -215,7 +215,7 @@ class InferenceTelemetry(context: Context) {
             put("cloud_p95_ms", s.cloudP95LatencyMs)
 
             val recentArray = JSONArray()
-            recentEvents.takeLast(10).forEach { evt ->
+            recentEvents.toList().takeLast(10).forEach { evt ->
                 recentArray.put(JSONObject().apply {
                     put("tier", evt.tier.label)
                     put("category", evt.category.name)
