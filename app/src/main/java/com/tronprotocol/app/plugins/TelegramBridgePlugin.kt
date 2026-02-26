@@ -19,6 +19,11 @@ import java.nio.charset.StandardCharsets
  *
  * Configure this plugin with a BotFather token, then allow specific Telegram chat IDs.
  * Authorized chats can send messages that the app can read via fetch command.
+ *
+ * Enhanced with OpenClaw v2026.2.24 compatibility:
+ * - External content sanitization (wraps incoming messages with tamper-proof boundaries)
+ * - DM pairing policy (unknown senders must present a pairing code)
+ * - Outbound send policy (rate limiting on proactive sends)
  */
 class TelegramBridgePlugin : Plugin {
 
@@ -34,6 +39,7 @@ class TelegramBridgePlugin : Plugin {
     }
 
     private lateinit var preferences: SharedPreferences
+    private var dmPairingPolicy: DmPairingPolicy? = null
 
     override val id: String = ID
 
@@ -41,7 +47,8 @@ class TelegramBridgePlugin : Plugin {
 
     override val description: String =
         "Bridge the app through a Telegram bot. Commands: set_token|token, allow_chat|chatId, " +
-            "deny_chat|chatId, list_allowed, fetch|offset, reply|chatId|text, import_shared|text"
+            "deny_chat|chatId, list_allowed, fetch|offset, reply|chatId|text, import_shared|text, " +
+            "pairing_mode|disabled|open|pairing, approve_pairing|code, deny_pairing|code, list_pending"
 
     override var isEnabled: Boolean = true
 
@@ -63,6 +70,11 @@ class TelegramBridgePlugin : Plugin {
                 "fetch" -> fetchMessages(parts, start)
                 "reply" -> replyToChat(parts, start)
                 "import_shared" -> importShared(parts, start)
+                // OpenClaw DM pairing commands
+                "pairing_mode" -> setPairingMode(parts, start)
+                "approve_pairing" -> approvePairing(parts, start)
+                "deny_pairing" -> denyPairingRequest(parts, start)
+                "list_pending" -> listPendingPairings(start)
                 else -> PluginResult.error("Unknown command: $command", elapsed(start))
             }
         } catch (e: Exception) {
@@ -132,6 +144,7 @@ class TelegramBridgePlugin : Plugin {
 
         val results: JSONArray? = json.optJSONArray("result")
         val allowed = getAllowedChats()
+        val sanitizer = PluginManager.getInstance().getContentSanitizer()
         val out = StringBuilder()
         var lastUpdateId = offset
         var accepted = 0
@@ -144,14 +157,46 @@ class TelegramBridgePlugin : Plugin {
 
                 val chat = message.optJSONObject("chat")
                 val chatId = if (chat != null) chat.optLong("id").toString() else ""
-                if (!allowed.contains(chatId)) continue
 
-                val text = message.optString("text", "")
                 val from = message.optJSONObject("from")
                 val username = from?.optString("username", from.optString("first_name", "unknown"))
                     ?: "unknown"
 
-                out.append("[$chatId] $username: $text\n")
+                // DM pairing: check if chat is allowed or needs pairing
+                if (!allowed.contains(chatId)) {
+                    val pairing = dmPairingPolicy
+                    if (pairing != null && pairing.getMode() == DmPairingPolicy.PolicyMode.PAIRING) {
+                        val decision = pairing.evaluateIncoming(chatId, username)
+                        if (!decision.allowed && decision.pairingCode != null) {
+                            // Send pairing instructions to the unknown sender
+                            try {
+                                val pairingMsg = "Pairing required. Your code: ${decision.pairingCode}. " +
+                                    "Ask the device operator to run: approve_pairing|${decision.pairingCode}"
+                                val payload = "chat_id=${URLEncoder.encode(chatId, "UTF-8")}" +
+                                    "&text=${URLEncoder.encode(pairingMsg, "UTF-8")}"
+                                post("%s/sendMessage", token, payload)
+                            } catch (_: Exception) {
+                                // Best effort — don't fail fetch for pairing notification failures
+                            }
+                        }
+                    }
+                    continue
+                }
+
+                val rawText = message.optString("text", "")
+
+                // Sanitize external content (OpenClaw external-content.ts)
+                val displayText = if (sanitizer != null) {
+                    val sanitized = sanitizer.sanitize(
+                        rawText,
+                        com.tronprotocol.app.security.ExternalContentSanitizer.ContentSource.TELEGRAM
+                    )
+                    sanitized.wrappedContent
+                } else {
+                    rawText
+                }
+
+                out.append("[$chatId] $username: $displayText\n")
                 accepted++
             }
         }
@@ -180,6 +225,18 @@ class TelegramBridgePlugin : Plugin {
             return PluginResult.error("Chat is not authorized: $chatId", elapsed(start))
         }
 
+        // Check outbound send policy (OpenClaw send-policy.ts)
+        val sendPol = PluginManager.getInstance().getSendPolicy()
+        if (sendPol != null) {
+            val decision = sendPol.evaluateSend(ID, chatId, isReply = true)
+            if (!decision.allowed) {
+                return PluginResult.error(
+                    "Send policy denied: ${decision.reason}",
+                    elapsed(start)
+                )
+            }
+        }
+
         val payload = "chat_id=${URLEncoder.encode(chatId, "UTF-8")}" +
             "&text=${URLEncoder.encode(parts[2].trim(), "UTF-8")}"
 
@@ -188,6 +245,9 @@ class TelegramBridgePlugin : Plugin {
         if (!json.optBoolean("ok", false)) {
             return PluginResult.error("Telegram sendMessage returned not ok", elapsed(start))
         }
+
+        // Record successful send for rate limiting
+        sendPol?.recordSend(ID, chatId)
 
         return PluginResult.success("Sent message to chat $chatId", elapsed(start))
     }
@@ -231,6 +291,86 @@ class TelegramBridgePlugin : Plugin {
             return PluginResult.error("No Telegram token or chat information found in shared text", elapsed(start))
         }
         return PluginResult.success(messages.joinToString(". "), elapsed(start))
+    }
+
+    // -- DM Pairing commands (OpenClaw dm-policy-shared.ts) --
+
+    private fun setPairingMode(parts: List<String>, start: Long): PluginResult {
+        val pairing = dmPairingPolicy
+            ?: return PluginResult.error("DM pairing policy not initialized", elapsed(start))
+
+        if (parts.size < 2 || TextUtils.isEmpty(parts[1].trim())) {
+            return PluginResult.error(
+                "Usage: pairing_mode|<disabled|open|pairing>. Current: ${pairing.getMode().name}",
+                elapsed(start)
+            )
+        }
+
+        val mode = try {
+            DmPairingPolicy.PolicyMode.valueOf(parts[1].trim().uppercase())
+        } catch (e: IllegalArgumentException) {
+            return PluginResult.error(
+                "Invalid mode: ${parts[1].trim()}. Use: disabled, open, or pairing",
+                elapsed(start)
+            )
+        }
+
+        pairing.setMode(mode)
+        return PluginResult.success("DM pairing mode set to ${mode.name}", elapsed(start))
+    }
+
+    private fun approvePairing(parts: List<String>, start: Long): PluginResult {
+        val pairing = dmPairingPolicy
+            ?: return PluginResult.error("DM pairing policy not initialized", elapsed(start))
+
+        if (parts.size < 2 || TextUtils.isEmpty(parts[1].trim())) {
+            return PluginResult.error("Usage: approve_pairing|<code>", elapsed(start))
+        }
+
+        val code = parts[1].trim()
+        return if (pairing.approvePairing(code)) {
+            PluginResult.success("Pairing approved for code $code. Chat added to allowed list.", elapsed(start))
+        } else {
+            PluginResult.error("Pairing code not found or expired: $code", elapsed(start))
+        }
+    }
+
+    private fun denyPairingRequest(parts: List<String>, start: Long): PluginResult {
+        val pairing = dmPairingPolicy
+            ?: return PluginResult.error("DM pairing policy not initialized", elapsed(start))
+
+        if (parts.size < 2 || TextUtils.isEmpty(parts[1].trim())) {
+            return PluginResult.error("Usage: deny_pairing|<code>", elapsed(start))
+        }
+
+        val code = parts[1].trim()
+        return if (pairing.denyPairing(code)) {
+            PluginResult.success("Pairing denied for code $code", elapsed(start))
+        } else {
+            PluginResult.error("Pairing code not found: $code", elapsed(start))
+        }
+    }
+
+    private fun listPendingPairings(start: Long): PluginResult {
+        val pairing = dmPairingPolicy
+            ?: return PluginResult.error("DM pairing policy not initialized", elapsed(start))
+
+        val pending = pairing.getPendingRequests()
+        if (pending.isEmpty()) {
+            return PluginResult.success(
+                "No pending pairing requests. Mode: ${pairing.getMode().name}",
+                elapsed(start)
+            )
+        }
+
+        val result = buildString {
+            append("Pending pairing requests (mode: ${pairing.getMode().name}):\n")
+            for (req in pending) {
+                val remaining = (req.expiresAt - System.currentTimeMillis()) / 1000
+                append("- Code: ${req.code} | Chat: ${req.chatId} | User: ${req.username} | Expires in: ${remaining}s\n")
+            }
+        }
+        return PluginResult.success(result, elapsed(start))
     }
 
     private fun extractChatId(sharedText: String): String? {
@@ -322,6 +462,7 @@ class TelegramBridgePlugin : Plugin {
 
     override fun initialize(context: Context) {
         preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        dmPairingPolicy = DmPairingPolicy(context)
     }
 
     override fun destroy() {

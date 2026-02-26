@@ -33,7 +33,10 @@ import com.tronprotocol.app.rag.SleepCycleOptimizer
 import com.tronprotocol.app.rag.SleepCycleTakensTrainer
 import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
+import com.tronprotocol.app.security.ExternalContentSanitizer
 import com.tronprotocol.app.security.SecureStorage
+import com.tronprotocol.app.plugins.DangerousToolClassifier
+import com.tronprotocol.app.plugins.SendPolicy
 import com.tronprotocol.app.selfmod.CodeModificationManager
 import java.util.Date
 import java.util.concurrent.CountDownLatch
@@ -77,6 +80,11 @@ class TronProtocolService : Service() {
     private var onDeviceLLMManager: OnDeviceLLMManager? = null
     private var affectOrchestrator: AffectOrchestrator? = null
     private var frontierDynamicsManager: FrontierDynamicsManager? = null
+
+    // -- OpenClaw v2026.2.24 compatibility subsystems -------------------------
+    private var externalContentSanitizer: ExternalContentSanitizer? = null
+    private var dangerousToolClassifier: DangerousToolClassifier? = null
+    private var sendPolicy: SendPolicy? = null
 
     // -- Atomic flags --------------------------------------------------------
 
@@ -511,12 +519,37 @@ class TronProtocolService : Service() {
             Log.e(TAG, "Failed to initialize FrontierDynamicsManager", e)
         }
 
+        // --- OpenClaw v2026.2.24 compatibility subsystems ---------------------
+        try {
+            if (externalContentSanitizer == null) {
+                externalContentSanitizer = ExternalContentSanitizer()
+            }
+            if (dangerousToolClassifier == null) {
+                dangerousToolClassifier = DangerousToolClassifier()
+            }
+            if (sendPolicy == null) {
+                sendPolicy = SendPolicy(this)
+            }
+            StartupDiagnostics.recordMilestone(this, "openclaw_v2024_compat_initialized")
+            Log.d(TAG, "OpenClaw v2026.2.24 compatibility subsystems initialized " +
+                "(sanitizer, classifier, send policy)")
+        } catch (e: Exception) {
+            StartupDiagnostics.recordError(this, "openclaw_compat_init_failed", e)
+            Log.e(TAG, "Failed to initialize OpenClaw compatibility subsystems", e)
+        }
+
         // --- Wire OpenClaw subsystems into PluginManager --------------------
         try {
             val pluginManager = PluginManager.getInstance()
             safetyScanner?.let { pluginManager.attachSafetyScanner(it) }
             toolPolicyEngine?.let { pluginManager.attachToolPolicyEngine(it) }
             auditLogger?.let { pluginManager.attachAuditLogger(it) }
+            externalContentSanitizer?.let { pluginManager.attachContentSanitizer(it) }
+            dangerousToolClassifier?.let { classifier ->
+                pluginManager.attachDangerousToolClassifier(classifier)
+                subAgentManager?.attachDangerousToolClassifier(classifier)
+            }
+            sendPolicy?.let { pluginManager.attachSendPolicy(it) }
             StartupDiagnostics.recordMilestone(this, "openclaw_subsystems_wired")
             Log.d(TAG, "OpenClaw subsystems wired into PluginManager")
         } catch (e: Exception) {
