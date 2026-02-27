@@ -6,6 +6,7 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.security.MessageDigest
 
 /**
  * Secure storage for sensitive data using hardware-backed encryption
@@ -27,11 +28,13 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
     @Throws(Exception::class)
     fun store(key: String, data: String) {
         val encryptedData = encryptionManager.encryptString(data)
-        val file = File(storageDir, sanitizeKey(key))
+        val file = File(storageDir, filenameForKey(key))
 
         FileOutputStream(file).use { fos ->
             fos.write(encryptedData)
         }
+
+        deleteLegacyFileIfPresent(key)
 
         Log.d(TAG, "Stored encrypted data for key: $key")
     }
@@ -42,11 +45,13 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
     @Throws(Exception::class)
     fun storeBytes(key: String, data: ByteArray) {
         val encryptedData = encryptionManager.encrypt(data)
-        val file = File(storageDir, sanitizeKey(key))
+        val file = File(storageDir, filenameForKey(key))
 
         FileOutputStream(file).use { fos ->
             fos.write(encryptedData)
         }
+
+        deleteLegacyFileIfPresent(key)
 
         Log.d(TAG, "Stored encrypted bytes for key: $key")
     }
@@ -56,14 +61,21 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
      */
     @Throws(Exception::class)
     fun retrieve(key: String): String? {
-        val file = File(storageDir, sanitizeKey(key))
+        val newFile = File(storageDir, filenameForKey(key))
+        if (newFile.exists()) {
+            val encryptedData = readFile(newFile)
+            return encryptionManager.decryptString(encryptedData)
+        }
 
-        if (!file.exists()) {
+        val legacyFile = File(storageDir, legacyFilenameForKey(key))
+        if (!legacyFile.exists()) {
             return null
         }
 
-        val encryptedData = readFile(file)
-        return encryptionManager.decryptString(encryptedData)
+        val encryptedData = readFile(legacyFile)
+        val decryptedData = encryptionManager.decryptString(encryptedData)
+        migrateLegacyFileToNewFilename(key, encryptedData, legacyFile)
+        return decryptedData
     }
 
     /**
@@ -71,33 +83,51 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
      */
     @Throws(Exception::class)
     fun retrieveBytes(key: String): ByteArray? {
-        val file = File(storageDir, sanitizeKey(key))
+        val newFile = File(storageDir, filenameForKey(key))
+        if (newFile.exists()) {
+            val encryptedData = readFile(newFile)
+            return encryptionManager.decrypt(encryptedData)
+        }
 
-        if (!file.exists()) {
+        val legacyFile = File(storageDir, legacyFilenameForKey(key))
+        if (!legacyFile.exists()) {
             return null
         }
 
-        val encryptedData = readFile(file)
-        return encryptionManager.decrypt(encryptedData)
+        val encryptedData = readFile(legacyFile)
+        val decryptedData = encryptionManager.decrypt(encryptedData)
+        migrateLegacyFileToNewFilename(key, encryptedData, legacyFile)
+        return decryptedData
     }
 
     /**
      * Check if a key exists
      */
     fun exists(key: String): Boolean {
-        val file = File(storageDir, sanitizeKey(key))
-        return file.exists()
+        val newFile = File(storageDir, filenameForKey(key))
+        if (newFile.exists()) {
+            return true
+        }
+
+        val legacyFile = File(storageDir, legacyFilenameForKey(key))
+        return legacyFile.exists()
     }
 
     /**
      * Delete stored data by key
      */
     fun delete(key: String): Boolean {
-        val file = File(storageDir, sanitizeKey(key))
-        return if (file.exists()) {
-            val deleted = file.delete()
+        val newFile = File(storageDir, filenameForKey(key))
+        val legacyFile = File(storageDir, legacyFilenameForKey(key))
+        val deletedNew = !newFile.exists() || newFile.delete()
+        val deletedLegacy = !legacyFile.exists() || legacyFile.delete()
+        val deleted = deletedNew && deletedLegacy
+
+        return if (newFile.exists() || legacyFile.exists()) {
+            false
+        } else if (deleted) {
             Log.d(TAG, "Deleted data for key: $key")
-            deleted
+            true
         } else {
             false
         }
@@ -116,6 +146,42 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
     private fun sanitizeKey(key: String): String =
         // Replace special characters that aren't safe for filenames
         key.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+
+    private fun filenameForKey(key: String): String {
+        val sanitizedPrefix = sanitizeKey(key)
+            .trim('_')
+            .take(MAX_SANITIZED_PREFIX_LENGTH)
+        val hash = sha256Hex(key)
+        return if (sanitizedPrefix.isNotEmpty()) {
+            "${sanitizedPrefix}_$hash"
+        } else {
+            hash
+        }
+    }
+
+    private fun legacyFilenameForKey(key: String): String = sanitizeKey(key)
+
+    private fun sha256Hex(input: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        return digest.digest(input.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    }
+
+    private fun migrateLegacyFileToNewFilename(key: String, encryptedData: ByteArray, legacyFile: File) {
+        val newFile = File(storageDir, filenameForKey(key))
+        if (!newFile.exists()) {
+            FileOutputStream(newFile).use { fos ->
+                fos.write(encryptedData)
+            }
+        }
+        legacyFile.delete()
+    }
+
+    private fun deleteLegacyFileIfPresent(key: String) {
+        val legacyFile = File(storageDir, legacyFilenameForKey(key))
+        if (legacyFile.exists()) {
+            legacyFile.delete()
+        }
+    }
 
     @Throws(IOException::class)
     private fun readFile(file: File): ByteArray {
@@ -141,6 +207,7 @@ class SecureStorage @Throws(Exception::class) constructor(private val context: C
     companion object {
         private const val TAG = "SecureStorage"
         private const val STORAGE_DIR = "secure_data"
+        private const val MAX_SANITIZED_PREFIX_LENGTH = 32
         /** Maximum file size for secure storage reads (50 MB). Prevents OOM on corrupted files. */
         private const val MAX_FILE_SIZE = 50L * 1024 * 1024
     }
