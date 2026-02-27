@@ -1,5 +1,8 @@
 package com.tronprotocol.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -7,14 +10,14 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
-import com.tronprotocol.app.ConversationTranscriptFormatter
 import com.tronprotocol.app.ConversationTurn
 import com.tronprotocol.app.R
 import com.tronprotocol.app.inference.AIContextManager
@@ -35,8 +38,8 @@ import java.util.concurrent.Executors
 class ChatFragment : Fragment() {
 
     // --- Views ---
-    private lateinit var chatScrollView: ScrollView
-    private lateinit var conversationTranscriptText: TextView
+    private lateinit var chatRecyclerView: RecyclerView
+    private lateinit var conversationAdapter: ConversationTurnAdapter
     private lateinit var conversationInput: TextInputEditText
     private lateinit var btnSendConversation: MaterialButton
     private lateinit var btnRetryConversation: MaterialButton
@@ -108,8 +111,7 @@ class ChatFragment : Fragment() {
     // ========================================================================
 
     private fun bindViews(view: View) {
-        chatScrollView = view.findViewById(R.id.chatScrollView)
-        conversationTranscriptText = view.findViewById(R.id.conversationTranscriptText)
+        chatRecyclerView = view.findViewById(R.id.chatRecyclerView)
         conversationInput = view.findViewById(R.id.conversationInput)
         btnSendConversation = view.findViewById(R.id.btnSendConversation)
         btnRetryConversation = view.findViewById(R.id.btnRetryConversation)
@@ -126,6 +128,14 @@ class ChatFragment : Fragment() {
         chatHedonicToneText = view.findViewById(R.id.chatHedonicToneText)
         chatExpressionSummaryText = view.findViewById(R.id.chatExpressionSummaryText)
         chatCoherenceIndicator = view.findViewById(R.id.chatCoherenceIndicator)
+
+        setupConversationList()
+    }
+
+    private fun setupConversationList() {
+        conversationAdapter = ConversationTurnAdapter { turn -> copyMessageToClipboard(turn) }
+        chatRecyclerView.layoutManager = LinearLayoutManager(requireContext())
+        chatRecyclerView.adapter = conversationAdapter
     }
 
     // ========================================================================
@@ -172,6 +182,9 @@ class ChatFragment : Fragment() {
         if (!isRetry) {
             conversationInput.setText("")
         }
+        conversationTurns.add(ConversationTurn("You", userText))
+        submitConversationTurns()
+        conversationInput.setText("")
 
         // Track in context manager
         aiContextManager.addTurn("You", userText)
@@ -181,7 +194,7 @@ class ChatFragment : Fragment() {
         showThinkingIndicator(category)
 
         // Auto-scroll to bottom
-        chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+        maybeAutoScrollToBottom()
 
         // Execute inference asynchronously
         val startTime = System.currentTimeMillis()
@@ -306,6 +319,9 @@ class ChatFragment : Fragment() {
         btnSendConversation.isEnabled = enabled
         conversationInput.isEnabled = enabled
     }
+                hideThinkingIndicator()
+                conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
+                submitConversationTurns()
 
     private fun runOnUiIfActive(action: () -> Unit) {
         val hostActivity = activity ?: return
@@ -314,7 +330,40 @@ class ChatFragment : Fragment() {
         hostActivity.runOnUiThread {
             if (!isAdded || view == null) return@runOnUiThread
             action()
+                // Auto-scroll to bottom
+                maybeAutoScrollToBottom()
+            }
         }
+    }
+
+    private fun submitConversationTurns() {
+        val shouldAutoScroll = isNearBottom()
+        conversationAdapter.submitList(conversationTurns.toList()) {
+            if (shouldAutoScroll) {
+                chatRecyclerView.scrollToPosition((conversationAdapter.itemCount - 1).coerceAtLeast(0))
+            }
+        }
+    }
+
+    private fun maybeAutoScrollToBottom() {
+        if (!isNearBottom()) return
+        chatRecyclerView.post {
+            chatRecyclerView.scrollToPosition((conversationAdapter.itemCount - 1).coerceAtLeast(0))
+        }
+    }
+
+    private fun isNearBottom(thresholdItems: Int = 2): Boolean {
+        val layoutManager = chatRecyclerView.layoutManager as? LinearLayoutManager ?: return true
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        if (lastVisible == RecyclerView.NO_POSITION) return true
+        return lastVisible >= (conversationAdapter.itemCount - 1 - thresholdItems)
+    }
+
+    private fun copyMessageToClipboard(turn: ConversationTurn) {
+        val clipboard = requireContext().getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText(turn.role, turn.message)
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(requireContext(), getString(R.string.chat_copy_success), Toast.LENGTH_SHORT).show()
     }
 
     // ========================================================================
