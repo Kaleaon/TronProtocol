@@ -203,4 +203,15 @@
             app:cornerRadius="24dp"
             android:contentDescription="Send" />
     </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRetryConversation"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="8dp"
+        android:text="Retry"
+        android:visibility="gone"
+        style="@style/Widget.Material3.Button.TextButton" />
 </LinearLayout>
