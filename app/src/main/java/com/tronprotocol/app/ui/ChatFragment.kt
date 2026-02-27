@@ -42,6 +42,7 @@ class ChatFragment : Fragment() {
     private lateinit var conversationAdapter: ConversationTurnAdapter
     private lateinit var conversationInput: TextInputEditText
     private lateinit var btnSendConversation: MaterialButton
+    private lateinit var btnRetryConversation: MaterialButton
     private lateinit var chatInferenceStrip: LinearLayout
     private lateinit var inferenceTierIndicator: View
     private lateinit var inferenceTierText: TextView
@@ -62,6 +63,8 @@ class ChatFragment : Fragment() {
 
     // --- Conversation state ---
     private val conversationTurns = mutableListOf<ConversationTurn>()
+    private var isSending = false
+    private var lastFailedUserMessage: String? = null
 
     // --- AI inference subsystems ---
     private lateinit var aiContextManager: AIContextManager
@@ -111,6 +114,7 @@ class ChatFragment : Fragment() {
         chatRecyclerView = view.findViewById(R.id.chatRecyclerView)
         conversationInput = view.findViewById(R.id.conversationInput)
         btnSendConversation = view.findViewById(R.id.btnSendConversation)
+        btnRetryConversation = view.findViewById(R.id.btnRetryConversation)
         chatInferenceStrip = view.findViewById(R.id.chatInferenceStrip)
         inferenceTierIndicator = view.findViewById(R.id.inferenceTierIndicator)
         inferenceTierText = view.findViewById(R.id.inferenceTierText)
@@ -140,6 +144,7 @@ class ChatFragment : Fragment() {
 
     private fun setupListeners() {
         btnSendConversation.setOnClickListener { sendConversationMessage() }
+        btnRetryConversation.setOnClickListener { retryLastFailedMessage() }
     }
 
     // ========================================================================
@@ -147,13 +152,36 @@ class ChatFragment : Fragment() {
     // ========================================================================
 
     private fun sendConversationMessage() {
+        if (isSending) return
+
         val userText = conversationInput.text?.toString()?.trim().orEmpty()
         if (userText.isBlank()) {
             Toast.makeText(requireContext(), "Type a message before sending.", Toast.LENGTH_SHORT).show()
             return
         }
 
+        sendConversationMessage(userText, isRetry = false)
+    }
+
+    private fun retryLastFailedMessage() {
+        if (isSending) return
+
+        val retryMessage = lastFailedUserMessage ?: return
+        sendConversationMessage(retryMessage, isRetry = true)
+    }
+
+    private fun sendConversationMessage(userText: String, isRetry: Boolean) {
+        isSending = true
+        setInputEnabled(false)
+        btnRetryConversation.visibility = View.GONE
+
         // Append user turn immediately
+        val userRole = if (isRetry) "You (retry)" else "You"
+        conversationTurns.add(ConversationTurn(userRole, userText))
+        conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+        if (!isRetry) {
+            conversationInput.setText("")
+        }
         conversationTurns.add(ConversationTurn("You", userText))
         submitConversationTurns()
         conversationInput.setText("")
@@ -171,83 +199,137 @@ class ChatFragment : Fragment() {
         // Execute inference asynchronously
         val startTime = System.currentTimeMillis()
         chatExecutor.execute {
-            val pluginManager = PluginManager.getInstance()
-
-            // Construct enhanced prompt with context
             val contextWindow = aiContextManager.buildContextWindow()
-            promptTemplateEngine.constructPrompt(
-                userQuery = userText,
-                conversationContext = aiContextManager.formatForInference()
-            )
+            var fallbackError: String? = null
 
-            val guidanceResult = pluginManager.executePlugin(
-                GUIDANCE_ROUTER_PLUGIN_ID,
-                "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
-            )
+            try {
+                val pluginManager = PluginManager.getInstance()
 
-            val latencyMs = System.currentTimeMillis() - startTime
-            val aiMessage: String
-            val tier: InferenceTier
-            val success: Boolean
-
-            if (guidanceResult.isSuccess) {
-                aiMessage = guidanceResult.data ?: "No response received from AI. Please try again."
-                // Determine tier from guidance result metadata
-                tier = if (guidanceResult.data?.startsWith("[cloud]") == true) {
-                    InferenceTier.CLOUD_FALLBACK
-                } else {
-                    InferenceTier.LOCAL_ON_DEMAND
-                }
-                success = true
-            } else {
-                aiMessage = "I'm having trouble responding right now. Please try again."
-                tier = InferenceTier.LOCAL_ON_DEMAND
-                success = false
-            }
-
-            // Score response quality
-            val qualityScore = responseQualityScorer.score(
-                query = userText,
-                response = aiMessage,
-                category = category,
-                tier = tier
-            )
-
-            // Record telemetry
-            val tokenCount = AIContextManager.estimateTokens(aiMessage)
-            inferenceTelemetry?.recordInference(
-                InferenceTelemetry.InferenceEvent(
-                    tier = tier,
-                    category = category,
-                    latencyMs = latencyMs,
-                    tokenCount = tokenCount,
-                    qualityScore = qualityScore.overall,
-                    wasFallback = tier == InferenceTier.CLOUD_FALLBACK,
-                    wasRegenerated = false,
-                    success = success,
-                    contextTokens = contextWindow.totalTokens,
-                    errorMessage = if (!success) guidanceResult.errorMessage else null
+                // Construct enhanced prompt with context
+                promptTemplateEngine.constructPrompt(
+                    userQuery = userText,
+                    conversationContext = aiContextManager.formatForInference()
                 )
-            )
 
-            // Track AI response in context manager
-            aiContextManager.addTurn("Tron AI", aiMessage)
+                val guidanceResult = pluginManager.executePlugin(
+                    GUIDANCE_ROUTER_PLUGIN_ID,
+                    "$GUIDANCE_ROUTER_GUIDE_COMMAND_PREFIX$userText"
+                )
 
-            requireActivity().runOnUiThread {
-                if (!isAdded) return@runOnUiThread
+                val latencyMs = System.currentTimeMillis() - startTime
+                val aiMessage: String
+                val tier: InferenceTier
+                val success: Boolean
 
+                if (guidanceResult.isSuccess) {
+                    aiMessage = guidanceResult.data ?: "No response received from AI. Please try again."
+                    // Determine tier from guidance result metadata
+                    tier = if (guidanceResult.data?.startsWith("[cloud]") == true) {
+                        InferenceTier.CLOUD_FALLBACK
+                    } else {
+                        InferenceTier.LOCAL_ON_DEMAND
+                    }
+                    success = true
+                } else {
+                    val inlineError = guidanceResult.errorMessage ?: "Unknown error"
+                    aiMessage = "⚠️ Unable to respond: $inlineError"
+                    tier = InferenceTier.LOCAL_ON_DEMAND
+                    success = false
+                }
+
+                // Score response quality
+                val qualityScore = responseQualityScorer.score(
+                    query = userText,
+                    response = aiMessage,
+                    category = category,
+                    tier = tier
+                )
+
+                // Record telemetry
+                val tokenCount = AIContextManager.estimateTokens(aiMessage)
+                inferenceTelemetry?.recordInference(
+                    InferenceTelemetry.InferenceEvent(
+                        tier = tier,
+                        category = category,
+                        latencyMs = latencyMs,
+                        tokenCount = tokenCount,
+                        qualityScore = qualityScore.overall,
+                        wasFallback = tier == InferenceTier.CLOUD_FALLBACK,
+                        wasRegenerated = false,
+                        success = success,
+                        contextTokens = contextWindow.totalTokens,
+                        errorMessage = if (!success) guidanceResult.errorMessage else null
+                    )
+                )
+
+                // Track AI response in context manager
+                aiContextManager.addTurn("Tron AI", aiMessage)
+
+                runOnUiIfActive {
+                    conversationTurns.add(
+                        ConversationTurn(
+                            if (success) "Tron AI" else "Tron AI (error)",
+                            aiMessage
+                        )
+                    )
+                    conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+                    updateInferenceStrip(
+                        tier.label,
+                        latencyMs,
+                        qualityScore.overall,
+                        "${contextWindow.turnCount}T ${"%.0f".format(contextWindow.utilizationPercent)}%%ctx"
+                    )
+
+                    if (!success) {
+                        lastFailedUserMessage = userText
+                        btnRetryConversation.visibility = View.VISIBLE
+                    } else {
+                        lastFailedUserMessage = null
+                        btnRetryConversation.visibility = View.GONE
+                    }
+
+                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+                }
+            } catch (e: Exception) {
+                fallbackError = e.message ?: e.javaClass.simpleName
+
+                runOnUiIfActive {
+                    conversationTurns.add(
+                        ConversationTurn(
+                            "Tron AI (error)",
+                            "⚠️ Unable to respond: $fallbackError"
+                        )
+                    )
+                    conversationTranscriptText.text = ConversationTranscriptFormatter.format(conversationTurns)
+                    lastFailedUserMessage = userText
+                    btnRetryConversation.visibility = View.VISIBLE
+                    chatScrollView.post { chatScrollView.fullScroll(View.FOCUS_DOWN) }
+                }
+            } finally {
+                runOnUiIfActive {
+                    hideThinkingIndicator()
+                    isSending = false
+                    setInputEnabled(true)
+                }
+            }
+        }
+    }
+
+    private fun setInputEnabled(enabled: Boolean) {
+        btnSendConversation.isEnabled = enabled
+        conversationInput.isEnabled = enabled
+    }
                 hideThinkingIndicator()
                 conversationTurns.add(ConversationTurn("Tron AI", aiMessage))
                 submitConversationTurns()
 
-                // Update inference status strip
-                updateInferenceStrip(
-                    tier.label,
-                    latencyMs,
-                    qualityScore.overall,
-                    "${contextWindow.turnCount}T ${"%.0f".format(contextWindow.utilizationPercent)}%%ctx"
-                )
+    private fun runOnUiIfActive(action: () -> Unit) {
+        val hostActivity = activity ?: return
+        if (!isAdded || view == null) return
 
+        hostActivity.runOnUiThread {
+            if (!isAdded || view == null) return@runOnUiThread
+            action()
                 // Auto-scroll to bottom
                 maybeAutoScrollToBottom()
             }
