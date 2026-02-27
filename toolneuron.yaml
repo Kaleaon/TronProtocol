@@ -4,16 +4,21 @@
 app:
   name: "TronProtocol"
   package: "com.tronprotocol.app"
-  
+
 version:
   code: 1
-  name: "1.0.0"
-  
+  name: "1.0"
+
 build:
   compile_sdk: 34
   min_sdk: 24
   target_sdk: 34
-  
+  build_tools_version: "34.0.0"
+
+kotlin:
+  enabled: true
+  jvm_target: "1.8"
+
 build_types:
   debug:
     enabled: true
@@ -21,16 +26,16 @@ build_types:
     minify_enabled: false
     shrink_resources: false
     output_name: "TronProtocol-debug"
-    
+
   release:
     enabled: true
     debuggable: false
-    minify_enabled: true
-    shrink_resources: true
+    minify_enabled: false
+    shrink_resources: false
     proguard_files:
       - "proguard-rules.pro"
     output_name: "TronProtocol-release"
-    
+
 # Signing configuration (optional - for release builds)
 signing:
   debug:
@@ -38,12 +43,12 @@ signing:
     store_password: "android"
     key_alias: "androiddebugkey"
     key_password: "android"
-    
+
   # Uncomment and configure for release signing
   # release:
-  #   store_file: "release.keystore"
+  #   store_file: "${KEYSTORE_FILE}"
   #   store_password: "${KEYSTORE_PASSWORD}"
-  #   key_alias: "release"
+  #   key_alias: "${KEY_ALIAS}"
   #   key_password: "${KEY_PASSWORD}"
 
 dependencies:
@@ -51,7 +56,8 @@ dependencies:
   - "androidx.appcompat:appcompat:1.6.1"
   - "com.google.android.material:material:1.9.0"
   - "androidx.constraintlayout:constraintlayout:2.1.4"
-  
+  - "androidx.work:work-runtime-ktx:2.9.1"
+
   # NPU/AI Core
   - "com.google.android.gms:play-services-mlkit-text-recognition:19.0.0"
   - "org.tensorflow:tensorflow-lite:2.13.0"
@@ -59,16 +65,48 @@ dependencies:
   - "org.tensorflow:tensorflow-lite-support:0.4.4"
   - "com.google.android.gms:play-services-base:18.2.0"
 
+  # Networking (HuggingFace Model Store, API client)
+  - "com.squareup.retrofit2:retrofit:2.9.0"
+  - "com.squareup.retrofit2:converter-gson:2.9.0"
+  - "com.squareup.okhttp3:okhttp:4.12.0"
+  - "com.squareup.okhttp3:logging-interceptor:4.12.0"
+  - "com.google.code.gson:gson:2.10.1"
+
+  # DataStore (model repo preferences, persona persistence)
+  - "androidx.datastore:datastore-preferences:1.0.0"
+
+  # Coroutines
+  - "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3"
+  - "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3"
+
+  # MNN (Mobile Neural Network) - on-device inference
+  - "com.alibaba.android:mnn:0.0.8"
+
+# Project modules (not Maven coordinates)
+project_dependencies:
+  - ":ktheme-kotlin"
+
+test_dependencies:
+  - "junit:junit:4.13.2"
+  - "org.mockito:mockito-core:5.5.0"
+  - "org.json:json:20230227"
+  - "org.robolectric:robolectric:4.10.3"
+  - "androidx.test:core:1.5.0"
+
 output:
   directory: "build/outputs/apk"
   artifacts:
     - "**/*.apk"
     - "**/*.aab"
-  
+
 build_features:
   view_binding: false
   data_binding: false
-  
+  build_config: true
+
+lint:
+  abort_on_error: false
+
 optimization:
   use_r8: true
   enable_code_shrinking: true

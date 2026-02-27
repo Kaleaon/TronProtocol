@@ -60,20 +60,36 @@ libraries:
     - appcompat:1.6.1
     - material:1.9.0
     - constraintlayout:2.1.4
-    
+    - work-runtime-ktx:2.9.1
+    - datastore-preferences:1.0.0
+
   google_services:
     - play-services-mlkit-text-recognition:19.0.0
     - play-services-base:18.2.0
-    
+
   tensorflow:
     - tensorflow-lite:2.13.0
     - tensorflow-lite-gpu:2.13.0
     - tensorflow-lite-support:0.4.4
 
+  networking:
+    - retrofit:2.9.0
+    - converter-gson:2.9.0
+    - okhttp:4.12.0
+    - logging-interceptor:4.12.0
+    - gson:2.10.1
+
+  coroutines:
+    - kotlinx-coroutines-core:1.7.3
+    - kotlinx-coroutines-android:1.7.3
+
+  mnn:
+    - mnn:0.0.8
+
 build_config:
   java_version: 17
   gradle_version: 8.1.0
-  kotlin_version: null  # Java project
+  kotlin_version: 1.9.10
 
 features:
   compose: false

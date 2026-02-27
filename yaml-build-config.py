@@ -106,6 +106,31 @@ class BuildConfigurator:
             artifact, version = self._parse_name_version(dep, "libraries.tensorflow")
             deps.append(f'org.tensorflow:{artifact}:{version}')
 
+        # Process networking (Retrofit, OkHttp, Gson)
+        networking_group_map = {
+            'retrofit': 'com.squareup.retrofit2',
+            'converter-gson': 'com.squareup.retrofit2',
+            'okhttp': 'com.squareup.okhttp3',
+            'logging-interceptor': 'com.squareup.okhttp3',
+            'gson': 'com.google.code.gson',
+        }
+        for dep in libraries.get('networking', []):
+            artifact, version = self._parse_name_version(dep, "libraries.networking")
+            group = networking_group_map.get(artifact)
+            if group is None:
+                raise ValueError(f"Unknown networking artifact: '{artifact}'")
+            deps.append(f'{group}:{artifact}:{version}')
+
+        # Process coroutines
+        for dep in libraries.get('coroutines', []):
+            artifact, version = self._parse_name_version(dep, "libraries.coroutines")
+            deps.append(f'org.jetbrains.kotlinx:{artifact}:{version}')
+
+        # Process MNN
+        for dep in libraries.get('mnn', []):
+            artifact, version = self._parse_name_version(dep, "libraries.mnn")
+            deps.append(f'com.alibaba.android:{artifact}:{version}')
+
         return deps
 
     @staticmethod
@@ -145,6 +170,8 @@ class BuildConfigurator:
         """Convert cleverferret androidx shorthand to full Maven coordinates."""
         special_cases = {
             'material': 'com.google.android.material:material',
+            'work-runtime-ktx': 'androidx.work:work-runtime-ktx',
+            'datastore-preferences': 'androidx.datastore:datastore-preferences',
         }
 
         if artifact in special_cases:
@@ -247,6 +274,7 @@ android {{
 """
 
         gradle_content += """
+}
 
 dependencies {
 """
@@ -329,21 +357,41 @@ def run_self_check():
             'androidx.appcompat:appcompat:1.6.1',
             'com.google.android.material:material:1.9.0',
             'androidx.constraintlayout:constraintlayout:2.1.4',
+            'androidx.work:work-runtime-ktx:2.9.1',
             'com.google.android.gms:play-services-mlkit-text-recognition:19.0.0',
             'org.tensorflow:tensorflow-lite:2.13.0',
             'org.tensorflow:tensorflow-lite-gpu:2.13.0',
             'org.tensorflow:tensorflow-lite-support:0.4.4',
             'com.google.android.gms:play-services-base:18.2.0',
+            'com.squareup.retrofit2:retrofit:2.9.0',
+            'com.squareup.retrofit2:converter-gson:2.9.0',
+            'com.squareup.okhttp3:okhttp:4.12.0',
+            'com.squareup.okhttp3:logging-interceptor:4.12.0',
+            'com.google.code.gson:gson:2.10.1',
+            'androidx.datastore:datastore-preferences:1.0.0',
+            'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3',
+            'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3',
+            'com.alibaba.android:mnn:0.0.8',
         ],
         'cleverferret.yaml': [
             'androidx.appcompat:appcompat:1.6.1',
             'com.google.android.material:material:1.9.0',
             'androidx.constraintlayout:constraintlayout:2.1.4',
+            'androidx.work:work-runtime-ktx:2.9.1',
+            'androidx.datastore:datastore-preferences:1.0.0',
             'com.google.android.gms:play-services-mlkit-text-recognition:19.0.0',
             'com.google.android.gms:play-services-base:18.2.0',
             'org.tensorflow:tensorflow-lite:2.13.0',
             'org.tensorflow:tensorflow-lite-gpu:2.13.0',
             'org.tensorflow:tensorflow-lite-support:0.4.4',
+            'com.squareup.retrofit2:retrofit:2.9.0',
+            'com.squareup.retrofit2:converter-gson:2.9.0',
+            'com.squareup.okhttp3:okhttp:4.12.0',
+            'com.squareup.okhttp3:logging-interceptor:4.12.0',
+            'com.google.code.gson:gson:2.10.1',
+            'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3',
+            'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3',
+            'com.alibaba.android:mnn:0.0.8',
         ],
     }
 
