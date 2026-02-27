@@ -3,7 +3,7 @@ package com.tronprotocol.app.plugins
 import android.content.Context
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
-import org.json.JSONObject
+import org.json.JSONException
 
 /**
  * Secure storage of third-party API credentials with per-plugin access control.
@@ -44,7 +44,7 @@ class APIKeyVaultPlugin : Plugin {
                     // Track service names
                     val services = getServiceNames(store).toMutableSet()
                     services.add(service)
-                    store.store("vault_services", services.joinToString(","))
+                    storeMetadataSet(store, "vault_services", services)
                     PluginResult.success("Key stored for: $service", elapsed(start))
                 }
                 "get" -> {
@@ -68,7 +68,7 @@ class APIKeyVaultPlugin : Plugin {
                     store.delete("vault_acl_$service")
                     val services = getServiceNames(store).toMutableSet()
                     services.remove(service)
-                    store.store("vault_services", services.joinToString(","))
+                    storeMetadataSet(store, "vault_services", services)
                     PluginResult.success("Deleted key for: $service", elapsed(start))
                 }
                 "grant" -> {
@@ -77,7 +77,7 @@ class APIKeyVaultPlugin : Plugin {
                     val pluginId = parts[2].trim()
                     val acl = getACL(store, service).toMutableSet()
                     acl.add(pluginId)
-                    store.store("vault_acl_$service", acl.joinToString(","))
+                    storeMetadataSet(store, "vault_acl_$service", acl)
                     PluginResult.success("Granted $pluginId access to $service", elapsed(start))
                 }
                 "revoke" -> {
@@ -86,7 +86,7 @@ class APIKeyVaultPlugin : Plugin {
                     val pluginId = parts[2].trim()
                     val acl = getACL(store, service).toMutableSet()
                     acl.remove(pluginId)
-                    store.store("vault_acl_$service", acl.joinToString(","))
+                    storeMetadataSet(store, "vault_acl_$service", acl)
                     PluginResult.success("Revoked $pluginId access to $service", elapsed(start))
                 }
                 "check" -> {
@@ -104,13 +104,46 @@ class APIKeyVaultPlugin : Plugin {
     }
 
     private fun getServiceNames(store: SecureStorage): Set<String> {
-        val str = store.retrieve("vault_services") ?: return emptySet()
-        return str.split(",").filter { it.isNotBlank() }.toSet()
+        return getMetadataSet(store, "vault_services")
     }
 
     private fun getACL(store: SecureStorage, service: String): Set<String> {
-        val str = store.retrieve("vault_acl_$service") ?: return emptySet()
-        return str.split(",").filter { it.isNotBlank() }.toSet()
+        return getMetadataSet(store, "vault_acl_$service")
+    }
+
+    private fun getMetadataSet(store: SecureStorage, key: String): Set<String> {
+        val raw = store.retrieve(key) ?: return emptySet()
+        parseJsonArray(raw)?.let { return it }
+
+        val legacyValues = parseLegacyCommaValues(raw)
+        storeMetadataSet(store, key, legacyValues)
+        return legacyValues
+    }
+
+    private fun parseJsonArray(raw: String): Set<String>? {
+        return try {
+            val array = JSONArray(raw)
+            buildSet {
+                for (i in 0 until array.length()) {
+                    val value = array.optString(i, "").trim()
+                    if (value.isNotEmpty()) {
+                        add(value)
+                    }
+                }
+            }
+        } catch (_: JSONException) {
+            null
+        }
+    }
+
+    private fun parseLegacyCommaValues(raw: String): Set<String> {
+        return raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+    }
+
+    private fun storeMetadataSet(store: SecureStorage, key: String, values: Set<String>) {
+        val array = JSONArray()
+        values.forEach { array.put(it) }
+        store.store(key, array.toString())
     }
 
     private fun elapsed(start: Long): Long = System.currentTimeMillis() - start
