@@ -36,7 +36,7 @@
                         android:layout_height="20dp"
                         android:src="@drawable/ic_key"
                         android:layout_marginEnd="8dp"
-                        android:contentDescription="API Keys" />
+                        android:contentDescription="@string/settings_api_keys_content_description" />
 
                     <TextView
                         android:layout_width="0dp"
@@ -73,7 +73,7 @@
                     android:id="@+id/apiKeyEmptyText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="No API keys configured. Add your Anthropic, HuggingFace, or other service keys."
+                    android:text="@string/settings_api_keys_empty"
                     android:textSize="13sp"
                     android:layout_marginTop="8dp"
                     android:paddingVertical="12dp"
@@ -109,7 +109,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Start background service" />
+                    android:text="@string/settings_start_service" />
 
                 <TextView
                     android:id="@+id/serviceStatusDetailText"
@@ -148,7 +148,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Permissions pending"
+                    android:text="@string/settings_permissions_pending"
                     android:textSize="13sp" />
 
                 <!-- Permission chips in a flow layout -->
@@ -164,7 +164,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Phone"
+                        android:text="@string/settings_permission_phone"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -174,7 +174,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="SMS"
+                        android:text="@string/settings_permission_sms"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -184,7 +184,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Contacts"
+                        android:text="@string/settings_permission_contacts"
                         android:textSize="12sp" />
                 </LinearLayout>
 
@@ -200,7 +200,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Location"
+                        android:text="@string/settings_permission_location"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -210,7 +210,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Storage"
+                        android:text="@string/settings_permission_storage"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -220,7 +220,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Notifs"
+                        android:text="@string/settings_permission_notifications"
                         android:textSize="12sp" />
                 </LinearLayout>
 
@@ -229,7 +229,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Grant all files access"
+                    android:text="@string/settings_grant_all_files"
                     android:textSize="12sp" />
 
                 <TextView
@@ -272,7 +272,7 @@
                     android:layout_marginTop="4dp"
                     android:textSize="14sp"
                     android:textStyle="bold"
-                    android:text="Navy Gold" />
+                    android:text="@string/settings_theme_default" />
 
                 <TextView
                     android:id="@+id/activeThemeDescText"
@@ -320,7 +320,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Telegram BotFather setup" />
+                    android:text="@string/settings_botfather_setup" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnOpenPluginGuide"
@@ -328,7 +328,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Plugin expansion guide" />
+                    android:text="@string/settings_plugin_expansion_guide" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnOpenKthemeRepo"
@@ -336,7 +336,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Ktheme theme designer" />
+                    android:text="@string/settings_ktheme_designer" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -369,7 +369,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Import AI personality / memories" />
+                    android:text="@string/settings_import_personality" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnShareDocument"
@@ -377,7 +377,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Share document" />
+                    android:text="@string/settings_share_document" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnShareImage"
@@ -385,7 +385,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Share picture" />
+                    android:text="@string/settings_share_picture" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnShareMusic"
@@ -393,7 +393,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Share music / audio" />
+                    android:text="@string/settings_share_audio" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnShareLink"
@@ -401,7 +401,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
-                    android:text="Share web link" />
+                    android:text="@string/settings_share_web_link" />
 
                 <TextView
                     android:id="@+id/messageShareStatusText"
@@ -455,7 +455,7 @@
                         style="@style/Widget.MaterialComponents.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Consolidate"
+                        android:text="@string/settings_memory_consolidate"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -463,7 +463,7 @@
                         style="@style/Widget.MaterialComponents.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Refresh stats"
+                        android:text="@string/settings_memory_refresh_stats"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
@@ -512,7 +512,7 @@
                         style="@style/Widget.MaterialComponents.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Refresh"
+                        android:text="@string/settings_refresh"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -520,7 +520,7 @@
                         style="@style/Widget.MaterialComponents.Button.TextButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Reset"
+                        android:text="@string/settings_reset"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
@@ -563,7 +563,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Refresh"
+                    android:text="@string/settings_refresh"
                     android:textSize="12sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -597,7 +597,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Export debug log" />
+                    android:text="@string/settings_export_debug_log" />
 
                 <TextView
                     android:id="@+id/diagnosticsText"

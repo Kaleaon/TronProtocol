@@ -139,7 +139,7 @@ class ChatFragment : Fragment() {
     private fun sendConversationMessage() {
         val userText = conversationInput.text?.toString()?.trim().orEmpty()
         if (userText.isBlank()) {
-            Toast.makeText(requireContext(), "Type a message before sending.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), getString(R.string.chat_toast_type_message), Toast.LENGTH_SHORT).show()
             return
         }
 

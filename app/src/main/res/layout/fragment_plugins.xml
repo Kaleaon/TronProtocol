@@ -35,7 +35,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Run self-check" />
+                    android:text="@string/plugins_run_self_check" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -45,7 +45,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginStart="4dp"
-            android:text="CORE SYSTEMS"
+            android:text="@string/plugins_category_core"
             android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.15" />
@@ -73,7 +73,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginStart="4dp"
-            android:text="AI &amp; INTELLIGENCE"
+            android:text="@string/plugins_category_ai"
             android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.15" />
@@ -101,7 +101,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginStart="4dp"
-            android:text="COMMUNICATION"
+            android:text="@string/plugins_category_communication"
             android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.15" />
@@ -129,7 +129,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginStart="4dp"
-            android:text="TOOLS &amp; AUTOMATION"
+            android:text="@string/plugins_category_tools"
             android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.15" />
@@ -157,7 +157,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:layout_marginStart="4dp"
-            android:text="SAFETY &amp; GOVERNANCE"
+            android:text="@string/plugins_category_safety"
             android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.15" />

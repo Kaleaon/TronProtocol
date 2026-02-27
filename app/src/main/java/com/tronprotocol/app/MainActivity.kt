@@ -79,9 +79,9 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val denied = result.filterValues { granted -> !granted }.keys
             if (denied.isEmpty()) {
-                showToast("Permission granted.")
+                showToast(getString(R.string.main_toast_permission_granted))
             } else {
-                showToast("Some permissions were denied.")
+                showToast(getString(R.string.main_toast_permissions_denied))
             }
             activePermissionGroup = null
             refreshStartupStateBadge()
@@ -106,7 +106,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             if (uri == null) return@registerForActivityResult
             val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
             val displayName = resolveDisplayName(uri) ?: "File ($mimeType)"
-            showToast("Shared: $displayName")
+            showToast(getString(R.string.main_toast_shared_file, displayName))
         }
 
     // ========================================================================
@@ -314,14 +314,14 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
             } catch (e: Exception) {
-                showToast("Unable to open All Files settings.")
+                showToast(getString(R.string.main_toast_all_files_settings_unavailable))
             }
         }
     }
 
     override fun exportDebugLog() {
         val file = StartupDiagnostics.exportDebugLog(this)
-        showToast("Debug log exported: ${file.absolutePath}")
+        showToast(getString(R.string.main_toast_debug_log_exported, file.absolutePath))
     }
 
     override fun getInferenceTelemetry(): InferenceTelemetry = inferenceTelemetryManager

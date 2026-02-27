@@ -27,7 +27,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Active Model"
+                    android:text="@string/models_active_model"
                     android:textSize="13sp"
                     android:textAllCaps="true"
                     android:letterSpacing="0.1" />
@@ -37,7 +37,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="No model selected"
+                    android:text="@string/models_no_model_selected"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -102,7 +102,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="RUN MODEL"
+                    android:text="@string/models_run_model"
                     android:textSize="13sp"
                     android:textAllCaps="true"
                     android:letterSpacing="0.1" />
@@ -111,7 +111,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:hint="Enter prompt"
+                    android:hint="@string/models_prompt_hint"
                     app:boxCornerRadiusBottomEnd="12dp"
                     app:boxCornerRadiusBottomStart="12dp"
                     app:boxCornerRadiusTopEnd="12dp"
@@ -140,7 +140,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Generate" />
+                        android:text="@string/models_generate" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnStopGeneration"
@@ -148,7 +148,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
-                        android:text="Stop"
+                        android:text="@string/models_stop"
                         android:visibility="gone" />
                 </LinearLayout>
 
@@ -191,7 +191,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Browse"
+                android:text="@string/models_browse"
                 android:textSize="13sp" />
 
             <com.google.android.material.button.MaterialButton
@@ -201,7 +201,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:text="My Models"
+                android:text="@string/models_my_models"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -217,7 +217,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Recommend"
+                android:text="@string/models_recommend"
                 android:textSize="13sp" />
 
             <com.google.android.material.button.MaterialButton
@@ -227,7 +227,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
-                android:text="Status"
+                android:text="@string/models_status"
                 android:textSize="13sp" />
         </LinearLayout>
 
@@ -248,7 +248,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Manual Download"
+                    android:text="@string/models_manual_download"
                     android:textSize="13sp"
                     android:textAllCaps="true"
                     android:letterSpacing="0.1" />
@@ -257,7 +257,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:text="Download a model from a direct URL"
+                    android:text="@string/models_manual_download_description"
                     android:textSize="13sp" />
 
                 <com.google.android.material.button.MaterialButton
@@ -266,7 +266,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Download from URL" />
+                    android:text="@string/models_download_from_url" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -288,7 +288,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Device Capabilities"
+                    android:text="@string/models_device_capabilities"
                     android:textSize="13sp"
                     android:textAllCaps="true"
                     android:letterSpacing="0.1" />
