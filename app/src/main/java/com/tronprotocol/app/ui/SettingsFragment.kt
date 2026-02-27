@@ -35,7 +35,7 @@ class SettingsFragment : Fragment() {
      */
     interface SettingsHost : ThemeHost, PermissionHost {
         fun exportDebugLog()
-        fun getInferenceTelemetry(): InferenceTelemetry
+        val inferenceTelemetry: InferenceTelemetry
         fun launchPersonalityImport()
         fun launchShareDocument(mimeTypes: Array<String>)
     }

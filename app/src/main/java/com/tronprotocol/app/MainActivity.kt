@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         private set
     lateinit var responseQualityScorer: ResponseQualityScorer
         private set
+    override lateinit var inferenceTelemetry: InferenceTelemetry
     private lateinit var inferenceTelemetryManager: InferenceTelemetry
         private set
     var affectOrchestrator: AffectOrchestrator? = null
