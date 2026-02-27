@@ -37,6 +37,29 @@ private fun buildNotificationPermissions(): List<String> {
  */
 object PermissionCoordinator {
 
+    private fun buildStoragePermissions(): List<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            listOf(
+                Manifest.permission.READ_MEDIA_IMAGES,
+                Manifest.permission.READ_MEDIA_VIDEO,
+                Manifest.permission.READ_MEDIA_AUDIO
+            )
+        } else {
+            listOf(
+                Manifest.permission.READ_EXTERNAL_STORAGE,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
+    }
+
+    private fun buildNotificationPermissions(): List<String> {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            listOf(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            emptyList()
+        }
+    }
+
     enum class PermissionGroup(val displayName: String, val permissions: List<String>) {
         TELEPHONY("Phone", listOf(
             Manifest.permission.READ_PHONE_STATE,

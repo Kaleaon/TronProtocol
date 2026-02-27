@@ -1,6 +1,9 @@
 package com.tronprotocol.app.plugins
 
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -234,7 +237,7 @@ class CalculatorPluginTest {
 
     @Test
     fun testHoursToSeconds() {
-        assertEquals(3600.0, plugin.handleUnitConversion("1 hours to seconds"), 0.001)
+        assertEquals(3600.0, plugin.handleUnitConversion("1 h to s"), 0.001)
     }
 
     @Test

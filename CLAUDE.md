@@ -292,7 +292,7 @@ Plugin phases and registered plugins by startup priority:
 
 ### Capability System
 
-Plugins declare required capabilities via the `Capability` enum (31 values). The `PluginRegistry` maps default capabilities per plugin, and `RuntimeAutonomyPolicy` + `ToolPolicyEngine` enforce access control at runtime.
+Plugins declare required capabilities via the `Capability` enum (35 values). The `PluginRegistry` maps default capabilities per plugin, and `RuntimeAutonomyPolicy` + `ToolPolicyEngine` enforce access control at runtime.
 
 Capability categories:
 - **Filesystem**: `FILESYSTEM_READ`, `FILESYSTEM_WRITE`
