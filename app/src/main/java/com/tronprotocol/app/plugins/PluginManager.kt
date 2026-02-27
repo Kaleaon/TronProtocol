@@ -419,6 +419,15 @@ class PluginManager private constructor() {
             plugin.destroy()
         }
         plugins.clear()
+        lazyConfigs.clear()
+
+        // Reset optional attached subsystems so lifecycle destroy acts as a full manager reset.
+        safetyScanner = null
+        toolPolicyEngine = null
+        auditLogger = null
+        contentSanitizer = null
+        dangerousToolClassifier = null
+        sendPolicy = null
         Log.d(TAG, "PluginManager destroyed")
     }
 
