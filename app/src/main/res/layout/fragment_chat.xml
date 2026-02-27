@@ -5,22 +5,15 @@
     android:layout_height="match_parent"
     android:orientation="vertical">
 
-    <ScrollView
-        android:id="@+id/chatScrollView"
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/chatRecyclerView"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
-
-        <TextView
-            android:id="@+id/conversationTranscriptText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="16dp"
-            android:textSize="14sp"
-            android:lineSpacingExtra="4dp"
-            android:text="@string/chat_empty" />
-    </ScrollView>
+        android:clipToPadding="false"
+        android:paddingHorizontal="12dp"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp" />
 
     <!-- AI Inference Status Strip -->
     <LinearLayout
@@ -203,4 +196,15 @@
             app:cornerRadius="24dp"
             android:contentDescription="@string/chat_send_content_description" />
     </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnRetryConversation"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginEnd="12dp"
+        android:layout_marginBottom="8dp"
+        android:text="Retry"
+        android:visibility="gone"
+        style="@style/Widget.Material3.Button.TextButton" />
 </LinearLayout>

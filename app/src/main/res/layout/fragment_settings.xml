@@ -513,6 +513,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/settings_refresh"
+                        android:text="Refresh metrics"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -521,6 +522,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/settings_reset"
+                        android:text="Clear telemetry data"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>

@@ -25,6 +25,8 @@ import com.tronprotocol.app.llm.OnDeviceLLMManager
 import com.tronprotocol.app.avatar.NnrRenderEngine
 import com.tronprotocol.app.inference.InferenceTelemetry
 import java.io.File
+import java.text.DateFormat
+import java.util.Date
 import java.util.concurrent.Executors
 
 class SettingsFragment : Fragment() {
@@ -79,6 +81,7 @@ class SettingsFragment : Fragment() {
         refreshPermissionStatus()
         refreshApiKeyList()
         refreshMemoryStats()
+        refreshTelemetryDisplay()
         refreshSystemDashboard()
     }
 
@@ -187,9 +190,12 @@ class SettingsFragment : Fragment() {
         // Telemetry
         view.findViewById<MaterialButton>(R.id.btnRefreshTelemetry).setOnClickListener {
             refreshTelemetryDisplay()
+            showToast("Telemetry metrics refreshed")
         }
         view.findViewById<MaterialButton>(R.id.btnResetTelemetry).setOnClickListener {
-            showToast(getString(R.string.settings_toast_telemetry_reset))
+            host?.inferenceTelemetry?.reset()
+            refreshTelemetryDisplay()
+            showToast("Telemetry data cleared")
         }
 
         // System dashboard
@@ -331,7 +337,39 @@ class SettingsFragment : Fragment() {
 
     private fun refreshTelemetryDisplay() {
         if (!isAdded) return
-        telemetryStatsText.text = getString(R.string.settings_telemetry_active)
+        val host = activity as? SettingsHost
+        val telemetry = host?.inferenceTelemetry
+        if (telemetry == null) {
+            telemetryStatsText.text = "Telemetry unavailable"
+            return
+        }
+
+        val summary = telemetry.getSummary()
+        if (summary.totalInferences == 0) {
+            telemetryStatsText.text = buildString {
+                append("No telemetry captured yet.\n")
+                append("Run at least one AI request to see request volume, latency, and fallback behavior.\n")
+                append("Last updated: —")
+            }
+            return
+        }
+
+        val successRate = (1f - summary.errorRate).coerceIn(0f, 1f) * 100f
+        val fallbackRate = summary.fallbackRate.coerceIn(0f, 1f) * 100f
+        val lastUpdated = if (summary.lastUpdatedMs > 0L) {
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(summary.lastUpdatedMs))
+        } else {
+            "—"
+        }
+
+        telemetryStatsText.text = buildString {
+            append("Requests: ${summary.totalInferences}\n")
+            append("Success rate: ${"%.1f".format(successRate)}%\n")
+            append("Avg latency: ${summary.averageLatencyMs} ms\n")
+            append("Fallback rate: ${"%.1f".format(fallbackRate)}%\n")
+            append("Last updated: $lastUpdated")
+        }
     }
 
     // ========================================================================
