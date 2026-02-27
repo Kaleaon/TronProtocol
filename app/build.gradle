@@ -74,6 +74,20 @@ dependencies {
     // NNAPI routing is enabled at runtime through TensorFlow Lite's built-in NNAPI delegate APIs.
     // There is no standalone Maven artifact named tensorflow-lite-nnapi.
 
+    // Networking (HuggingFace Model Store, API client)
+    implementation libs.retrofit
+    implementation libs.retrofit.gson
+    implementation libs.okhttp
+    implementation libs.okhttp.logging
+    implementation libs.gson
+
+    // DataStore (model repo preferences, persona persistence)
+    implementation libs.datastore.preferences
+
+    // Coroutines
+    implementation libs.kotlinx.coroutines.core
+    implementation libs.kotlinx.coroutines.android
+
     // MNN (Mobile Neural Network) — Alibaba's on-device inference framework
     // Core AAR provides Java API for model loading, session management, and inference.
     // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true

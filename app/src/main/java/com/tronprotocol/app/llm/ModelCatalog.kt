@@ -7,7 +7,8 @@ import android.os.Build
  *
  * Provides a curated list of downloadable on-device LLM models with metadata
  * including download URLs, size, RAM requirements, format, and capabilities.
- * Models are sourced from HuggingFace and optimized for mobile inference via MNN.
+ * Models are sourced from HuggingFace in both MNN and GGUF formats for
+ * dual-backend inference via [com.tronprotocol.app.llm.backend.BackendSelector].
  *
  * @see <a href="https://github.com/timmyy123/LLM-Hub">LLM-Hub</a>
  */
@@ -68,6 +69,12 @@ object ModelCatalog {
         "embeddings_bf16.bin"
     )
 
+    /**
+     * GGUF models are single-file: the `.gguf` file contains model weights,
+     * tokenizer, and config. No additional files needed.
+     */
+    val DEFAULT_GGUF_MODEL_FILES = emptyList<String>()
+
     /** A downloadable model entry in the catalog. */
     data class CatalogEntry(
         val id: String,
@@ -92,6 +99,12 @@ object ModelCatalog {
 
         val localDirectoryName: String
             get() = id.replace(Regex("[^a-z0-9._-]"), "_")
+
+        /** Whether this catalog entry is a GGUF model. */
+        val isGguf: Boolean get() = format.lowercase() == "gguf"
+
+        /** Whether this catalog entry is an MNN model. */
+        val isMnn: Boolean get() = format.lowercase() == "mnn"
     }
 
     /**
@@ -323,6 +336,62 @@ object ModelCatalog {
             supportsGpu = true,
             source = "Heretic-processed (github.com/p-e-w/heretic)",
             modelFiles = DEFAULT_MNN_MODEL_FILES
+        ),
+
+        // ---- GGUF models (llama.cpp backend) ----
+        // GGUF models are single-file, bundling tokenizer and config inside the model.
+        // These provide an alternative backend via ToolNeuron's llama.cpp integration,
+        // with support for tool calling, control vectors, and KV cache persistence.
+        CatalogEntry(
+            id = "gguf-ruvltra-claude-code-0.5b-q4",
+            name = "Ruvltra-Claude-Code-0.5B",
+            description = "Compact 0.5B GGUF model optimized for code and tool calling. " +
+                    "Very fast inference, ideal for grammar-constrained plugin dispatch.",
+            family = "Qwen",
+            parameterCount = "0.5B",
+            quantization = "Q4_K_M",
+            format = "gguf",
+            downloadUrl = "https://huggingface.co/Ruvltra/Claude-Code-0.5b-Q4_K_M-GGUF/resolve/main/claude-code-0.5b-q4_k_m.gguf",
+            sizeBytes = 400_000_000L,
+            contextWindow = 4096,
+            ramRequirement = RamRequirement(minRamMb = 1024, recommendedRamMb = 2048),
+            supportsGpu = false,
+            source = "Ruvltra via HuggingFace",
+            modelFiles = DEFAULT_GGUF_MODEL_FILES
+        ),
+        CatalogEntry(
+            id = "gguf-gemma3-1b-q4",
+            name = "Gemma3-1B-IT-GGUF",
+            description = "Google Gemma3 1B instruction-tuned in GGUF format. " +
+                    "Lightweight model with good instruction following.",
+            family = "Gemma",
+            parameterCount = "1B",
+            quantization = "Q4_K_M",
+            format = "gguf",
+            downloadUrl = "https://huggingface.co/bartowski/gemma-3-1b-it-GGUF/resolve/main/gemma-3-1b-it-Q4_K_M.gguf",
+            sizeBytes = 750_000_000L,
+            contextWindow = 4096,
+            ramRequirement = RamRequirement(minRamMb = 1536, recommendedRamMb = 2560),
+            supportsGpu = false,
+            source = "Google via bartowski GGUF",
+            modelFiles = DEFAULT_GGUF_MODEL_FILES
+        ),
+        CatalogEntry(
+            id = "gguf-qwen3-8b-q4",
+            name = "Qwen3-8B-GGUF",
+            description = "Alibaba's Qwen3 8B in GGUF format. High quality responses " +
+                    "with tool calling support. Recommended for 12GB+ RAM devices.",
+            family = "Qwen",
+            parameterCount = "8B",
+            quantization = "Q4_K_M",
+            format = "gguf",
+            downloadUrl = "https://huggingface.co/bartowski/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+            sizeBytes = 5_000_000_000L,
+            contextWindow = 8192,
+            ramRequirement = RamRequirement(minRamMb = 6144, recommendedRamMb = 12288),
+            supportsGpu = false,
+            source = "Alibaba via bartowski GGUF",
+            modelFiles = DEFAULT_GGUF_MODEL_FILES
         )
     )
 
@@ -354,6 +423,23 @@ object ModelCatalog {
         return entries
             .filter { it.ramRequirement.recommendedRamMb <= availableRamMb }
             .maxByOrNull { it.sizeBytes }
+    }
+
+    /**
+     * Recommend the best model for the given device RAM and preferred format.
+     *
+     * @param preferredFormat "mnn", "gguf", or null for any format
+     */
+    fun recommendForDevice(availableRamMb: Long, preferredFormat: String?): CatalogEntry? {
+        val candidates = entries
+            .filter { it.ramRequirement.recommendedRamMb <= availableRamMb }
+            .let { list ->
+                if (preferredFormat != null) {
+                    val filtered = list.filter { it.format.equals(preferredFormat, ignoreCase = true) }
+                    filtered.ifEmpty { list } // Fall back to all formats if none match
+                } else list
+            }
+        return candidates.maxByOrNull { it.sizeBytes }
     }
 
     /**

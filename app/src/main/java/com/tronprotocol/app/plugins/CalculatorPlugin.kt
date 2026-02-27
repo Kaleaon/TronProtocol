@@ -297,110 +297,45 @@ class CalculatorPlugin : Plugin {
 
         val value = parts[0].toDoubleOrNull()
             ?: throw Exception("Invalid number: '${parts[0]}'")
-        val fromUnit = parts[1].lowercase()
-        val toUnit = parts[3].lowercase()
+        val fromUnitName = parts[1].lowercase()
+        val toUnitName = parts[3].lowercase()
 
-        // Temperature conversions (special - non-linear)
-        val tempResult = convertTemperature(value, fromUnit, toUnit)
-        if (tempResult != null) return tempResult
+        val fromUnit = Unit.fromString(fromUnitName)
+            ?: throw Exception("Unknown unit: '$fromUnitName'")
+        val toUnit = Unit.fromString(toUnitName)
+            ?: throw Exception("Unknown unit: '$toUnitName'")
 
-        // Length conversions
-        val lengthFrom = lengthToMeters(fromUnit)
-        val lengthTo = lengthToMeters(toUnit)
-        if (lengthFrom != null && lengthTo != null) {
-            return value * lengthFrom / lengthTo
+        if (fromUnit.type != toUnit.type) {
+            throw Exception("Cannot convert from '$fromUnitName' (${fromUnit.type}) to '$toUnitName' (${toUnit.type}). Incompatible types.")
         }
 
-        // Weight/mass conversions
-        val weightFrom = weightToKilograms(fromUnit)
-        val weightTo = weightToKilograms(toUnit)
-        if (weightFrom != null && weightTo != null) {
-            return value * weightFrom / weightTo
+        return if (fromUnit.type == UnitType.TEMPERATURE) {
+            convertTemperature(value, fromUnit, toUnit)
+        } else {
+            // Linear conversion: value * (fromFactor / toFactor)
+            // Or: (value * fromFactor) / toFactor
+            // Example: 1 km to m -> 1 * 1000.0 / 1.0 = 1000.0
+            // Example: 1000 m to km -> 1000 * 1.0 / 1000.0 = 1.0
+            value * fromUnit.baseFactor / toUnit.baseFactor
         }
-
-        // Time conversions
-        val timeFrom = timeToSeconds(fromUnit)
-        val timeTo = timeToSeconds(toUnit)
-        if (timeFrom != null && timeTo != null) {
-            return value * timeFrom / timeTo
-        }
-
-        // Data size conversions
-        val dataFrom = dataToBytes(fromUnit)
-        val dataTo = dataToBytes(toUnit)
-        if (dataFrom != null && dataTo != null) {
-            return value * dataFrom / dataTo
-        }
-
-        throw Exception("Cannot convert from '$fromUnit' to '$toUnit'. Unsupported units or incompatible types.")
     }
 
-    private fun convertTemperature(value: Double, from: String, to: String): Double? {
-        val tempUnits = setOf("c", "celsius", "f", "fahrenheit", "k", "kelvin")
-        if (from !in tempUnits || to !in tempUnits) return null
-
+    private fun convertTemperature(value: Double, from: Unit, to: Unit): Double {
         // Convert to Celsius first
         val celsius = when (from) {
-            "c", "celsius" -> value
-            "f", "fahrenheit" -> (value - 32) * 5.0 / 9.0
-            "k", "kelvin" -> value - 273.15
-            else -> return null
+            Unit.CELSIUS -> value
+            Unit.FAHRENHEIT -> (value - 32) * 5.0 / 9.0
+            Unit.KELVIN -> value - 273.15
+            else -> throw Exception("Unsupported temperature unit: ${from.names[0]}")
         }
 
         // Convert from Celsius to target
         return when (to) {
-            "c", "celsius" -> celsius
-            "f", "fahrenheit" -> celsius * 9.0 / 5.0 + 32
-            "k", "kelvin" -> celsius + 273.15
-            else -> null
+            Unit.CELSIUS -> celsius
+            Unit.FAHRENHEIT -> celsius * 9.0 / 5.0 + 32
+            Unit.KELVIN -> celsius + 273.15
+            else -> throw Exception("Unsupported temperature unit: ${to.names[0]}")
         }
-    }
-
-    /** Returns the factor to multiply by to convert to meters, or null if not a length unit. */
-    private fun lengthToMeters(unit: String): Double? = when (unit) {
-        "m", "meter", "meters" -> 1.0
-        "km", "kilometer", "kilometers" -> 1000.0
-        "cm", "centimeter", "centimeters" -> 0.01
-        "mm", "millimeter", "millimeters" -> 0.001
-        "mi", "mile", "miles" -> 1609.344
-        "ft", "foot", "feet" -> 0.3048
-        "in", "inch", "inches" -> 0.0254
-        "yd", "yard", "yards" -> 0.9144
-        "nm", "nautical_mile", "nautical_miles" -> 1852.0
-        else -> null
-    }
-
-    /** Returns the factor to multiply by to convert to kilograms, or null if not a weight unit. */
-    private fun weightToKilograms(unit: String): Double? = when (unit) {
-        "kg", "kilogram", "kilograms" -> 1.0
-        "g", "gram", "grams" -> 0.001
-        "mg", "milligram", "milligrams" -> 0.000001
-        "lb", "lbs", "pound", "pounds" -> 0.453592
-        "oz", "ounce", "ounces" -> 0.0283495
-        "ton", "tons", "tonne", "tonnes" -> 1000.0
-        "st", "stone", "stones" -> 6.35029
-        else -> null
-    }
-
-    /** Returns the factor to multiply by to convert to seconds, or null if not a time unit. */
-    private fun timeToSeconds(unit: String): Double? = when (unit) {
-        "s", "sec", "second", "seconds" -> 1.0
-        "ms", "millisecond", "milliseconds" -> 0.001
-        "min", "minute", "minutes" -> 60.0
-        "h", "hr", "hour", "hours" -> 3600.0
-        "d", "day", "days" -> 86400.0
-        "w", "week", "weeks" -> 604800.0
-        else -> null
-    }
-
-    /** Returns the factor to multiply by to convert to bytes, or null if not a data unit. */
-    private fun dataToBytes(unit: String): Double? = when (unit) {
-        "b", "byte", "bytes" -> 1.0
-        "kb", "kilobyte", "kilobytes" -> 1024.0
-        "mb", "megabyte", "megabytes" -> 1048576.0
-        "gb", "gigabyte", "gigabytes" -> 1073741824.0
-        "tb", "terabyte", "terabytes" -> 1099511627776.0
-        else -> null
     }
 
     override fun initialize(context: Context) {

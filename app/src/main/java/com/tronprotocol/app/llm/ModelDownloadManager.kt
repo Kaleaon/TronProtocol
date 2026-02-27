@@ -16,8 +16,9 @@ import java.util.zip.ZipInputStream
 /**
  * Model download manager with progress tracking, resume, pause, and cancel support.
  *
- * Inspired by LLM-Hub's ModelDownloader, adapted for TronProtocol's MNN-based
- * model packaging (ZIP archives containing llm.mnn, config.json, tokenizer.txt, etc.).
+ * Supports both MNN models (multi-file directory structure) and GGUF models
+ * (single-file download). GGUF models are downloaded directly from HuggingFace
+ * as a single `.gguf` file, while MNN models fetch multiple artifacts.
  *
  * @see <a href="https://github.com/timmyy123/LLM-Hub">LLM-Hub</a>
  */
@@ -79,17 +80,29 @@ class ModelDownloadManager(context: Context) {
         var future: Future<*>? = null
     )
 
-    /** Get the models directory where downloads are stored. */
+    /** Get the models directory for MNN downloads. */
     fun getModelsBaseDir(): File {
         val dir = File(appContext.filesDir, "mnn_models")
         if (!dir.exists()) dir.mkdirs()
         return dir
     }
 
-    /** Get the directory for a specific model. */
+    /** Get the models directory for GGUF downloads. */
+    fun getGgufModelsBaseDir(): File {
+        val dir = File(appContext.filesDir, "gguf_models")
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    /** Get the directory for a specific model based on its format. */
     fun getModelDir(modelId: String): File {
         val safeName = modelId.replace(Regex("[^a-z0-9._-]"), "_")
-        return File(getModelsBaseDir(), safeName)
+        val entry = ModelCatalog.findById(modelId)
+        return if (entry?.isGguf == true) {
+            File(getGgufModelsBaseDir(), safeName)
+        } else {
+            File(getModelsBaseDir(), safeName)
+        }
     }
 
     /**
@@ -185,17 +198,34 @@ class ModelDownloadManager(context: Context) {
     /** Check if a model's files are fully downloaded and valid. */
     fun isModelDownloaded(modelId: String): Boolean {
         val modelDir = getModelDir(modelId)
-        return modelDir.exists() && File(modelDir, "llm.mnn").exists()
+        if (!modelDir.exists()) return false
+        // MNN: check for llm.mnn
+        if (File(modelDir, "llm.mnn").exists()) return true
+        // GGUF: check for any .gguf file
+        return modelDir.listFiles()?.any { it.name.lowercase().endsWith(".gguf") } == true
     }
 
-    /** Get all downloaded model IDs. */
+    /** Get all downloaded model IDs across both MNN and GGUF directories. */
     fun getDownloadedModelIds(): List<String> {
-        val baseDir = getModelsBaseDir()
-        if (!baseDir.exists()) return emptyList()
-        return baseDir.listFiles()
-            ?.filter { it.isDirectory && File(it, "llm.mnn").exists() }
-            ?.map { it.name }
-            .orEmpty()
+        val mnnIds = getModelsBaseDir().let { baseDir ->
+            if (!baseDir.exists()) emptyList()
+            else baseDir.listFiles()
+                ?.filter { it.isDirectory && File(it, "llm.mnn").exists() }
+                ?.map { it.name }
+                .orEmpty()
+        }
+        val ggufIds = getGgufModelsBaseDir().let { baseDir ->
+            if (!baseDir.exists()) emptyList()
+            else baseDir.listFiles()
+                ?.filter { dir ->
+                    dir.isDirectory && dir.listFiles()?.any {
+                        it.name.lowercase().endsWith(".gguf")
+                    } == true
+                }
+                ?.map { it.name }
+                .orEmpty()
+        }
+        return mnnIds + ggufIds
     }
 
     /** Get disk usage for a downloaded model in bytes. */
@@ -234,23 +264,43 @@ class ModelDownloadManager(context: Context) {
     }
 
     /**
-     * Import a model from a local directory path.
+     * Import a model from a local directory or file path.
      * Validates required files and registers it.
+     *
+     * For MNN: expects a directory containing `llm.mnn`.
+     * For GGUF: accepts a directory containing a `.gguf` file, or a direct `.gguf` file.
      */
     fun importLocalModel(modelId: String, sourceDir: File): Boolean {
-        if (!sourceDir.exists() || !sourceDir.isDirectory) {
-            Log.w(TAG, "Import source directory does not exist: ${sourceDir.absolutePath}")
-            return false
-        }
-
-        if (!File(sourceDir, "llm.mnn").exists()) {
-            Log.w(TAG, "Import directory missing llm.mnn: ${sourceDir.absolutePath}")
+        if (!sourceDir.exists()) {
+            Log.w(TAG, "Import source does not exist: ${sourceDir.absolutePath}")
             return false
         }
 
         val targetDir = getModelDir(modelId)
         if (targetDir.exists()) targetDir.deleteRecursively()
         targetDir.mkdirs()
+
+        if (sourceDir.isFile && sourceDir.name.lowercase().endsWith(".gguf")) {
+            // Single GGUF file — copy directly
+            sourceDir.copyTo(File(targetDir, sourceDir.name), overwrite = true)
+            val success = targetDir.listFiles()?.any { it.name.lowercase().endsWith(".gguf") } == true
+            Log.d(TAG, "Imported GGUF model $modelId from ${sourceDir.absolutePath}: $success")
+            return success
+        }
+
+        if (!sourceDir.isDirectory) {
+            Log.w(TAG, "Import source is not a directory: ${sourceDir.absolutePath}")
+            return false
+        }
+
+        // Check for MNN or GGUF content
+        val hasMnn = File(sourceDir, "llm.mnn").exists()
+        val hasGguf = sourceDir.listFiles()?.any { it.name.lowercase().endsWith(".gguf") } == true
+
+        if (!hasMnn && !hasGguf) {
+            Log.w(TAG, "Import directory has neither llm.mnn nor .gguf: ${sourceDir.absolutePath}")
+            return false
+        }
 
         // Copy all files from source to target
         sourceDir.listFiles()?.forEach { file ->
@@ -259,7 +309,8 @@ class ModelDownloadManager(context: Context) {
             }
         }
 
-        val success = File(targetDir, "llm.mnn").exists()
+        val success = if (hasMnn) File(targetDir, "llm.mnn").exists()
+                      else targetDir.listFiles()?.any { it.name.lowercase().endsWith(".gguf") } == true
         Log.d(TAG, "Imported model $modelId from ${sourceDir.absolutePath}: $success")
         return success
     }
@@ -281,14 +332,17 @@ class ModelDownloadManager(context: Context) {
             emitProgress(task, DownloadState.QUEUED, 0, entry.sizeBytes, 0)
 
             // If model is already fully downloaded, skip
-            if (modelDir.exists() && File(modelDir, "llm.mnn").exists()) {
+            if (isModelDownloaded(entry.id)) {
                 Log.d(TAG, "Model already downloaded: ${entry.id}")
                 emitProgress(task, DownloadState.COMPLETED, entry.sizeBytes, entry.sizeBytes, 0)
                 activeDownloads.remove(entry.id)
                 return
             }
 
-            if (entry.modelFiles.isNotEmpty()) {
+            if (entry.isGguf) {
+                // GGUF: single-file direct download
+                executeGgufDownload(task, modelDir)
+            } else if (entry.modelFiles.isNotEmpty()) {
                 // Multi-file download: fetch individual files from HuggingFace repo
                 executeMultiFileDownload(task, modelDir)
             } else {
@@ -304,6 +358,44 @@ class ModelDownloadManager(context: Context) {
         } finally {
             activeDownloads.remove(entry.id)
         }
+    }
+
+    /**
+     * Download a GGUF model as a single file directly into the model directory.
+     * The [downloadUrl] should point directly to the `.gguf` file.
+     * Supports resume via HTTP Range headers.
+     */
+    private fun executeGgufDownload(task: DownloadTask, modelDir: File) {
+        val entry = task.catalogEntry
+
+        if (modelDir.exists()) modelDir.deleteRecursively()
+        modelDir.mkdirs()
+
+        // Extract filename from URL (e.g. "Qwen3-8B-Q4_K_M.gguf")
+        val fileName = entry.downloadUrl.substringAfterLast("/")
+            .takeIf { it.lowercase().endsWith(".gguf") }
+            ?: "${entry.id}.gguf"
+
+        val outputFile = File(modelDir, fileName)
+
+        val bytesDownloaded = downloadSingleFile(task, entry.downloadUrl, outputFile, 0, entry.sizeBytes)
+
+        if (task.cancelled.get()) {
+            emitProgress(task, DownloadState.CANCELLED, 0, entry.sizeBytes, 0)
+            return
+        }
+        if (task.paused.get()) {
+            emitProgress(task, DownloadState.PAUSED, bytesDownloaded, entry.sizeBytes, 0)
+            return
+        }
+
+        if (!outputFile.exists() || outputFile.length() == 0L) {
+            throw RuntimeException("GGUF download produced no file: $fileName")
+        }
+
+        emitProgress(task, DownloadState.COMPLETED, outputFile.length(), entry.sizeBytes, 0)
+        Log.d(TAG, "GGUF download complete: ${entry.name} -> ${outputFile.absolutePath} " +
+                "(${outputFile.length() / (1024 * 1024)}MB)")
     }
 
     /**
