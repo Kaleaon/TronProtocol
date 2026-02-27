@@ -1,12 +1,14 @@
 plugins {
     id 'com.android.application'
-    id 'org.jetbrains.kotlin.android'
+    id 'com.google.devtools.ksp'
+    id 'com.google.dagger.hilt.android'
 }
+
 
 android {
     namespace 'com.tronprotocol.app'
     compileSdk 34
-    buildToolsVersion "34.0.0"
+    ndkVersion "26.3.11579264"
 
     defaultConfig {
         applicationId "com.tronprotocol.app"
@@ -14,7 +16,12 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+    }
 
+    externalNativeBuild {
+        cmake {
+            version "3.22.1"
+        }
     }
 
     signingConfigs {
@@ -25,7 +32,6 @@ android {
                 keyAlias System.getenv("KEY_ALIAS")
                 keyPassword System.getenv("KEY_PASSWORD")
             } else {
-                // Fallback to debug keystore so CI and local builds produce installable APKs
                 def debugKeystoreFile = new File(System.getProperty("user.home"), ".android/debug.keystore")
                 storeFile debugKeystoreFile
                 storePassword "android"
@@ -43,13 +49,10 @@ android {
         }
     }
 
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
-    }
-
-    kotlinOptions {
-        jvmTarget = '1.8'
     }
 
     lint {
@@ -57,54 +60,58 @@ android {
     }
 }
 
-
 dependencies {
     implementation libs.androidx.appcompat
     implementation libs.google.material
     implementation libs.androidx.constraintlayout
     implementation libs.androidx.work.runtime.ktx
+    implementation libs.androidx.activity.compose
+    implementation libs.androidx.navigation.compose
+    implementation libs.androidx.compose.ui
+    implementation libs.androidx.compose.ui.tooling.preview
+    implementation libs.androidx.compose.material3
+    implementation libs.androidx.compose.material.icons.extended
+    implementation libs.coil.compose
     implementation project(':ktheme-kotlin')
 
-    // NPU/AI Core dependencies
-    implementation libs.gms.mlkit.text.recognition
-    implementation libs.tensorflow.lite
-    implementation libs.tensorflow.lite.gpu
-    implementation libs.tensorflow.lite.support
+    // AI runtime + model integration
+    implementation libs.onnxruntime.android
+    implementation files('libs/sentence-embeddings-custom.aar')
+    implementation files('libs/model2vec-custom.aar')
+    implementation files('libs/stable-diffusion-v1.5.aar')
+    implementation files('libs/gguf-support-custom.aar')
+    implementation files('libs/supertonic-tts-custom.aar')
 
-    // NNAPI routing is enabled at runtime through TensorFlow Lite's built-in NNAPI delegate APIs.
-    // There is no standalone Maven artifact named tensorflow-lite-nnapi.
+    // Document processing
+    implementation libs.apache.poi
+    implementation libs.pdfbox.android
+    implementation files('libs/epublib-custom.aar')
+    implementation libs.commons.compress
 
-    // Networking (HuggingFace Model Store, API client)
+    // Data & storage
+    implementation libs.androidx.room.runtime
+    implementation libs.androidx.room.ktx
+    ksp libs.androidx.room.compiler
+    implementation libs.datastore.preferences
+    implementation libs.kotlinx.serialization.json
+    implementation libs.gson
+    implementation libs.lz4.java
+
+    // Networking
     implementation libs.retrofit
     implementation libs.retrofit.gson
     implementation libs.okhttp
     implementation libs.okhttp.logging
-    implementation libs.gson
 
-    // DataStore (model repo preferences, persona persistence)
-    implementation libs.datastore.preferences
+    // Dependency injection
+    implementation libs.hilt.android
+    ksp libs.hilt.compiler
+    implementation libs.dagger
+    ksp libs.dagger.compiler
 
     // Coroutines
     implementation libs.kotlinx.coroutines.core
     implementation libs.kotlinx.coroutines.android
-
-    // MNN (Mobile Neural Network) — Alibaba's on-device inference framework
-    // Core AAR provides Java API for model loading, session management, and inference.
-    // For LLM inference, native .so files must be built from source with -DMNN_BUILD_LLM=true
-    // and placed in app/src/main/jniLibs/arm64-v8a/ (libMNN.so, libMNN_Express.so, libmnnllm.so).
-    //
-    // MNN TaoAvatar (3D avatar rendering + animation):
-    // Additional native .so files for the avatar pipeline:
-    //   - libmnn_nnr.so  (Neural Network Rendering — 3D Gaussian Splatting avatar renderer)
-    //   - libmnn_a2bs.so (Audio-to-BlendShape — facial/body animation from audio)
-    // Build MNN from source with -DMNN_BUILD_NNR=true for avatar support.
-    // Models: TaoAvatar-NNR-MNN, UniTalker-MNN (ModelScope)
-    // Paper: https://arxiv.org/html/2503.17032v1
-    // See: https://github.com/alibaba/MNN/tree/master/apps/Android/MnnTaoAvatar
-    implementation libs.alibaba.mnn
-
-    // For neural network acceleration
-    implementation libs.gms.play.services.base
 
     // Unit testing
     testImplementation libs.junit4
@@ -113,7 +120,6 @@ dependencies {
     testImplementation libs.robolectric
     testImplementation 'androidx.test:core:1.5.0'
 }
-
 
 // Security regression suite (path traversal, outbound guardrails, policy-denial observability)
 tasks.register("securityRegressionTest", Test) {

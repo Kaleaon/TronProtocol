@@ -8,8 +8,8 @@ java {
 }
 
 dependencies {
-    implementation "org.jetbrains.kotlin:kotlin-stdlib:1.9.10"
-    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2"
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:2.3.10"
+    implementation "org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0"
 }
 
 
