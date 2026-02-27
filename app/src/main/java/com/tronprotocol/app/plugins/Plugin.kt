@@ -29,6 +29,19 @@ interface Plugin {
     fun requiredCapabilities(): Set<Capability> = emptySet()
 
     /**
+     * Tool definitions for grammar-constrained LLM tool calling.
+     *
+     * When non-empty, the LLM can autonomously invoke this plugin by
+     * generating a tool call matching one of these definitions. The
+     * tool call JSON is validated against the parameter schema and
+     * dispatched to [execute].
+     *
+     * @return List of tool definitions, or empty if this plugin
+     *         does not support LLM-initiated tool calling
+     */
+    fun getToolDefinitions(): List<ToolDefinition> = emptyList()
+
+    /**
      * Execute the plugin's main functionality
      * @param input Input data for the plugin
      * @return Result of plugin execution
