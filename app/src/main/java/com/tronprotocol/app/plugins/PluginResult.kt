@@ -21,12 +21,12 @@ class PluginResult(
 
     companion object {
         @JvmStatic
-        fun success(data: String, executionTimeMs: Long): PluginResult {
+        fun success(data: String, executionTimeMs: Long = 0L): PluginResult {
             return PluginResult(true, data, executionTimeMs)
         }
 
         @JvmStatic
-        fun error(errorMessage: String?, executionTimeMs: Long): PluginResult {
+        fun error(errorMessage: String?, executionTimeMs: Long = 0L): PluginResult {
             return PluginResult(false, null, executionTimeMs).also {
                 it.errorMessage = errorMessage
             }

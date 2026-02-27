@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         private set
     lateinit var responseQualityScorer: ResponseQualityScorer
         private set
-    lateinit var inferenceTelemetry: InferenceTelemetry
+    private lateinit var inferenceTelemetryManager: InferenceTelemetry
         private set
     var affectOrchestrator: AffectOrchestrator? = null
         private set
@@ -131,7 +131,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             aiContextManager = AIContextManager()
             promptTemplateEngine = PromptTemplateEngine()
             responseQualityScorer = ResponseQualityScorer()
-            inferenceTelemetry = InferenceTelemetry(this)
+            inferenceTelemetryManager = InferenceTelemetry(this)
         }
 
         bindShellViews()
@@ -322,7 +322,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         showToast("Debug log exported: ${file.absolutePath}")
     }
 
-    override fun getInferenceTelemetry(): InferenceTelemetry = inferenceTelemetry
+    override fun getInferenceTelemetry(): InferenceTelemetry = inferenceTelemetryManager
 
     override fun launchPersonalityImport() {
         personalityImportLauncher.launch(arrayOf("*/*"))
