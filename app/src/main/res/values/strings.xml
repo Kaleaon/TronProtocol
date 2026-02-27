@@ -1,64 +1,245 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TronProtocol</string>
+
+    <!-- Common -->
+    <string name="common_ok">OK</string>
+    <string name="common_close">Close</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_save">Save</string>
+    <string name="common_share">Share</string>
+    <string name="common_start">Start</string>
+    <string name="common_unknown_error">Unknown error</string>
+    <string name="common_yes">Yes</string>
+    <string name="common_no">No</string>
+
+    <!-- Main shell -->
+    <string name="main_title">Tron Protocol</string>
+    <string name="main_plugins_initial">0 plugins</string>
+    <string name="service_state_deferred_badge">DEFERRED</string>
     <string name="active_plugins_count">Active plugins: %1$d</string>
     <string name="skipped_plugins_message">Some plugins could not be initialized: %1$s</string>
-    <string name="service_status_waiting_reason">Waiting for service startup diagnostics</string>
-    <string name="service_status_format">Service status: %1$s\n%2$s</string>
+    <string name="service_status_waiting_reason">Waiting for service startup diagnostics.</string>
+    <string name="service_status_format">Service status: %1$s
+%2$s</string>
+    <string name="main_toast_permission_granted">Permission granted.</string>
+    <string name="main_toast_permissions_denied">Some permissions were denied.</string>
+    <string name="main_toast_shared_file">Shared: %1$s</string>
+    <string name="main_toast_all_files_settings_unavailable">Unable to open all-files settings.</string>
+    <string name="main_toast_debug_log_exported">Debug log exported: %1$s</string>
     <string name="accessibility_service_description">TronProtocol screen reader for AI context awareness. Reads on-screen text to understand what you are doing and provide proactive assistance.</string>
 
-    <!-- Tab titles -->
+    <!-- Tabs -->
     <string name="tab_chat">Chat</string>
     <string name="tab_avatar">Avatar</string>
     <string name="tab_models">Models</string>
     <string name="tab_plugins">Plugins</string>
     <string name="tab_settings">Settings</string>
 
-    <!-- Chat -->
+    <!-- Chat screen -->
     <string name="chat_hint">Message Tron AI&#8230;</string>
-    <string name="chat_empty">Start a conversation with Tron AI.\nMessages are routed through on-device LLM or Claude API.</string>
-    <string name="chat_role_user">You</string>
-    <string name="chat_role_assistant">Tron AI</string>
-    <string name="chat_action_copy">Copy</string>
-    <string name="chat_copy_success">Message copied</string>
-    <string name="chat_row_content_description">%1$s message: %2$s</string>
-    <string name="chat_copy_content_description">Copy %1$s message</string>
+    <string name="chat_empty">Start a conversation with Tron AI.
+Messages are routed through an on-device model or a cloud model service.</string>
+    <string name="chat_thinking">Tron AI is thinking&#8230;</string>
+    <string name="chat_affect_label">Affect:</string>
+    <string name="chat_send_content_description">Send message</string>
+    <string name="chat_toast_type_message">Type a message before sending.</string>
 
-    <!-- Avatar -->
-    <string name="avatar_viewport_label">3D AVATAR VIEWPORT</string>
-    <string name="avatar_status_uninitialized">No avatar loaded</string>
-    <string name="avatar_status_loading">Loading avatar&#8230;</string>
-    <string name="avatar_status_ready">Avatar ready</string>
-    <string name="avatar_status_rendering">Rendering</string>
-    <string name="avatar_status_error">Avatar error</string>
-    <string name="avatar_load_hint">Download and load an avatar preset to begin</string>
-    <string name="avatar_affect_title">AFFECT STATE</string>
-    <string name="avatar_expression_title">EXPRESSION OUTPUT</string>
-    <string name="avatar_no_expression">No expression data</string>
-
-    <!-- API Keys -->
-    <string name="api_keys_title">API Keys</string>
-    <string name="api_keys_description">Securely stored with hardware-backed AES-256 encryption</string>
-    <string name="add_api_key">Add API Key</string>
-
-    <!-- Settings sections -->
-    <string name="section_service">Service Control</string>
+    <!-- Settings screen -->
+    <string name="api_keys_title">API keys</string>
+    <string name="api_keys_description">Securely stored with hardware-backed AES-256 encryption.</string>
+    <string name="add_api_key">Add API key</string>
+    <string name="settings_api_keys_content_description">API keys</string>
+    <string name="settings_api_keys_empty">No API keys configured. Add Anthropic, Hugging Face, or other service keys.</string>
+    <string name="section_service">Service</string>
     <string name="section_permissions">Permissions</string>
     <string name="section_integrations">Integrations</string>
     <string name="section_tools">Tools</string>
     <string name="section_diagnostics">Diagnostics</string>
     <string name="section_memory">Memory &amp; RAG</string>
-    <string name="section_telemetry">AI Inference Telemetry</string>
-    <string name="section_system">System Dashboard</string>
+    <string name="section_telemetry">Inference telemetry</string>
+    <string name="section_system">System dashboard</string>
+    <string name="section_theme">Theme</string>
+    <string name="change_theme">Change theme</string>
+    <string name="settings_start_service">Start background service</string>
+    <string name="settings_permissions_pending">Permissions pending</string>
+    <string name="settings_permission_phone">Phone</string>
+    <string name="settings_permission_sms">SMS</string>
+    <string name="settings_permission_contacts">Contacts</string>
+    <string name="settings_permission_location">Location</string>
+    <string name="settings_permission_storage">Storage</string>
+    <string name="settings_permission_notifications">Notifications</string>
+    <string name="settings_grant_all_files">Grant all-files access</string>
+    <string name="settings_theme_default">Navy Gold</string>
+    <string name="settings_botfather_setup">Telegram BotFather setup</string>
+    <string name="settings_plugin_expansion_guide">Plugin expansion guide</string>
+    <string name="settings_ktheme_designer">Ktheme theme designer</string>
+    <string name="settings_import_personality">Import AI personality and memories</string>
+    <string name="settings_share_document">Share document</string>
+    <string name="settings_share_picture">Share picture</string>
+    <string name="settings_share_audio">Share audio</string>
+    <string name="settings_share_web_link">Share web link</string>
+    <string name="settings_memory_consolidate">Consolidate</string>
+    <string name="settings_memory_refresh_stats">Refresh stats</string>
+    <string name="settings_refresh">Refresh</string>
+    <string name="settings_reset">Reset</string>
+    <string name="settings_export_debug_log">Export debug log</string>
+    <string name="settings_dialog_add_api_key_title">Add API key</string>
+    <string name="settings_dialog_choose_theme_title">Choose theme</string>
+    <string name="settings_dialog_share_web_link_title">Share web link</string>
+    <string name="settings_hint_service_name">Service name (for example, Anthropic)</string>
+    <string name="settings_hint_api_key">API key</string>
+    <string name="settings_hint_share_web_link">https://example.com</string>
+    <string name="settings_memory_no_rag_stats">No RAG statistics available.</string>
+    <string name="settings_memory_rag_plugin_inactive">RAG memory plugin is not active.</string>
+    <string name="settings_telemetry_active">Inference telemetry active.</string>
+    <string name="settings_share_status_link">Shared link: %1$s</string>
+    <string name="settings_toast_service_started">Service started.</string>
+    <string name="settings_toast_service_start_failed">Failed to start service: %1$s</string>
+    <string name="settings_toast_telemetry_reset">Telemetry reset.</string>
+    <string name="settings_toast_provide_service_and_key">Provide both service name and API key.</string>
+    <string name="settings_toast_api_key_saved">API key saved for %1$s.</string>
+    <string name="settings_toast_no_themes_found">No themes found.</string>
+    <string name="settings_toast_theme_applied">Theme applied.</string>
+    <string name="settings_toast_memory_consolidation_starting">Starting memory consolidation&#8230;</string>
+    <string name="settings_toast_memory_consolidation_complete">Memory consolidation complete.</string>
+    <string name="settings_toast_memory_consolidation_unavailable">Consolidation unavailable: %1$s</string>
+    <string name="settings_toast_link_shared">Link shared with AI.</string>
+    <string name="settings_toast_import_success">Import successful.</string>
+    <string name="settings_toast_import_failed">Import failed: %1$s</string>
+    <string name="settings_toast_import_error">Import error: %1$s</string>
+    <string name="settings_toast_open_link_failed">Unable to open link.</string>
+
+    <!-- Models screen -->
+    <string name="models_active_model">Active model</string>
+    <string name="models_no_model_selected">No model selected</string>
+    <string name="models_run_model">Run model</string>
+    <string name="models_prompt_hint">Enter prompt</string>
+    <string name="models_generate">Generate</string>
+    <string name="models_stop">Stop</string>
+    <string name="models_browse">Browse</string>
+    <string name="models_my_models">My models</string>
+    <string name="models_recommend">Recommend</string>
+    <string name="models_status">Status</string>
+    <string name="models_manual_download">Manual download</string>
+    <string name="models_manual_download_description">Download a model from a direct URL.</string>
+    <string name="models_download_from_url">Download from URL</string>
+    <string name="models_device_capabilities">Device capabilities</string>
+    <string name="models_unknown_model">Unknown model</string>
+    <string name="models_no_model_loaded">No model loaded</string>
+    <string name="models_dialog_catalog_title">Model catalog (%1$d)</string>
+    <string name="models_dialog_my_models_title">My models (%1$d)</string>
+    <string name="models_dialog_device_recommendation_title">Device recommendation</string>
+    <string name="models_dialog_llm_status_title">Model status</string>
+    <string name="models_recommendation_message">Recommended model: %1$s
+
+Device: %2$s
+Total RAM: %3$d MB
+Available RAM: %4$d MB
+Max model size: %5$d MB
+ARM64: %6$s
+FP16: %7$s
+GPU: %8$s
+Threads: %9$d
+
+%10$s</string>
+    <string name="models_dialog_download_initialize_title">Download and initialize model</string>
+    <string name="models_download_starting">Starting download: %1$s&#8230;</string>
+    <string name="models_download_extracting">Extracting %1$s&#8230;</string>
+    <string name="models_toast_catalog_empty">No models available in catalog.</string>
+    <string name="models_toast_local_empty">No local models found. Download one first.</string>
+    <string name="models_toast_downloading">Downloading %1$s (%2$d MB)&#8230;</string>
+    <string name="models_toast_download_complete">Download complete: %1$s</string>
+    <string name="models_toast_download_failed">Download failed: %1$s</string>
+    <string name="models_toast_download_already_in_progress">Download already in progress for %1$s.</string>
+    <string name="models_toast_selected">Selected: %1$s</string>
+    <string name="models_toast_loaded">Loaded: %1$s (%2$s)</string>
+    <string name="models_toast_selected_failed_to_load">Selected %1$s, but failed to load model.</string>
+    <string name="models_toast_selected_error_loading">Selected %1$s, but loading failed: %2$s</string>
+    <string name="models_toast_prompt_required">Enter a prompt before generating.</string>
+    <string name="models_toast_select_model_first">No model selected. Select a model first.</string>
+    <string name="models_generating">Generating&#8230;</string>
+    <string name="models_running_inference">Running inference on %1$s&#8230;</string>
+    <string name="models_status_failed_to_load">Failed to load model. Try selecting it again.</string>
+    <string name="models_status_error_loading">Error loading model: %1$s</string>
+    <string name="models_status_generation_failed">Generation failed: %1$s</string>
+    <string name="models_status_generation_cancelled">Generation cancelled.</string>
+    <string name="models_hint_name">Qwen2.5-1.5B-Instruct</string>
+    <string name="models_default_name">Qwen2.5-1.5B-Instruct</string>
+    <string name="models_hint_url">https://example.com/model.zip</string>
+    <string name="models_label_name">Model name:</string>
+    <string name="models_label_download_url">Download URL:</string>
+    <string name="models_toast_provide_name_and_url">Provide both model name and URL.</string>
+    <string name="models_toast_invalid_url_scheme">Invalid URL scheme: only http and https are allowed.</string>
+    <string name="models_toast_downloading_package">Downloading model package&#8230;</string>
+    <string name="models_toast_model_ready">Model ready: %1$s (%2$s MB)</string>
+    <string name="models_toast_setup_failed">Model setup failed: %1$s</string>
+
+    <!-- Plugins screen -->
+    <string name="plugins_run_self_check">Run self-check</string>
+    <string name="plugins_category_core">Core systems</string>
+    <string name="plugins_category_ai">AI and intelligence</string>
+    <string name="plugins_category_communication">Communication</string>
+    <string name="plugins_category_tools">Tools and automation</string>
+    <string name="plugins_category_safety">Safety and governance</string>
+
+    <!-- Avatar screen -->
+    <string name="avatar_viewport_label">3D avatar viewport</string>
+    <string name="avatar_status_uninitialized">No avatar loaded</string>
+    <string name="avatar_status_loading">Loading avatar&#8230;</string>
+    <string name="avatar_status_ready">Avatar ready</string>
+    <string name="avatar_status_error">Avatar error</string>
+    <string name="avatar_load_hint">Download and load an avatar preset to begin.</string>
+    <string name="avatar_affect_title">Affect state</string>
+    <string name="avatar_expression_title">Expression output</string>
+    <string name="avatar_no_expression">No expression data</string>
+    <string name="avatar_control_title">Avatar controls</string>
+    <string name="avatar_load">Load avatar</string>
+    <string name="avatar_unload">Unload</string>
+    <string name="avatar_custom">Custom avatars</string>
+    <string name="avatar_reset_camera">Reset camera</string>
+    <string name="avatar_refresh_affect">Refresh</string>
+    <string name="avatar_download">Download</string>
+    <string name="avatar_dialog_presets_title">Avatar presets (%1$d)</string>
+    <string name="avatar_dialog_download_title">Download: %1$s</string>
+    <string name="avatar_dialog_download_message">This avatar preset needs to download required components. Continue?</string>
+    <string name="avatar_dialog_custom_title">Custom avatars</string>
+    <string name="avatar_dialog_custom_count_title">Custom avatars (%1$d)</string>
+    <string name="avatar_dialog_custom_empty_message">No custom avatars imported yet.
+
+Use the avatar plugin to import custom avatar models with NNR rendering support.</string>
+    <string name="avatar_toast_camera_reset">Camera reset.</string>
+    <string name="avatar_toast_no_presets">No avatar presets available in catalog.</string>
+    <string name="avatar_toast_viewport_not_ready">Avatar viewport not ready. Try again.</string>
+    <string name="avatar_toast_download_complete_loading">Download complete. Loading avatar&#8230;</string>
+    <string name="avatar_toast_download_failed">Download failed: %1$s</string>
+    <string name="avatar_loaded_fallback">Avatar loaded</string>
+    <string name="avatar_toast_loaded">Avatar loaded: %1$s</string>
+    <string name="avatar_toast_load_failed">Failed to load avatar: %1$s</string>
+    <string name="avatar_toast_custom_load_failed">Failed to load custom avatar: %1$s</string>
+    <string name="avatar_status_checking_capabilities">Checking capabilities&#8230;</string>
+    <string name="avatar_native_loaded">native loaded</string>
+    <string name="avatar_native_unavailable">native unavailable</string>
+    <string name="avatar_device_assessment">NNR ready • %1$s</string>
+    <string name="avatar_download_component">Downloading %1$s&#8230;</string>
+    <string name="avatar_extracting_component">Extracting %1$s&#8230;</string>
+    <string name="avatar_component_error">Error: %1$s — %2$s</string>
+    <string name="avatar_component_complete">Complete: %1$s</string>
+    <string name="avatar_custom_with_skeleton">With skeleton</string>
+    <string name="avatar_custom_default_skeleton">Default skeleton</string>
+    <string name="avatar_affect_intensity">I=%1$.2f</string>
+    <string name="avatar_hedonic_flourishing">Flourishing</string>
+    <string name="avatar_hedonic_positive">Positive</string>
+    <string name="avatar_hedonic_neutral">Neutral</string>
+    <string name="avatar_hedonic_low">Low</string>
+    <string name="avatar_hedonic_distress">Distress</string>
+    <string name="avatar_hedonic_tone">Hedonic tone: %1$.2f (%2$s)</string>
+    <string name="avatar_motor_noise">Motor noise: %1$.2f</string>
+    <string name="avatar_motor_noise_zero_state"> [ZERO NOISE — total presence]</string>
 
     <!-- AI Inference -->
-    <string name="chat_thinking">Tron AI is thinking&#8230;</string>
     <string name="inference_tier_local">LOCAL</string>
     <string name="inference_tier_cloud">CLOUD</string>
     <string name="inference_tier_fallback">FALLBACK</string>
     <string name="telemetry_empty">No inference data yet. Start a conversation to see metrics.</string>
-
-    <!-- Theme -->
-    <string name="section_theme">Theme</string>
-    <string name="change_theme">Change theme</string>
 </resources>

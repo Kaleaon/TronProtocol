@@ -121,7 +121,7 @@
             android:textSize="11sp"
             android:textAllCaps="true"
             android:letterSpacing="0.1"
-            android:text="Affect:" />
+            android:text="@string/chat_affect_label" />
 
         <TextView
             android:id="@+id/chatHedonicToneText"
@@ -194,7 +194,7 @@
             app:iconGravity="textStart"
             app:iconPadding="0dp"
             app:cornerRadius="24dp"
-            android:contentDescription="Send" />
+            android:contentDescription="@string/chat_send_content_description" />
     </LinearLayout>
 
     <com.google.android.material.button.MaterialButton

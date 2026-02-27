@@ -114,9 +114,9 @@ class SettingsFragment : Fragment() {
             try {
                 val intent = Intent(requireContext(), TronProtocolService::class.java)
                 ContextCompat.startForegroundService(requireContext(), intent)
-                showToast("Service started")
+                showToast(getString(R.string.settings_toast_service_started))
             } catch (e: Exception) {
-                showToast("Failed to start service: ${e.message}")
+                showToast(getString(R.string.settings_toast_service_start_failed, e.message ?: getString(R.string.common_unknown_error)))
             }
         }
 
@@ -219,26 +219,26 @@ class SettingsFragment : Fragment() {
             setPadding(48, 24, 48, 0)
         }
 
-        val nameInput = EditText(requireContext()).apply { hint = "Service name (e.g., Anthropic)" }
-        val keyInput = EditText(requireContext()).apply { hint = "API key" }
+        val nameInput = EditText(requireContext()).apply { hint = getString(R.string.settings_hint_service_name) }
+        val keyInput = EditText(requireContext()).apply { hint = getString(R.string.settings_hint_api_key) }
         layout.addView(nameInput)
         layout.addView(keyInput)
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Add API Key")
+            .setTitle(R.string.settings_dialog_add_api_key_title)
             .setView(layout)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton(R.string.common_save) { _, _ ->
                 val name = nameInput.text?.toString()?.trim().orEmpty()
                 val key = keyInput.text?.toString()?.trim().orEmpty()
                 if (name.isBlank() || key.isBlank()) {
-                    showToast("Provide both service name and key.")
+                    showToast(getString(R.string.settings_toast_provide_service_and_key))
                     return@setPositiveButton
                 }
                 PluginManager.getInstance().executePlugin("api_key_vault", "store|$name|$key")
-                showToast("API key saved for $name")
+                showToast(getString(R.string.settings_toast_api_key_saved, name))
                 refreshApiKeyList()
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.common_cancel, null)
             .show()
     }
 
@@ -274,7 +274,7 @@ class SettingsFragment : Fragment() {
         val themeIds = themeFiles.filter { it.endsWith(".json") }.map { it.removeSuffix(".json") }
 
         if (themeIds.isEmpty()) {
-            showToast("No themes found")
+            showToast(getString(R.string.settings_toast_no_themes_found))
             return
         }
 
@@ -284,13 +284,13 @@ class SettingsFragment : Fragment() {
         }.toTypedArray()
 
         AlertDialog.Builder(ctx)
-            .setTitle("Choose Theme")
+            .setTitle(R.string.settings_dialog_choose_theme_title)
             .setItems(names) { _, which ->
                 val chosen = themeIds[which]
                 (activity as? SettingsHost)?.applyTheme(chosen)
-                showToast("Theme applied")
+                showToast(getString(R.string.settings_toast_theme_applied))
             }
-            .setNegativeButton("Close", null)
+            .setNegativeButton(R.string.common_close, null)
             .show()
     }
 
@@ -303,7 +303,7 @@ class SettingsFragment : Fragment() {
         backgroundExecutor.execute {
             val pluginManager = PluginManager.getInstance()
             val ragResult = pluginManager.executePlugin("rag_memory", "stats")
-            val ragText = if (ragResult.isSuccess) ragResult.data ?: "No RAG statistics available" else "RAG memory plugin not active"
+            val ragText = if (ragResult.isSuccess) ragResult.data ?: getString(R.string.settings_memory_no_rag_stats) else getString(R.string.settings_memory_rag_plugin_inactive)
 
             val consolidationResult = pluginManager.executePlugin("rag_memory", "consolidation_status")
             val consolidationText = if (consolidationResult.isSuccess) consolidationResult.data ?: "" else ""
@@ -319,13 +319,13 @@ class SettingsFragment : Fragment() {
     }
 
     private fun triggerMemoryConsolidation() {
-        showToast("Starting memory consolidation...")
+        showToast(getString(R.string.settings_toast_memory_consolidation_starting))
         backgroundExecutor.execute {
             val result = PluginManager.getInstance().executePlugin("rag_memory", "consolidate")
             activity?.runOnUiThread {
                 if (!isAdded) return@runOnUiThread
-                if (result.isSuccess) showToast("Memory consolidation complete")
-                else showToast("Consolidation unavailable: ${result.errorMessage}")
+                if (result.isSuccess) showToast(getString(R.string.settings_toast_memory_consolidation_complete))
+                else showToast(getString(R.string.settings_toast_memory_consolidation_unavailable, result.errorMessage ?: getString(R.string.common_unknown_error)))
                 refreshMemoryStats()
             }
         }
@@ -427,21 +427,21 @@ class SettingsFragment : Fragment() {
 
     private fun showShareLinkDialog() {
         val input = EditText(requireContext()).apply {
-            hint = "https://example.com"
+            hint = getString(R.string.settings_hint_share_web_link)
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_URI
         }
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Share Web Link")
+            .setTitle(R.string.settings_dialog_share_web_link_title)
             .setView(input)
-            .setPositiveButton("Share") { _, _ ->
+            .setPositiveButton(R.string.common_share) { _, _ ->
                 val url = input.text?.toString()?.trim().orEmpty()
                 if (url.isNotBlank()) {
-                    messageShareStatusText.text = "Shared link: $url"
-                    showToast("Link shared with AI")
+                    messageShareStatusText.text = getString(R.string.settings_share_status_link, url)
+                    showToast(getString(R.string.settings_toast_link_shared))
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.common_cancel, null)
             .show()
     }
 
@@ -472,11 +472,11 @@ class SettingsFragment : Fragment() {
                 tempFiles.forEach { it.delete() }
 
                 activity?.runOnUiThread {
-                    if (result.isSuccess) showToast("Import successful!")
-                    else showToast("Import failed: ${result.errorMessage}")
+                    if (result.isSuccess) showToast(getString(R.string.settings_toast_import_success))
+                    else showToast(getString(R.string.settings_toast_import_failed, result.errorMessage ?: getString(R.string.common_unknown_error)))
                 }
             } catch (e: Exception) {
-                activity?.runOnUiThread { showToast("Import error: ${e.message}") }
+                activity?.runOnUiThread { showToast(getString(R.string.settings_toast_import_error, e.message ?: getString(R.string.common_unknown_error))) }
             }
         }
     }
@@ -489,7 +489,7 @@ class SettingsFragment : Fragment() {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (t: Throwable) {
-            showToast("Unable to open link.")
+            showToast(getString(R.string.settings_toast_open_link_failed))
         }
     }
 
