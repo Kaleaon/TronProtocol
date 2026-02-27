@@ -146,4 +146,44 @@ class PluginManagerTest {
         assertTrue(ids.contains("plugin_b"))
         assertTrue(ids.contains("plugin_c"))
     }
+
+    @Test
+    fun destroy_clearsLazyRegisteredPluginsFromCount() {
+        pluginManager.registerLazy(
+            PluginRegistry.PluginConfig(
+                id = "lazy_plugin",
+                pluginClass = TestPlugin::class.java,
+                defaultEnabled = true,
+                startupPriority = 1,
+                defaultCapabilities = emptySet(),
+                factory = { TestPlugin("lazy_plugin") }
+            )
+        )
+
+        assertEquals(1, pluginManager.getRegisteredCount())
+
+        pluginManager.destroy()
+
+        assertEquals("destroy should clear lazy plugin configs", 0, pluginManager.getRegisteredCount())
+    }
+
+    @Test
+    fun destroy_clearsLazyRegisteredPluginLookup() {
+        pluginManager.registerLazy(
+            PluginRegistry.PluginConfig(
+                id = "lazy_plugin_lookup",
+                pluginClass = TestPlugin::class.java,
+                defaultEnabled = true,
+                startupPriority = 1,
+                defaultCapabilities = emptySet(),
+                factory = { TestPlugin("lazy_plugin_lookup") }
+            )
+        )
+
+        assertEquals(1, pluginManager.getRegisteredCount())
+
+        pluginManager.destroy()
+
+        assertNull("destroy should remove lazy plugin config", pluginManager.getPlugin("lazy_plugin_lookup"))
+    }
 }
