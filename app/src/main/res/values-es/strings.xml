@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TronProtocol</string>
+    <string name="tab_chat">Chat</string>
+    <string name="tab_avatar">Avatar</string>
+    <string name="tab_models">Modelos</string>
+    <string name="tab_plugins">Plugins</string>
+    <string name="tab_settings">Ajustes</string>
+
+    <!-- Scaffold locale coverage for extracted UI text -->
+    <string name="chat_toast_type_message">Escribe un mensaje antes de enviar.</string>
+    <string name="settings_dialog_add_api_key_title">Agregar clave de API</string>
+    <string name="models_dialog_catalog_title">Catálogo de modelos (%1$d)</string>
+    <string name="plugins_category_core">Sistemas centrales</string>
+    <string name="avatar_dialog_custom_title">Avatares personalizados</string>
+</resources>

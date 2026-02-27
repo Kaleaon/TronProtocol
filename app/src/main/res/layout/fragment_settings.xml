@@ -197,7 +197,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Phone"
+                        android:text="@string/settings_permission_phone"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -207,7 +207,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="SMS"
+                        android:text="@string/settings_permission_sms"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -217,7 +217,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Contacts"
+                        android:text="@string/settings_permission_contacts"
                         android:textSize="12sp" />
                 </LinearLayout>
 
@@ -233,7 +233,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Location"
+                        android:text="@string/settings_permission_location"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -243,7 +243,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Storage"
+                        android:text="@string/settings_permission_storage"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
@@ -253,7 +253,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="6dp"
                         android:layout_weight="1"
-                        android:text="Notifs"
+                        android:text="@string/settings_permission_notifications"
                         android:textSize="12sp" />
                 </LinearLayout>
 
@@ -262,7 +262,7 @@
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Grant all files access"
+                    android:text="@string/settings_grant_all_files"
                     android:textSize="12sp" />
 
                 <TextView
@@ -310,6 +310,8 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
                     android:text="Telemetry screen" />
+                    android:layout_marginTop="8dp"
+                    android:text="@string/settings_botfather_setup" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnOpenMemoryScreen"
@@ -318,6 +320,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="Memory screen" />
+                    android:text="@string/settings_plugin_expansion_guide" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnOpenIntegrationsScreen"
@@ -326,6 +329,18 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="Integrations screen" />
+                    android:text="@string/settings_ktheme_designer" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Tools -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/toolsCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnToggleModelMemoryAdvanced"
@@ -513,6 +528,52 @@
                     android:layout_marginTop="4dp"
                     android:text="Why this matters: Verify runtime health quickly before escalating to troubleshooting."
                     android:textSize="12sp" />
+                    android:layout_marginTop="8dp"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="2dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshTelemetry"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_refresh"
+                        android:text="Refresh metrics"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnResetTelemetry"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/settings_reset"
+                        android:text="Clear telemetry data"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- System Dashboard -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/systemDashboardCard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
                 <TextView
                     android:layout_width="wrap_content"

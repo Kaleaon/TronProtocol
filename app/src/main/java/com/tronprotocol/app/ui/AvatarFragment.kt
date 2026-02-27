@@ -124,7 +124,7 @@ class AvatarFragment : Fragment() {
         btnAvatarCustom.setOnClickListener { showCustomAvatarsDialog() }
         btnAvatarReset.setOnClickListener {
             avatarSessionManager?.setCamera(0f, 0f)
-            showToast("Camera reset")
+            showToast(getString(R.string.avatar_toast_camera_reset))
         }
         btnRefreshAffect.setOnClickListener {
             // Refresh affect display requires an orchestrator to be passed externally
@@ -151,7 +151,7 @@ class AvatarFragment : Fragment() {
     private fun showAvatarPresetDialog() {
         val presets = AvatarModelCatalog.presets
         if (presets.isEmpty()) {
-            showToast("No avatar presets available in catalog")
+            showToast(getString(R.string.avatar_toast_no_presets))
             return
         }
         val manager = avatarSessionManager ?: return
@@ -163,26 +163,26 @@ class AvatarFragment : Fragment() {
         }.toTypedArray()
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Avatar Presets (${presets.size})")
+            .setTitle(getString(R.string.avatar_dialog_presets_title, presets.size))
             .setItems(items) { _, which -> handleAvatarPresetSelection(presets[which]) }
-            .setNegativeButton("Close", null)
+            .setNegativeButton(R.string.common_close, null)
             .show()
     }
 
     private fun handleAvatarPresetSelection(preset: AvatarModelCatalog.AvatarPreset) {
         val manager = avatarSessionManager ?: return
         val surface = avatarSurface ?: run {
-            showToast("Avatar viewport not ready. Try again.")
+            showToast(getString(R.string.avatar_toast_viewport_not_ready))
             return
         }
 
         val allDownloaded = preset.componentIds.values.all { manager.resourceManager.isComponentDownloaded(it) }
         if (!allDownloaded) {
             AlertDialog.Builder(requireContext())
-                .setTitle("Download: ${preset.name}")
-                .setMessage("This avatar preset needs to download required components. Continue?")
-                .setPositiveButton("Download") { _, _ -> startAvatarPresetDownload(preset) }
-                .setNegativeButton("Cancel", null)
+                .setTitle(getString(R.string.avatar_dialog_download_title, preset.name))
+                .setMessage(R.string.avatar_dialog_download_message)
+                .setPositiveButton(R.string.avatar_download) { _, _ -> startAvatarPresetDownload(preset) }
+                .setNegativeButton(R.string.common_cancel, null)
                 .show()
             return
         }
@@ -214,7 +214,7 @@ class AvatarFragment : Fragment() {
 
                 override fun onError(componentId: String, error: String) {
                     requireActivity().runOnUiThread {
-                        avatarDownloadStatusText.text = "Error: $componentId — $error"
+                        avatarDownloadStatusText.text = getString(R.string.avatar_component_error, componentId, error)
                     }
                 }
             })
@@ -222,10 +222,10 @@ class AvatarFragment : Fragment() {
             requireActivity().runOnUiThread {
                 avatarDownloadContainer.visibility = View.GONE
                 if (result.success) {
-                    showToast("Download complete. Loading avatar...")
+                    showToast(getString(R.string.avatar_toast_download_complete_loading))
                     loadAvatarPreset(preset.id)
                 } else {
-                    showToast("Download failed: ${result.message}")
+                    showToast(getString(R.string.avatar_toast_download_failed, result.message))
                 }
             }
         }
@@ -236,20 +236,20 @@ class AvatarFragment : Fragment() {
         val surface = avatarSurface ?: return
         val width = avatarTextureView.width
         val height = avatarTextureView.height
-        updateAvatarStatus("Loading...", R.color.service_status_degraded_background)
+        updateAvatarStatus(getString(R.string.avatar_status_loading), R.color.service_status_degraded_background)
 
         avatarExecutor.execute {
             val result = manager.loadAvatar(presetId, surface, width, height)
             requireActivity().runOnUiThread {
                 if (result.success) {
                     val config = manager.activeAvatar
-                    avatarActiveModelText.text = config?.displayName ?: "Avatar loaded"
-                    updateAvatarStatus("Ready", R.color.service_status_running_background)
-                    showToast("Avatar loaded: ${config?.displayName}")
+                    avatarActiveModelText.text = config?.displayName ?: getString(R.string.avatar_loaded_fallback)
+                    updateAvatarStatus(getString(R.string.avatar_status_ready), R.color.service_status_running_background)
+                    showToast(getString(R.string.avatar_toast_loaded, config?.displayName ?: getString(R.string.avatar_loaded_fallback)))
                     avatarExecutor.execute { manager.renderIdle() }
                 } else {
-                    updateAvatarStatus("Error", R.color.service_status_blocked_background)
-                    showToast("Failed to load avatar: ${result.message}")
+                    updateAvatarStatus(getString(R.string.avatar_status_error), R.color.service_status_blocked_background)
+                    showToast(getString(R.string.avatar_toast_load_failed, result.message))
                 }
             }
         }
@@ -258,7 +258,7 @@ class AvatarFragment : Fragment() {
     private fun unloadAvatar() {
         avatarSessionManager?.unloadAvatar()
         avatarActiveModelText.text = getString(R.string.avatar_load_hint)
-        updateAvatarStatus("No avatar loaded", R.color.service_status_deferred_background)
+        updateAvatarStatus(getString(R.string.avatar_status_uninitialized), R.color.service_status_deferred_background)
         avatarFpsText.text = ""
     }
 
@@ -272,19 +272,19 @@ class AvatarFragment : Fragment() {
         val customAvatars = manager.listCustomAvatars()
         if (customAvatars.isEmpty()) {
             AlertDialog.Builder(requireContext())
-                .setTitle("Custom Avatars")
-                .setMessage("No custom avatars imported yet.\n\nUse the MNN Avatar plugin to import custom avatar models with NNR rendering support.")
-                .setPositiveButton("OK", null)
+                .setTitle(R.string.avatar_dialog_custom_title)
+                .setMessage(R.string.avatar_dialog_custom_empty_message)
+                .setPositiveButton(R.string.common_ok, null)
                 .show()
             return
         }
 
         val items = customAvatars.map {
-            "${it.name} (${if (it.hasSkeleton) "With skeleton" else "Default skeleton"})"
+            "${it.name} (${if (it.hasSkeleton) getString(R.string.avatar_custom_with_skeleton) else getString(R.string.avatar_custom_default_skeleton)})"
         }.toTypedArray()
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Custom Avatars (${customAvatars.size})")
+            .setTitle(getString(R.string.avatar_dialog_custom_count_title, customAvatars.size))
             .setItems(items) { _, which ->
                 val avatarName = customAvatars[which].name
                 val surface = avatarSurface ?: return@setItems
@@ -295,14 +295,14 @@ class AvatarFragment : Fragment() {
                     requireActivity().runOnUiThread {
                         if (result.success) {
                             avatarActiveModelText.text = avatarName
-                            updateAvatarStatus("Ready", R.color.service_status_running_background)
+                            updateAvatarStatus(getString(R.string.avatar_status_ready), R.color.service_status_running_background)
                         } else {
-                            showToast("Failed: ${result.message}")
+                            showToast(getString(R.string.avatar_toast_custom_load_failed, result.message))
                         }
                     }
                 }
             }
-            .setNegativeButton("Close", null)
+            .setNegativeButton(R.string.common_close, null)
             .show()
     }
 
@@ -312,16 +312,16 @@ class AvatarFragment : Fragment() {
         val expression = orchestrator.getLastExpression()
         val noise = orchestrator.getLastNoiseResult()
 
-        affectIntensityText.text = "I=%.2f".format(state.intensity())
+        affectIntensityText.text = getString(R.string.avatar_affect_intensity, state.intensity())
         val hedonic = state.hedonicTone()
         val hedonicLabel = when {
-            hedonic > 0.5f -> "Flourishing"
-            hedonic > 0.2f -> "Positive"
-            hedonic > -0.2f -> "Neutral"
-            hedonic > -0.5f -> "Low"
-            else -> "Distress"
+            hedonic > 0.5f -> getString(R.string.avatar_hedonic_flourishing)
+            hedonic > 0.2f -> getString(R.string.avatar_hedonic_positive)
+            hedonic > -0.2f -> getString(R.string.avatar_hedonic_neutral)
+            hedonic > -0.5f -> getString(R.string.avatar_hedonic_low)
+            else -> getString(R.string.avatar_hedonic_distress)
         }
-        affectHedonicText.text = "Hedonic tone: %.2f ($hedonicLabel)".format(hedonic)
+        affectHedonicText.text = getString(R.string.avatar_hedonic_tone, hedonic, hedonicLabel)
 
         buildAffectDimensionBars(state)
 
@@ -343,8 +343,8 @@ class AvatarFragment : Fragment() {
 
         if (noise != null) {
             motorNoiseText.text = buildString {
-                append("Motor noise: %.2f".format(noise.overallNoiseLevel))
-                if (state.isZeroNoiseState()) append(" [ZERO NOISE — total presence]")
+                append(getString(R.string.avatar_motor_noise, noise.overallNoiseLevel))
+                if (state.isZeroNoiseState()) append(getString(R.string.avatar_motor_noise_zero_state))
             }
         } else {
             motorNoiseText.text = ""
