@@ -40,6 +40,7 @@ class InferenceTelemetry(context: Context) {
     private val fallbackCount = AtomicInteger(prefs.getInt(KEY_FALLBACK_COUNT, 0))
     private val errorCount = AtomicInteger(prefs.getInt(KEY_ERROR_COUNT, 0))
     private val regenerationCount = AtomicInteger(prefs.getInt(KEY_REGENERATION_COUNT, 0))
+    private val lastUpdatedMs = AtomicLong(prefs.getLong(KEY_LAST_UPDATED_MS, 0L))
 
     /** Per-tier latency tracking for percentile calculations. */
     private val localLatencies = ConcurrentLinkedQueue<Long>()
@@ -78,7 +79,8 @@ class InferenceTelemetry(context: Context) {
         val cloudP95LatencyMs: Long,
         val averageTokensPerSecond: Float,
         val sessionInferences: Int,
-        val categoryDistribution: Map<String, Int>
+        val categoryDistribution: Map<String, Int>,
+        val lastUpdatedMs: Long
     )
 
     /**
@@ -113,6 +115,7 @@ class InferenceTelemetry(context: Context) {
         if (event.wasFallback) fallbackCount.incrementAndGet()
         if (!event.success) errorCount.incrementAndGet()
         if (event.wasRegenerated) regenerationCount.incrementAndGet()
+        lastUpdatedMs.set(event.timestamp)
 
         qualityScores.add(event.qualityScore)
         while (qualityScores.size > QUALITY_WINDOW_SIZE) qualityScores.poll()
@@ -157,7 +160,8 @@ class InferenceTelemetry(context: Context) {
             cloudP95LatencyMs = percentile(cloudLatencies.toList(), 95),
             averageTokensPerSecond = avgTps,
             sessionInferences = recentEvents.size,
-            categoryDistribution = categoryDist
+            categoryDistribution = categoryDist,
+            lastUpdatedMs = lastUpdatedMs.get()
         )
     }
 
@@ -242,6 +246,7 @@ class InferenceTelemetry(context: Context) {
         fallbackCount.set(0)
         errorCount.set(0)
         regenerationCount.set(0)
+        lastUpdatedMs.set(0L)
         localLatencies.clear()
         cloudLatencies.clear()
         qualityScores.clear()
@@ -258,6 +263,7 @@ class InferenceTelemetry(context: Context) {
             .putInt(KEY_FALLBACK_COUNT, fallbackCount.get())
             .putInt(KEY_ERROR_COUNT, errorCount.get())
             .putInt(KEY_REGENERATION_COUNT, regenerationCount.get())
+            .putLong(KEY_LAST_UPDATED_MS, lastUpdatedMs.get())
             .apply()
     }
 
@@ -283,5 +289,6 @@ class InferenceTelemetry(context: Context) {
         private const val KEY_FALLBACK_COUNT = "fallback_count"
         private const val KEY_ERROR_COUNT = "error_count"
         private const val KEY_REGENERATION_COUNT = "regeneration_count"
+        private const val KEY_LAST_UPDATED_MS = "last_updated_ms"
     }
 }
