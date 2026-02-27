@@ -219,15 +219,15 @@ class SettingsFragment : Fragment() {
             view = view,
             toggleButtonId = R.id.btnToggleModelMemoryAdvanced,
             panelId = R.id.modelMemoryAdvancedPanel,
-            collapsedLabel = "Show advanced controls",
-            expandedLabel = "Hide advanced controls"
+            collapsedLabel = getString(R.string.show_advanced_controls),
+            expandedLabel = getString(R.string.hide_advanced_controls)
         )
         setupExpandableSection(
             view = view,
             toggleButtonId = R.id.btnToggleDiagnosticsAdvanced,
             panelId = R.id.diagnosticsAdvancedPanel,
-            collapsedLabel = "Show advanced diagnostics",
-            expandedLabel = "Hide advanced diagnostics"
+            collapsedLabel = getString(R.string.show_advanced_diagnostics),
+            expandedLabel = getString(R.string.hide_advanced_diagnostics)
         )
     }
 
