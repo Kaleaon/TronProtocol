@@ -17,6 +17,12 @@
     <!-- Chat -->
     <string name="chat_hint">Message Tron AI&#8230;</string>
     <string name="chat_empty">Start a conversation with Tron AI.\nMessages are routed through on-device LLM or Claude API.</string>
+    <string name="chat_role_user">You</string>
+    <string name="chat_role_assistant">Tron AI</string>
+    <string name="chat_action_copy">Copy</string>
+    <string name="chat_copy_success">Message copied</string>
+    <string name="chat_row_content_description">%1$s message: %2$s</string>
+    <string name="chat_copy_content_description">Copy %1$s message</string>
 
     <!-- Avatar -->
     <string name="avatar_viewport_label">3D AVATAR VIEWPORT</string>
