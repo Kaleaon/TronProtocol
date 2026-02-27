@@ -14,7 +14,9 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import com.tronprotocol.app.affect.AffectInput
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 import com.tronprotocol.app.affect.AffectOrchestrator
 import com.tronprotocol.app.frontier.FrontierDynamicsManager
 import com.tronprotocol.app.frontier.FrontierDynamicsPlugin
@@ -35,6 +37,13 @@ import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ConstitutionalMemory
 import com.tronprotocol.app.security.ExternalContentSanitizer
 import com.tronprotocol.app.security.SecureStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import com.tronprotocol.app.plugins.DangerousToolClassifier
 import com.tronprotocol.app.plugins.SendPolicy
 import com.tronprotocol.app.selfmod.CodeModificationManager
@@ -52,8 +61,7 @@ class TronProtocolService : Service() {
     // -- Wake lock & threads -------------------------------------------------
 
     private var wakeLock: PowerManager.WakeLock? = null
-    private var heartbeatThread: Thread? = null
-    private var consolidationThread: Thread? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     @Volatile
     private var isRunning = false
@@ -106,7 +114,6 @@ class TronProtocolService : Service() {
     private val initAttempt = AtomicInteger(0)
     private var heartbeatCount = 0
     private var totalProcessingTime = 0L
-    private var lastConsolidation = 0L
     private var consecutiveHeartbeatErrors = 0
 
     // ========================================================================
@@ -174,18 +181,11 @@ class TronProtocolService : Service() {
         super.onDestroy()
         isRunning = false
 
-        // Signal threads to stop and wait briefly for graceful completion
-        heartbeatThread?.interrupt()
-        consolidationThread?.interrupt()
-        try {
-            heartbeatThread?.join(SHUTDOWN_TIMEOUT_MS)
-            consolidationThread?.join(SHUTDOWN_TIMEOUT_MS)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
+        serviceScope.cancel()
 
         if (::initExecutor.isInitialized) initExecutor.shutdownNow()
         if (::initRetryScheduler.isInitialized) initRetryScheduler.shutdownNow()
+        WorkManager.getInstance(this).cancelUniqueWork(ConsolidationWorker.WORK_NAME)
 
         // Shut down AffectEngine, Takens trainer, and OpenClaw-inspired subsystems
         affectOrchestrator?.stop()
@@ -737,15 +737,12 @@ class TronProtocolService : Service() {
         if (!heartbeatStarted.compareAndSet(false, true)) return
 
         isRunning = true
-        heartbeatThread = Thread {
-            while (isRunning) {
+        serviceScope.launch {
+            while (isRunning && isActive) {
                 try {
                     performHeartbeat()
                     consecutiveHeartbeatErrors = 0
-                    Thread.sleep(HEARTBEAT_INTERVAL_MS)
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
+                    delay(HEARTBEAT_INTERVAL_MS)
                 } catch (e: Exception) {
                     consecutiveHeartbeatErrors++
                     Log.e(TAG, "Heartbeat error #$consecutiveHeartbeatErrors", e)
@@ -753,15 +750,10 @@ class TronProtocolService : Service() {
                     val backoffMs = (HEARTBEAT_INTERVAL_MS *
                         (1L shl consecutiveHeartbeatErrors.coerceAtMost(4)))
                         .coerceAtMost(300_000L)
-                    try {
-                        Thread.sleep(backoffMs)
-                    } catch (ie: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
-                    }
+                    delay(backoffMs)
                 }
             }
-        }.also { it.start() }
+        }
     }
 
     private fun performHeartbeat() {
@@ -938,66 +930,18 @@ class TronProtocolService : Service() {
         }
         if (!consolidationStarted.compareAndSet(false, true)) return
 
-        consolidationThread = Thread {
-            while (isRunning) {
-                try {
-                    Thread.sleep(CONSOLIDATION_CHECK_INTERVAL.toLong())
+        val consolidationWork = PeriodicWorkRequestBuilder<ConsolidationWorker>(
+            CONSOLIDATION_INTERVAL_HOURS,
+            TimeUnit.HOURS
+        ).build()
 
-                    val manager = consolidationManager
-                    if (manager != null && manager.isConsolidationTime()) {
-                        Log.d(TAG, "Starting memory consolidation (rest period)...")
+        WorkManager.getInstance(applicationContext).enqueueUniquePeriodicWork(
+            ConsolidationWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            consolidationWork
+        )
 
-                        ragStore?.let { store ->
-                            val result = manager.consolidate(store)
-                            Log.d(TAG, "Consolidation result: $result")
-
-                            if (result.success) {
-                                store.addMemory(
-                                    "Memory consolidation completed: $result",
-                                    0.8f
-                                )
-                                lastConsolidation = System.currentTimeMillis()
-
-                                // Log self-optimization result if present
-                                result.optimizationResult?.let { opt ->
-                                    Log.d(TAG, "Self-optimization: ${opt.reason}, " +
-                                            "fitness=${"%.4f".format(opt.fitness)}, " +
-                                            "cycle=${opt.cycle}")
-                                }
-
-                                // Log Takens training result if present
-                                result.trainingResult?.let { tr ->
-                                    Log.d(TAG, "Takens training: $tr")
-                                }
-
-                                // Consolidation success elevates satiation and coherence
-                                affectOrchestrator?.submitInput(
-                                    AffectInput.builder("consolidation:complete")
-                                        .satiation(0.15f)
-                                        .coherence(0.1f)
-                                        .valence(0.05f)
-                                        .build()
-                                )
-
-                                auditLogger?.logAsync(
-                                    AuditLogger.Severity.INFO,
-                                    AuditLogger.AuditCategory.MEMORY_OPERATION,
-                                    "consolidation_manager", "consolidate",
-                                    outcome = "success"
-                                )
-                            }
-                        }
-                    }
-                } catch (e: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in consolidation loop", e)
-                }
-            }
-        }.also { it.start() }
-
-        Log.d(TAG, "Memory consolidation loop started")
+        Log.d(TAG, "Memory consolidation scheduled with WorkManager")
     }
 
     // ========================================================================
@@ -1044,12 +988,11 @@ class TronProtocolService : Service() {
         private const val CHANNEL_ID = "TronProtocolServiceChannel"
         private const val NOTIFICATION_ID = 1
         private const val AI_ID = "tronprotocol_ai"
-        private const val CONSOLIDATION_CHECK_INTERVAL = 3_600_000   // 1 hour in ms
+        private const val CONSOLIDATION_INTERVAL_HOURS = 1L
         private const val INIT_BASE_RETRY_SECONDS = 5
         private const val INIT_MAX_RETRY_SECONDS = 300
         private const val HEARTBEAT_INTERVAL_MS = 30_000L
         private const val WAKELOCK_TIMEOUT_MS = 10 * 60 * 1000L     // 10 minutes
-        private const val SHUTDOWN_TIMEOUT_MS = 3_000L              // 3 seconds for graceful thread join
 
         const val SERVICE_STARTUP_STATE_KEY = "service_startup_state"
         const val SERVICE_STARTUP_REASON_KEY = "service_startup_reason"
