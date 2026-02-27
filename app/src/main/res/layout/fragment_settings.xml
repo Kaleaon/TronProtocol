@@ -11,9 +11,8 @@
         android:orientation="vertical"
         android:padding="16dp">
 
-        <!-- API Keys Section -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/apiKeysCard"
+            android:id="@+id/accountKeysCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardCornerRadius="16dp"
@@ -25,91 +24,89 @@
                 android:orientation="vertical"
                 android:padding="16dp">
 
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Account &amp; Keys"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Why this matters: Manage identity, credentials, and service readiness for everyday use."
+                    android:textSize="12sp" />
+
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
                     <ImageView
                         android:layout_width="20dp"
                         android:layout_height="20dp"
-                        android:src="@drawable/ic_key"
                         android:layout_marginEnd="8dp"
-                        android:contentDescription="@string/settings_api_keys_content_description" />
+                        android:contentDescription="API Keys"
+                        android:src="@drawable/ic_key" />
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="@string/api_keys_title"
-                        android:textSize="16sp"
+                        android:textSize="14sp"
                         android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btnAddApiKey"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        style="@style/Widget.MaterialComponents.Button"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/add_api_key"
-                        android:textSize="13sp" />
+                        android:textSize="12sp" />
                 </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
                     android:text="@string/api_keys_description"
-                    android:textSize="12sp"
-                    android:layout_marginTop="2dp" />
+                    android:textSize="12sp" />
 
                 <LinearLayout
                     android:id="@+id/apiKeyListContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="8dp" />
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical" />
 
                 <TextView
                     android:id="@+id/apiKeyEmptyText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="@string/settings_api_keys_empty"
-                    android:textSize="13sp"
                     android:layout_marginTop="8dp"
+                    android:gravity="center"
                     android:paddingVertical="12dp"
-                    android:gravity="center" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Service Control -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/serviceCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
+                    android:text="No API keys configured. Add your Anthropic, HuggingFace, or other service keys."
+                    android:textSize="13sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_service"
-                    android:textSize="13sp"
+                    android:layout_marginTop="10dp"
+                    android:text="Service"
                     android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnStartService"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/settings_start_service" />
+                    android:layout_marginTop="6dp"
+                    android:text="Start background service" />
 
                 <TextView
                     android:id="@+id/serviceStatusDetailText"
@@ -117,10 +114,41 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:textSize="12sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Theme"
+                    android:textAllCaps="true"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/activeThemeText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Navy Gold"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/activeThemeDescText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnChangeTheme"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="@string/change_theme" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Permissions -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/permissionsCard"
             android:layout_width="match_parent"
@@ -138,20 +166,25 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_permissions"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
+                    android:text="Permissions"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Why this matters: Control what Tron can access so automations stay useful and safe."
+                    android:textSize="12sp" />
 
                 <TextView
                     android:id="@+id/permissionStatusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/settings_permissions_pending"
+                    android:layout_marginTop="6dp"
+                    android:text="Permissions pending"
                     android:textSize="13sp" />
 
-                <!-- Permission chips in a flow layout -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -237,14 +270,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textSize="12sp"
-                    android:textColor="@color/permission_rationale_text" />
+                    android:textColor="@color/permission_rationale_text"
+                    android:textSize="12sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Theme Selector -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/themeCard"
+            android:id="@+id/modelMemoryCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -260,82 +292,43 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_theme"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
+                    android:text="Model &amp; Memory"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/activeThemeText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:text="@string/settings_theme_default" />
-
-                <TextView
-                    android:id="@+id/activeThemeDescText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:text="Why this matters: Keep inference quality high while balancing speed, context, and memory health."
                     android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnChangeTheme"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:id="@+id/btnOpenTelemetryScreen"
+                    style="@style/Widget.MaterialComponents.Button"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/change_theme" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Integrations -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/integrationsCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/section_integrations"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnOpenBotFather"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Telemetry screen" />
                     android:layout_marginTop="8dp"
                     android:text="@string/settings_botfather_setup" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnOpenPluginGuide"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:id="@+id/btnOpenMemoryScreen"
+                    style="@style/Widget.MaterialComponents.Button"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
+                    android:text="Memory screen" />
                     android:text="@string/settings_plugin_expansion_guide" />
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnOpenKthemeRepo"
+                    android:id="@+id/btnOpenIntegrationsScreen"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
+                    android:text="Integrations screen" />
                     android:text="@string/settings_ktheme_designer" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -349,129 +342,167 @@
             app:cardCornerRadius="12dp"
             app:cardElevation="1dp">
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnToggleModelMemoryAdvanced"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_tools"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnImportPersonality"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/settings_import_personality" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnShareDocument"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/settings_share_document" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnShareImage"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/settings_share_picture" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnShareMusic"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/settings_share_audio" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnShareLink"
-                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/settings_share_web_link" />
-
-                <TextView
-                    android:id="@+id/messageShareStatusText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Memory & RAG -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/memoryCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/section_memory"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
-
-                <TextView
-                    android:id="@+id/memoryStatsText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:textSize="12sp"
-                    android:fontFamily="monospace"
-                    android:lineSpacingExtra="2dp" />
+                    android:text="Show advanced controls" />
 
                 <LinearLayout
+                    android:id="@+id/modelMemoryAdvancedPanel"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="horizontal">
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnMemoryConsolidate"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                    <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/settings_memory_consolidate"
+                        android:text="Memory"
+                        android:textAllCaps="true"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/memoryStatsText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:textSize="12sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnMemoryConsolidate"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Consolidate"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnMemoryStats"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Refresh stats"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Telemetry"
+                        android:textAllCaps="true"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/telemetryStatsText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:textSize="12sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnRefreshTelemetry"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Refresh"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnResetTelemetry"
+                            style="@style/Widget.MaterialComponents.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Reset"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Integrations &amp; shares"
+                        android:textAllCaps="true"
                         android:textSize="12sp" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btnMemoryStats"
-                        style="@style/Widget.MaterialComponents.Button.TextButton"
-                        android:layout_width="wrap_content"
+                        android:id="@+id/btnOpenBotFather"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/settings_memory_refresh_stats"
+                        android:layout_marginTop="8dp"
+                        android:text="Telegram BotFather setup" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnImportPersonality"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Import AI personality / memories" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareDocument"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Share document" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareImage"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Share picture" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareMusic"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Share music / audio" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnShareLink"
+                        style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Share web link" />
+
+                    <TextView
+                        android:id="@+id/messageShareStatusText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- AI Inference Telemetry -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/telemetryCard"
+            android:id="@+id/diagnosticsCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -487,15 +518,16 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_telemetry"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
+                    android:text="Diagnostics"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/telemetryStatsText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Why this matters: Verify runtime health quickly before escalating to troubleshooting."
+                    android:textSize="12sp" />
                     android:layout_marginTop="8dp"
                     android:textSize="12sp"
                     android:fontFamily="monospace"
@@ -546,33 +578,63 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_system"
-                    android:textSize="13sp"
+                    android:layout_marginTop="8dp"
+                    android:text="System snapshot"
                     android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
+                    android:textSize="12sp" />
 
                 <TextView
                     android:id="@+id/systemDashboardText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:textSize="12sp"
                     android:fontFamily="monospace"
-                    android:lineSpacingExtra="2dp" />
+                    android:lineSpacingExtra="2dp"
+                    android:textSize="12sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnRefreshDashboard"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/settings_refresh"
-                    android:textSize="12sp" />
+                    android:text="Refresh" />
+
+                <TextView
+                    android:id="@+id/diagnosticsText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="2dp"
+                    android:textSize="11sp"
+                    tools:text="[MILESTONE] startup diagnostics" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnToggleDiagnosticsAdvanced"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Show advanced diagnostics" />
+
+                <LinearLayout
+                    android:id="@+id/diagnosticsAdvancedPanel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnExportDebugLog"
+                        style="@style/Widget.MaterialComponents.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Export debug log" />
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Diagnostics -->
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/diagnosticsCard"
+            android:id="@+id/developerCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -589,27 +651,32 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_diagnostics"
-                    android:textSize="13sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/btnExportDebugLog"
-                    style="@style/Widget.MaterialComponents.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/settings_export_debug_log" />
+                    android:text="Developer"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
 
                 <TextView
-                    android:id="@+id/diagnosticsText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
-                    android:lineSpacingExtra="2dp"
-                    tools:text="[MILESTONE] startup diagnostics" />
+                    android:text="Why this matters: Access extension and customization resources when building advanced workflows."
+                    android:textSize="12sp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenPluginGuide"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Plugin expansion guide" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnOpenKthemeRepo"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="Ktheme theme designer" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>
