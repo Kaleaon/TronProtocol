@@ -74,11 +74,13 @@ class SettingsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         bindViews(view)
+        configureExpandableSections(view)
         wireButtons(view)
         refreshDiagnosticsPanel()
         refreshPermissionStatus()
         refreshApiKeyList()
         refreshMemoryStats()
+        refreshTelemetryDisplay()
         refreshSystemDashboard()
     }
 
@@ -185,6 +187,15 @@ class SettingsFragment : Fragment() {
         }
 
         // Telemetry
+        view.findViewById<MaterialButton>(R.id.btnOpenTelemetryScreen).setOnClickListener {
+            showToast("Telemetry screen will open in a dedicated flow.")
+        }
+        view.findViewById<MaterialButton>(R.id.btnOpenMemoryScreen).setOnClickListener {
+            showToast("Memory management will open in a dedicated flow.")
+        }
+        view.findViewById<MaterialButton>(R.id.btnOpenIntegrationsScreen).setOnClickListener {
+            showToast("Integrations will open in a dedicated flow.")
+        }
         view.findViewById<MaterialButton>(R.id.btnRefreshTelemetry).setOnClickListener {
             refreshTelemetryDisplay()
         }
@@ -200,6 +211,41 @@ class SettingsFragment : Fragment() {
         // Diagnostics
         view.findViewById<MaterialButton>(R.id.btnExportDebugLog).setOnClickListener {
             host?.exportDebugLog()
+        }
+    }
+
+    private fun configureExpandableSections(view: View) {
+        setupExpandableSection(
+            view = view,
+            toggleButtonId = R.id.btnToggleModelMemoryAdvanced,
+            panelId = R.id.modelMemoryAdvancedPanel,
+            collapsedLabel = "Show advanced controls",
+            expandedLabel = "Hide advanced controls"
+        )
+        setupExpandableSection(
+            view = view,
+            toggleButtonId = R.id.btnToggleDiagnosticsAdvanced,
+            panelId = R.id.diagnosticsAdvancedPanel,
+            collapsedLabel = "Show advanced diagnostics",
+            expandedLabel = "Hide advanced diagnostics"
+        )
+    }
+
+    private fun setupExpandableSection(
+        view: View,
+        toggleButtonId: Int,
+        panelId: Int,
+        collapsedLabel: String,
+        expandedLabel: String
+    ) {
+        val toggleButton = view.findViewById<MaterialButton>(toggleButtonId)
+        val panel = view.findViewById<View>(panelId)
+        panel.visibility = View.GONE
+        toggleButton.text = collapsedLabel
+        toggleButton.setOnClickListener {
+            val expanding = panel.visibility != View.VISIBLE
+            panel.visibility = if (expanding) View.VISIBLE else View.GONE
+            toggleButton.text = if (expanding) expandedLabel else collapsedLabel
         }
     }
 
