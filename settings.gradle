@@ -1,4 +1,26 @@
 rootProject.name = "TronProtocol"
-include ':app'
 
 include ':ktheme-kotlin'
+
+def hasAndroidSdk() {
+    def sdkFromEnv = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+    if (sdkFromEnv) {
+        return file(sdkFromEnv).exists()
+    }
+
+    def localProps = new File(rootDir, "local.properties")
+    if (!localProps.exists()) {
+        return false
+    }
+
+    def props = new Properties()
+    localProps.withInputStream { props.load(it) }
+    def sdkDir = props.getProperty("sdk.dir")
+    return sdkDir ? file(sdkDir).exists() : false
+}
+
+if (hasAndroidSdk()) {
+    include ':app'
+} else {
+    println "Skipping :app module because Android SDK was not found (set ANDROID_HOME/ANDROID_SDK_ROOT or local.properties sdk.dir)."
+}
