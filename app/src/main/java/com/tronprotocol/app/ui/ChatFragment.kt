@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -40,9 +41,10 @@ class ChatFragment : Fragment() {
     private lateinit var conversationInput: TextInputEditText
     private lateinit var btnSendConversation: MaterialButton
     private lateinit var chatInferenceStrip: LinearLayout
-    private lateinit var inferenceTierIndicator: View
+    private lateinit var inferenceTierIndicator: ImageView
     private lateinit var inferenceTierText: TextView
     private lateinit var inferenceLatencyText: TextView
+    private lateinit var inferenceQualityIndicator: ImageView
     private lateinit var inferenceQualityText: TextView
     private lateinit var inferenceContextText: TextView
     private lateinit var chatThinkingIndicator: LinearLayout
@@ -51,7 +53,8 @@ class ChatFragment : Fragment() {
     private lateinit var chatEmotionStrip: LinearLayout
     private lateinit var chatHedonicToneText: TextView
     private lateinit var chatExpressionSummaryText: TextView
-    private lateinit var chatCoherenceIndicator: View
+    private lateinit var chatCoherenceIndicator: ImageView
+    private lateinit var chatCoherenceText: TextView
 
     // --- Executor and handler ---
     private val chatExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -113,6 +116,7 @@ class ChatFragment : Fragment() {
         inferenceTierIndicator = view.findViewById(R.id.inferenceTierIndicator)
         inferenceTierText = view.findViewById(R.id.inferenceTierText)
         inferenceLatencyText = view.findViewById(R.id.inferenceLatencyText)
+        inferenceQualityIndicator = view.findViewById(R.id.inferenceQualityIndicator)
         inferenceQualityText = view.findViewById(R.id.inferenceQualityText)
         inferenceContextText = view.findViewById(R.id.inferenceContextText)
         chatThinkingIndicator = view.findViewById(R.id.chatThinkingIndicator)
@@ -122,6 +126,7 @@ class ChatFragment : Fragment() {
         chatHedonicToneText = view.findViewById(R.id.chatHedonicToneText)
         chatExpressionSummaryText = view.findViewById(R.id.chatExpressionSummaryText)
         chatCoherenceIndicator = view.findViewById(R.id.chatCoherenceIndicator)
+        chatCoherenceText = view.findViewById(R.id.chatCoherenceText)
     }
 
     // ========================================================================
@@ -279,14 +284,18 @@ class ChatFragment : Fragment() {
             chatExpressionSummaryText.text = expressionSummary
         }
 
-        val coherenceColor = when {
-            coherence > 0.8f -> R.color.affect_coherence
-            coherence > 0.5f -> R.color.service_status_degraded_background
-            else -> R.color.service_status_blocked_background
+        val (coherenceColor, coherenceLabel, coherenceIconRes) = when {
+            coherence > 0.8f -> Triple(R.color.affect_coherence, "Coherent", R.drawable.ic_quality_good)
+            coherence > 0.5f -> Triple(R.color.service_status_degraded_background, "Mixed", R.drawable.ic_quality_degraded)
+            else -> Triple(R.color.service_status_blocked_background, "Drift", R.drawable.ic_quality_degraded)
         }
-        chatCoherenceIndicator.setBackgroundColor(
-            ContextCompat.getColor(requireContext(), coherenceColor)
+        chatCoherenceIndicator.setImageResource(coherenceIconRes)
+        chatCoherenceIndicator.setColorFilter(ContextCompat.getColor(requireContext(), coherenceColor))
+        chatCoherenceIndicator.contentDescription = getString(
+            R.string.emotion_coherence_indicator_dynamic_description,
+            coherenceLabel
         )
+        chatCoherenceText.text = coherenceLabel
     }
 
     /**
@@ -302,31 +311,37 @@ class ChatFragment : Fragment() {
 
         chatInferenceStrip.visibility = View.VISIBLE
 
-        // Tier indicator color and label
-        val tierColorRes = when (tier) {
+        // Tier indicator color, icon, and short label
+        val (tierColorRes, tierLabel, tierIconRes) = when (tier) {
             InferenceTier.LOCAL_ALWAYS_ON.label,
-            InferenceTier.LOCAL_ON_DEMAND.label -> R.color.tier_local
-            InferenceTier.CLOUD_FALLBACK.label -> R.color.tier_cloud
-            else -> R.color.tier_local
+            InferenceTier.LOCAL_ON_DEMAND.label -> Triple(R.color.tier_local, "Local", R.drawable.ic_status_local)
+            InferenceTier.CLOUD_FALLBACK.label -> Triple(R.color.tier_cloud, "Cloud", R.drawable.ic_status_cloud)
+            else -> Triple(R.color.tier_local, "Local", R.drawable.ic_status_local)
         }
-        inferenceTierIndicator.setBackgroundColor(
-            ContextCompat.getColor(requireContext(), tierColorRes)
+        inferenceTierIndicator.setImageResource(tierIconRes)
+        inferenceTierIndicator.setColorFilter(ContextCompat.getColor(requireContext(), tierColorRes))
+        inferenceTierIndicator.contentDescription = getString(
+            R.string.inference_tier_indicator_dynamic_description,
+            tierLabel
         )
-        inferenceTierText.text = tier
+        inferenceTierText.text = tierLabel
 
         // Latency
         inferenceLatencyText.text = "${latency}ms"
 
-        // Quality indicator
-        val qualityColorRes = when {
-            quality >= 0.7f -> R.color.quality_good
-            quality >= 0.4f -> R.color.quality_acceptable
-            else -> R.color.quality_poor
+        // Quality indicator icon + short label + score
+        val (qualityColorRes, qualityLabel, qualityIconRes) = when {
+            quality >= 0.7f -> Triple(R.color.quality_good, "Good", R.drawable.ic_quality_good)
+            quality >= 0.4f -> Triple(R.color.quality_acceptable, "Degraded", R.drawable.ic_quality_degraded)
+            else -> Triple(R.color.quality_poor, "Poor", R.drawable.ic_quality_degraded)
         }
-        inferenceQualityText.text = "Q=${"%.0f".format(quality * 100)}%%"
-        inferenceQualityText.setTextColor(
-            ContextCompat.getColor(requireContext(), qualityColorRes)
+        inferenceQualityIndicator.setImageResource(qualityIconRes)
+        inferenceQualityIndicator.setColorFilter(ContextCompat.getColor(requireContext(), qualityColorRes))
+        inferenceQualityIndicator.contentDescription = getString(
+            R.string.inference_quality_indicator_dynamic_description,
+            qualityLabel
         )
+        inferenceQualityText.text = "$qualityLabel ${"%.0f".format(quality * 100)}%"
 
         // Context utilization
         inferenceContextText.text = contextInfo

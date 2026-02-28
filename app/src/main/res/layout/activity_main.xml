@@ -29,7 +29,7 @@
             android:id="@+id/pluginCountText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="12sp"
+            android:textSize="13sp"
             android:text="0 plugins"
             android:layout_marginEnd="12dp" />
 
@@ -38,11 +38,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:background="@color/service_status_deferred_background"
+            android:drawablePadding="6dp"
+            android:gravity="center_vertical"
+            android:minHeight="24dp"
             android:paddingHorizontal="8dp"
-            android:paddingVertical="3dp"
+            android:paddingVertical="4dp"
             android:text="DEFERRED"
             android:textColor="@color/service_status_badge_text"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:textStyle="bold" />
     </LinearLayout>
 

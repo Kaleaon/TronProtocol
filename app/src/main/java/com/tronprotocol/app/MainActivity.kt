@@ -281,14 +281,16 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
 
     fun refreshStartupStateBadge() {
         val state = prefs.getString(TronProtocolService.SERVICE_STARTUP_STATE_KEY, TronProtocolService.STATE_DEFERRED) ?: TronProtocolService.STATE_DEFERRED
-        startupStateBadgeText.text = state.uppercase()
-        val colorRes = when (state) {
-            TronProtocolService.STATE_RUNNING -> R.color.service_status_running_background
-            TronProtocolService.STATE_DEGRADED -> R.color.service_status_degraded_background
-            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> R.color.service_status_blocked_background
-            else -> R.color.service_status_deferred_background
+        val (stateLabel, colorRes, iconRes) = when (state) {
+            TronProtocolService.STATE_RUNNING -> Triple("Running", R.color.service_status_running_background, R.drawable.ic_quality_good)
+            TronProtocolService.STATE_DEGRADED -> Triple("Degraded", R.color.service_status_degraded_background, R.drawable.ic_quality_degraded)
+            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> Triple("Blocked", R.color.service_status_blocked_background, R.drawable.ic_quality_degraded)
+            else -> Triple("Deferred", R.color.service_status_deferred_background, R.drawable.ic_status_cloud)
         }
+        startupStateBadgeText.text = stateLabel
+        startupStateBadgeText.contentDescription = getString(R.string.service_status_badge_content_description, stateLabel)
         startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, colorRes))
+        startupStateBadgeText.setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0)
     }
 
     // ========================================================================

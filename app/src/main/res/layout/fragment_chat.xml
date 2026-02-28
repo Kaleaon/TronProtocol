@@ -33,17 +33,20 @@
         android:paddingVertical="4dp"
         android:visibility="gone">
 
-        <View
+        <ImageView
             android:id="@+id/inferenceTierIndicator"
-            android:layout_width="8dp"
-            android:layout_height="8dp" />
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="@string/inference_tier_indicator_content_description"
+            android:src="@drawable/ic_status_local"
+            app:tint="@color/tier_local" />
 
         <TextView
             android:id="@+id/inferenceTierText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:textSize="10sp"
+            android:layout_marginStart="8dp"
+            android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.1"
             android:fontFamily="monospace" />
@@ -53,15 +56,24 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:textSize="10sp"
+            android:textSize="12sp"
             android:fontFamily="monospace" />
+
+        <ImageView
+            android:id="@+id/inferenceQualityIndicator"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_marginStart="8dp"
+            android:contentDescription="@string/inference_quality_indicator_content_description"
+            android:src="@drawable/ic_quality_good"
+            app:tint="@color/quality_good" />
 
         <TextView
             android:id="@+id/inferenceQualityText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:textSize="10sp"
+            android:layout_marginStart="6dp"
+            android:textSize="12sp"
             android:fontFamily="monospace" />
 
         <TextView
@@ -70,7 +82,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:textSize="10sp"
+            android:textSize="12sp"
             android:fontFamily="monospace"
             android:gravity="end"
             android:singleLine="true" />
@@ -125,7 +137,7 @@
             android:id="@+id/chatEmotionLabel"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:textAllCaps="true"
             android:letterSpacing="0.1"
             android:text="Affect:" />
@@ -135,7 +147,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:fontFamily="monospace" />
 
         <TextView
@@ -144,16 +156,26 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="8dp"
-            android:textSize="11sp"
+            android:textSize="12sp"
             android:singleLine="true"
             android:ellipsize="end" />
 
-        <View
+        <ImageView
             android:id="@+id/chatCoherenceIndicator"
-            android:layout_width="8dp"
-            android:layout_height="8dp"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
             android:layout_marginStart="8dp"
-            android:background="@color/affect_coherence" />
+            android:contentDescription="@string/emotion_coherence_indicator_content_description"
+            android:src="@drawable/ic_quality_good"
+            app:tint="@color/affect_coherence" />
+
+        <TextView
+            android:id="@+id/chatCoherenceText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:textSize="12sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <!-- Chat input bar -->

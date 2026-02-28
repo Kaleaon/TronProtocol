@@ -52,6 +52,14 @@
     <string name="inference_tier_fallback">FALLBACK</string>
     <string name="telemetry_empty">No inference data yet. Start a conversation to see metrics.</string>
 
+    <string name="inference_tier_indicator_content_description">Inference tier indicator</string>
+    <string name="inference_tier_indicator_dynamic_description">Inference tier: %1$s</string>
+    <string name="inference_quality_indicator_content_description">Inference quality indicator</string>
+    <string name="inference_quality_indicator_dynamic_description">Inference quality: %1$s</string>
+    <string name="emotion_coherence_indicator_content_description">Emotion coherence indicator</string>
+    <string name="emotion_coherence_indicator_dynamic_description">Emotion coherence: %1$s</string>
+    <string name="service_status_badge_content_description">Service startup status: %1$s</string>
+
     <!-- Theme -->
     <string name="section_theme">Theme</string>
     <string name="change_theme">Change theme</string>
