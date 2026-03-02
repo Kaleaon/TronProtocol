@@ -44,7 +44,7 @@ class ModelDownloadManager(context: Context) {
         } else {
             prefs.edit().putString(KEY_HF_TOKEN, token.trim()).apply()
         }
-        Log.d(TAG, "HF token ${if (token.isNullOrBlank()) "cleared" else "set (${token.take(8)}...)"}")
+        Log.d(TAG, "HF token ${if (token.isNullOrBlank()) "cleared" else "set"}")
     }
 
     /** Current state of a download. */
