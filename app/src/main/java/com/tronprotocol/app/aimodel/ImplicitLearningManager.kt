@@ -8,6 +8,9 @@ import com.tronprotocol.app.rag.RetrievalStrategy
 import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 
 /**
@@ -47,14 +50,14 @@ class ImplicitLearningManager(
     private val storage = SecureStorage(context)
 
     // Interaction pattern tracking
-    private val topicFrequencies = mutableMapOf<String, Int>()
-    private val successfulPatterns = mutableListOf<InteractionPattern>()
-    private val domainAffinity = mutableMapOf<String, Float>()
+    private val topicFrequencies = ConcurrentHashMap<String, Int>()
+    private val successfulPatterns = CopyOnWriteArrayList<InteractionPattern>()
+    private val domainAffinity = ConcurrentHashMap<String, Float>()
 
     // Auxiliary signal accumulators
-    private var totalInteractions: Int = 0
-    private var positiveOutcomes: Int = 0
-    private var negativeOutcomes: Int = 0
+    private val totalInteractions = AtomicInteger(0)
+    private val positiveOutcomes = AtomicInteger(0)
+    private val negativeOutcomes = AtomicInteger(0)
 
     init {
         loadState()
@@ -75,18 +78,19 @@ class ImplicitLearningManager(
         retrievalStrategy: RetrievalStrategy?,
         responseQuality: Float
     ) {
-        totalInteractions++
+        val interactionCount = totalInteractions.incrementAndGet()
 
         // Track topic frequency (distributional signal)
         val normalizedTopic = topic.lowercase().trim()
-        topicFrequencies[normalizedTopic] = (topicFrequencies[normalizedTopic] ?: 0) + 1
+        topicFrequencies.merge(normalizedTopic, 1, Int::plus)
 
         // Track outcome patterns
         if (wasSuccessful) {
-            positiveOutcomes++
+            positiveOutcomes.incrementAndGet()
             // Successful interactions reinforce domain affinity
-            val currentAffinity = domainAffinity.getOrDefault(domain, 0.5f)
-            domainAffinity[domain] = min(1.0f, currentAffinity + AFFINITY_LEARNING_RATE)
+            domainAffinity.compute(domain) { _, current ->
+                min(1.0f, (current ?: 0.5f) + AFFINITY_LEARNING_RATE)
+            }
 
             // Record successful pattern for future reference
             if (successfulPatterns.size < MAX_PATTERNS) {
@@ -107,17 +111,18 @@ class ImplicitLearningManager(
                 emotionalManager.reinforceTrait("expertise_$domain", 0.1f)
             }
         } else {
-            negativeOutcomes++
+            negativeOutcomes.incrementAndGet()
             // Failed interactions weaken domain affinity
-            val currentAffinity = domainAffinity.getOrDefault(domain, 0.5f)
-            domainAffinity[domain] = (currentAffinity - AFFINITY_LEARNING_RATE * 0.5f).coerceAtLeast(0.0f)
+            domainAffinity.compute(domain) { _, current ->
+                ((current ?: 0.5f) - AFFINITY_LEARNING_RATE * 0.5f).coerceAtLeast(0.0f)
+            }
 
             // Reinforce caution trait
             emotionalManager.reinforceTrait("caution", 0.1f)
         }
 
         // Periodically save state
-        if (totalInteractions % SAVE_INTERVAL == 0) {
+        if (interactionCount % SAVE_INTERVAL == 0) {
             saveState()
         }
     }
@@ -138,11 +143,9 @@ class ImplicitLearningManager(
         }
 
         // Count strategy successes weighted by quality
-        val strategyScores = mutableMapOf<String, Float>()
-        for (pattern in domainPatterns) {
-            val current = strategyScores.getOrDefault(pattern.strategy, 0.0f)
-            strategyScores[pattern.strategy] = current + pattern.quality
-        }
+        val strategyScores = domainPatterns
+            .groupBy { it.strategy }
+            .mapValues { (_, patterns) -> patterns.sumOf { it.quality.toDouble() }.toFloat() }
 
         val bestStrategy = strategyScores.maxByOrNull { it.value }?.key ?: "MEMRL"
 
@@ -203,13 +206,15 @@ class ImplicitLearningManager(
         report.weakDomains = weakDomains
 
         // Compute success rate
-        report.overallSuccessRate = if (totalInteractions > 0) {
-            positiveOutcomes.toFloat() / totalInteractions
+        val total = totalInteractions.get()
+        val positive = positiveOutcomes.get()
+        report.overallSuccessRate = if (total > 0) {
+            positive.toFloat() / total
         } else 0.0f
 
         // Analyze strategy effectiveness
         val strategyEffectiveness = mutableMapOf<String, Float>()
-        for (strategy in RetrievalStrategy.values()) {
+        for (strategy in RetrievalStrategy.entries) {
             val patterns = successfulPatterns.filter { it.strategy == strategy.name }
             if (patterns.isNotEmpty()) {
                 strategyEffectiveness[strategy.name] = patterns.map { it.quality }.average().toFloat()
@@ -220,10 +225,10 @@ class ImplicitLearningManager(
         // Generate behavioral insights
         report.insights = generateInsights(report)
 
-        report.totalInteractions = totalInteractions
+        report.totalInteractions = total
         report.timestamp = System.currentTimeMillis()
 
-        Log.d(TAG, "Distilled experience: ${report.insights.size} insights from $totalInteractions interactions")
+        Log.d(TAG, "Distilled experience: ${report.insights.size} insights from $total interactions")
         return report
     }
 
@@ -269,11 +274,11 @@ class ImplicitLearningManager(
      */
     fun getStats(): Map<String, Any> {
         return mapOf(
-            "total_interactions" to totalInteractions,
-            "positive_outcomes" to positiveOutcomes,
-            "negative_outcomes" to negativeOutcomes,
-            "success_rate" to if (totalInteractions > 0) {
-                positiveOutcomes.toFloat() / totalInteractions
+            "total_interactions" to totalInteractions.get(),
+            "positive_outcomes" to positiveOutcomes.get(),
+            "negative_outcomes" to negativeOutcomes.get(),
+            "success_rate" to if (totalInteractions.get() > 0) {
+                positiveOutcomes.get().toFloat() / totalInteractions.get()
             } else 0.0f,
             "tracked_topics" to topicFrequencies.size,
             "tracked_domains" to domainAffinity.size,
@@ -306,7 +311,7 @@ class ImplicitLearningManager(
         if (report.overallSuccessRate > 0.8f) {
             insights.add("Overall interaction success rate is high (${String.format("%.0f", report.overallSuccessRate * 100)}%), " +
                     "indicating reliable performance.")
-        } else if (report.overallSuccessRate < 0.5f && totalInteractions > 10) {
+        } else if (report.overallSuccessRate < 0.5f && totalInteractions.get() > 10) {
             insights.add("Success rate is below 50%. Consider increasing RAG retrieval depth " +
                     "or adding more knowledge to weak domains.")
         }
@@ -335,9 +340,9 @@ class ImplicitLearningManager(
     private fun saveState() {
         try {
             val stateObj = JSONObject().apply {
-                put("totalInteractions", totalInteractions)
-                put("positiveOutcomes", positiveOutcomes)
-                put("negativeOutcomes", negativeOutcomes)
+                put("totalInteractions", totalInteractions.get())
+                put("positiveOutcomes", positiveOutcomes.get())
+                put("negativeOutcomes", negativeOutcomes.get())
 
                 val topicsObj = JSONObject()
                 for ((topic, count) in topicFrequencies) {
@@ -376,9 +381,9 @@ class ImplicitLearningManager(
             val data = storage.retrieve(STATE_KEY) ?: return
             val stateObj = JSONObject(data)
 
-            totalInteractions = stateObj.optInt("totalInteractions", 0)
-            positiveOutcomes = stateObj.optInt("positiveOutcomes", 0)
-            negativeOutcomes = stateObj.optInt("negativeOutcomes", 0)
+            totalInteractions.set(stateObj.optInt("totalInteractions", 0))
+            positiveOutcomes.set(stateObj.optInt("positiveOutcomes", 0))
+            negativeOutcomes.set(stateObj.optInt("negativeOutcomes", 0))
 
             val topicsObj = stateObj.optJSONObject("topicFrequencies")
             if (topicsObj != null) {
@@ -414,7 +419,7 @@ class ImplicitLearningManager(
                 }
             }
 
-            Log.d(TAG, "Loaded implicit learning state: $totalInteractions interactions")
+            Log.d(TAG, "Loaded implicit learning state: ${totalInteractions.get()} interactions")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading implicit learning state", e)
         }

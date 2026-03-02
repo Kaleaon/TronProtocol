@@ -7,6 +7,29 @@ import android.os.Build
 import android.os.Environment
 import androidx.core.content.ContextCompat
 
+private fun buildStoragePermissions(): List<String> {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        listOf(
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO,
+            Manifest.permission.READ_MEDIA_AUDIO
+        )
+    } else {
+        listOf(
+            Manifest.permission.READ_EXTERNAL_STORAGE,
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
+        )
+    }
+}
+
+private fun buildNotificationPermissions(): List<String> {
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        listOf(Manifest.permission.POST_NOTIFICATIONS)
+    } else {
+        emptyList()
+    }
+}
+
 /**
  * Utility for managing permission groups and checking permission status.
  * Extracted from MainActivity so fragments can query permission state

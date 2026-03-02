@@ -4,6 +4,11 @@ import android.app.ActivityManager
 import android.content.Context
 import android.os.Build
 import android.util.Log
+import com.tronprotocol.app.llm.backend.BackendSelector
+import com.tronprotocol.app.llm.backend.BackendSessionConfig
+import com.tronprotocol.app.llm.backend.BackendType
+import com.tronprotocol.app.llm.backend.LLMBackend
+import com.tronprotocol.app.llm.backend.StreamCallback
 import com.tronprotocol.app.security.AuditLogger
 import org.json.JSONObject
 import java.io.File
@@ -19,42 +24,30 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipInputStream
 
 /**
- * On-Device LLM Manager — MNN-powered local inference for small language models.
+ * On-Device LLM Manager — multi-backend local inference for small language models.
  *
- * Integrates Alibaba's MNN (Mobile Neural Network) framework for running quantized
- * LLMs (up to ~4B parameters) directly on Android hardware. This enables:
- * - Offline inference when cloud API is unavailable
- * - Low-latency responses for simple/medium queries
- * - Privacy-preserving local processing
- * - Fallback when Anthropic API quota is exhausted
+ * Supports two inference backends:
+ * - **MNN** (Mobile Neural Network): Alibaba's framework with optimized ARM kernels.
+ *   8.6x faster prefill and 2.3x faster decode than llama.cpp on mobile ARM.
+ * - **GGUF** (llama.cpp): ToolNeuron-compatible backend with grammar-constrained
+ *   tool calling, control vectors, KV cache persistence, and persona steering.
  *
- * Recommended models (from MNN Chat / makeuseof.com guidance):
- * - Qwen2.5-1.5B-Instruct (Q4): ~1GB RAM, fast on most devices
- * - Qwen3-1.7B (Q4): ~1.2GB RAM, good quality
- * - Gemma-2B (Q4): ~1.5GB RAM, balanced
- * - Qwen2.5-3B-Instruct (Q4): ~2GB RAM, higher quality
- *
- * MNN achieves 8.6x faster prefill and 2.3x faster decode than llama.cpp
- * on mobile ARM processors through optimized NEON/FP16 kernels.
- *
- * Architecture:
- * - Uses MNN's native C++ LLM engine via JNI bridge
- * - Supports CPU (ARM NEON/FP16), OpenCL GPU, and Qualcomm QNN backends
- * - Memory-mapped weights (use_mmap) for constrained devices
- * - Graceful degradation when native libraries are unavailable
+ * The [BackendSelector] determines which backend to use based on model format
+ * (.mnn vs .gguf) and user preference.
  *
  * @see [MNN GitHub](https://github.com/alibaba/MNN)
- * @see [MNN-LLM Paper](https://arxiv.org/html/2506.10443v1)
+ * @see [ToolNeuron](https://github.com/Siddhesh2377/ToolNeuron)
  */
 class OnDeviceLLMManager(
     context: Context,
     private val auditLogger: AuditLogger? = null,
-    private val integrityVerifier: ModelIntegrityVerifier = ModelIntegrityVerifier()
+    private val integrityVerifier: ModelIntegrityVerifier = ModelIntegrityVerifier(),
+    val backendSelector: BackendSelector = BackendSelector()
 ) {
 
     private val context: Context = context.applicationContext
     private val inferenceExecutor = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "MNN-LLM-Inference").apply {
+        Thread(r, "LLM-Inference").apply {
             priority = Thread.NORM_PRIORITY + 1
         }
     }
@@ -64,7 +57,14 @@ class OnDeviceLLMManager(
     var activeConfig: LLMModelConfig? = null
         private set
 
+    /** The currently active inference backend (MNN or GGUF). */
+    var activeBackend: LLMBackend? = null
+        private set
+
     private var nativeSessionHandle: Long = 0
+
+    /** Get the name of the currently active backend, or "none" if no model loaded. */
+    fun getActiveBackendName(): String = activeBackend?.name ?: "none"
 
     /** Derived from currentModelState; kept in sync for fast-path checks. */
     private val isModelLoaded: Boolean
@@ -183,8 +183,8 @@ class OnDeviceLLMManager(
             )
         }
 
-        val reason = if (canRunLLM && !nativeAvailable.get())
-            "$baseReason (MNN native libraries not installed — build from github.com/alibaba/MNN)"
+        val reason = if (canRunLLM && !backendSelector.hasAvailableBackend())
+            "$baseReason (No inference backend available — install MNN or GGUF native libraries)"
         else baseReason
 
         return DeviceCapability(
@@ -197,29 +197,42 @@ class OnDeviceLLMManager(
 
     /**
      * Load an LLM model from the specified configuration.
-     * The model directory must contain MNN-exported files:
-     * llm.mnn, llm.mnn.weight, config.json, llm_config.json, tokenizer.txt
+     *
+     * Automatically selects the appropriate backend (MNN or GGUF) based on the
+     * model's format field. For MNN models, the directory must contain
+     * llm.mnn, llm.mnn.weight, config.json, etc. For GGUF models, the path
+     * can point to a single .gguf file or a directory containing one.
      *
      * @return true if model loaded successfully
      */
     fun loadModel(config: LLMModelConfig): Boolean {
-        if (!nativeAvailable.get()) {
-            Log.e(TAG, "Cannot load model — MNN native libraries not available")
+        // Select backend based on model format
+        val backend = backendSelector.selectForModel(config.modelPath, config.backendType)
+        if (backend == null || !backend.isAvailable) {
+            Log.e(TAG, "Cannot load model — no suitable backend for format '${config.format}'")
             currentModelState.set(ModelState.ERROR)
             return false
         }
 
-        val modelDir = File(config.modelPath)
-        if (!modelDir.exists() || !modelDir.isDirectory) {
-            Log.e(TAG, "Model directory does not exist: ${config.modelPath}")
+        val modelPath = File(config.modelPath)
+        if (!modelPath.exists()) {
+            Log.e(TAG, "Model path does not exist: ${config.modelPath}")
             currentModelState.set(ModelState.ERROR)
             return false
         }
 
-        if (!File(modelDir, "llm.mnn").exists()) {
-            Log.e(TAG, "llm.mnn not found in ${config.modelPath}")
-            currentModelState.set(ModelState.ERROR)
-            return false
+        // Format-specific file checks
+        if (!config.isGguf) {
+            if (!modelPath.isDirectory) {
+                Log.e(TAG, "MNN model path must be a directory: ${config.modelPath}")
+                currentModelState.set(ModelState.ERROR)
+                return false
+            }
+            if (!File(modelPath, "llm.mnn").exists()) {
+                Log.e(TAG, "llm.mnn not found in ${config.modelPath}")
+                currentModelState.set(ModelState.ERROR)
+                return false
+            }
         }
 
         if (!verifyModelIntegrity(config, "load_model")) {
@@ -234,24 +247,31 @@ class OnDeviceLLMManager(
 
         currentModelState.set(ModelState.LOADING)
         Log.d(TAG, "Loading model: ${config.modelName} from ${config.modelPath} " +
-                "backend=${config.backend} threads=${config.threadCount}")
+                "format=${config.format} backend=${backend.name} threads=${config.threadCount}")
+
+        val sessionConfig = BackendSessionConfig(
+            backend = config.backend,
+            numThreads = config.threadCount,
+            contextWindow = config.contextWindow,
+            maxTokens = config.maxTokens,
+            useMmap = config.useMmap,
+            temperature = config.temperature,
+            topP = config.topP
+        )
 
         return try {
-            val handle = nativeCreateSession(
-                config.modelPath, config.backend, config.threadCount, config.useMmap
-            )
-
-            if (handle == 0L) {
-                Log.e(TAG, "nativeCreateSession returned null handle")
+            val success = backend.loadModel(config.modelPath, sessionConfig)
+            if (!success) {
+                Log.e(TAG, "Backend '${backend.name}' failed to load model")
                 currentModelState.set(ModelState.ERROR)
                 return false
             }
 
-            nativeSessionHandle = handle
+            activeBackend = backend
             activeConfig = config
             currentModelState.set(ModelState.READY)
 
-            Log.d(TAG, "Model loaded successfully: ${config.modelName} " +
+            Log.d(TAG, "Model loaded successfully via ${backend.name}: ${config.modelName} " +
                     "(${config.parameterCount} params, ${config.quantization} quantization)")
             true
         } catch (e: Exception) {
@@ -270,7 +290,8 @@ class OnDeviceLLMManager(
      */
     @JvmOverloads
     fun generate(prompt: String, maxTokens: Int = 0): GenerationResult {
-        if (!isModelLoaded || nativeSessionHandle == 0L) {
+        val backend = activeBackend
+        if (!isModelLoaded || backend == null) {
             return GenerationResult.error("No model loaded — call loadModel() first")
         }
         if (prompt.isBlank()) {
@@ -288,19 +309,19 @@ class OnDeviceLLMManager(
 
         return try {
             val tokens = if (maxTokens > 0) maxTokens
-            else activeConfig?.maxTokens ?: DEFAULT_MAX_TOKENS
-            val temp = activeConfig?.temperature ?: DEFAULT_TEMPERATURE
-            val topP = activeConfig?.topP ?: DEFAULT_TOP_P
+            else config.maxTokens.takeIf { it > 0 } ?: DEFAULT_MAX_TOKENS
+            val temp = config.temperature
+            val topP = config.topP
 
-            val result = nativeGenerate(nativeSessionHandle, prompt, tokens, temp, topP)
+            val result = backend.generate(prompt, tokens, temp, topP)
             val latencyMs = System.currentTimeMillis() - startTime
 
-            if (result.isNullOrEmpty()) {
+            if (!result.success || result.text.isNullOrEmpty()) {
                 currentModelState.set(ModelState.READY)
-                return GenerationResult.error("Model returned empty response")
+                return GenerationResult.error(result.error ?: "Model returned empty response")
             }
 
-            val tokenCount = nativeGetLastTokenCount(nativeSessionHandle)
+            val tokenCount = result.tokensGenerated
             val tps = if (tokenCount > 0 && latencyMs > 0)
                 (tokenCount * 1000f) / latencyMs else 0f
 
@@ -313,11 +334,11 @@ class OnDeviceLLMManager(
 
             currentModelState.set(ModelState.READY)
 
-            val modelId = activeConfig?.modelId ?: "unknown"
+            val modelId = config.modelId
             Log.d(TAG, "Generated $tokenCount tokens in ${latencyMs}ms " +
-                    "(${String.format("%.1f", tps)} tok/s) model=$modelId")
+                    "(${String.format("%.1f", tps)} tok/s) model=$modelId backend=${backend.name}")
 
-            GenerationResult.success(result, tokenCount, latencyMs, tps, modelId)
+            GenerationResult.success(result.text, tokenCount, latencyMs, tps, modelId)
         } catch (e: Exception) {
             val latencyMs = System.currentTimeMillis() - startTime
             Log.e(TAG, "Generation failed after ${latencyMs}ms: ${e.message}", e)
@@ -332,15 +353,17 @@ class OnDeviceLLMManager(
 
     /** Unload the current model and free native memory. */
     fun unloadModel() {
-        if (nativeSessionHandle != 0L && nativeAvailable.get()) {
+        val backend = activeBackend
+        if (backend != null) {
             try {
-                nativeDestroySession(nativeSessionHandle)
-                Log.d(TAG, "Model unloaded: ${activeConfig?.modelName ?: "unknown"}")
+                backend.unload()
+                Log.d(TAG, "Model unloaded via ${backend.name}: ${activeConfig?.modelName ?: "unknown"}")
             } catch (e: Exception) {
-                Log.e(TAG, "Error destroying native session: ${e.message}", e)
+                Log.e(TAG, "Error unloading model: ${e.message}", e)
             }
         }
         nativeSessionHandle = 0
+        activeBackend = null
         activeConfig = null
         currentModelState.set(ModelState.UNLOADED)
     }
@@ -360,20 +383,22 @@ class OnDeviceLLMManager(
         val elapsed = System.currentTimeMillis() - start
 
         results["model"] = activeConfig?.modelName ?: "unknown"
-        results["backend"] = activeConfig?.backendName ?: "cpu"
+        results["backend"] = activeBackend?.name ?: "none"
+        results["format"] = activeConfig?.format ?: "unknown"
         results["success"] = result.success
         results["latency_ms"] = elapsed
         results["tokens_generated"] = result.tokensGenerated
         results["tokens_per_second"] = result.tokensPerSecond
 
-        if (nativeAvailable.get() && nativeSessionHandle != 0L) {
+        val backend = activeBackend
+        if (backend != null) {
             try {
-                val nativeStats = nativeGetStats(nativeSessionHandle)
-                if (nativeStats != null) {
-                    results["native_stats"] = nativeStats
+                val stats = backend.getStats()
+                if (stats != null) {
+                    results["native_stats"] = stats
                 }
             } catch (e: Exception) {
-                Log.d(TAG, "Could not retrieve native stats: ${e.message}")
+                Log.d(TAG, "Could not retrieve backend stats: ${e.message}")
             }
         }
 
@@ -389,29 +414,35 @@ class OnDeviceLLMManager(
     /** Shutdown the manager and release all resources. */
     fun shutdown() {
         unloadModel()
+        backendSelector.getAllBackends().forEach { it.shutdown() }
         inferenceExecutor.shutdownNow()
         Log.d(TAG, "OnDeviceLLMManager shut down")
     }
 
     /**
-     * Discover model directories in the standard locations.
-     * Scans: app files dir, external files dir, and /sdcard/mnn_models/.
+     * Discover model directories and files in the standard locations.
+     * Scans for both MNN model directories and GGUF model files.
+     * Locations: app files dir, external files dir, /sdcard/mnn_models/, /sdcard/gguf_models/.
      */
     fun discoverModels(): List<File> {
         val found = mutableListOf<File>()
 
-        // Internal app files
+        // Internal app files — MNN
         scanModelDir(File(context.filesDir, "mnn_models"), found)
+        // Internal app files — GGUF
+        scanModelDir(File(context.filesDir, "gguf_models"), found)
 
         // External app files
         context.getExternalFilesDir(null)?.let { extDir ->
             scanModelDir(File(extDir, "mnn_models"), found)
+            scanModelDir(File(extDir, "gguf_models"), found)
         }
 
-        // Well-known SD card path (used by MNN Chat for ADB push)
+        // Well-known SD card paths
         scanModelDir(File("/sdcard/mnn_models"), found)
+        scanModelDir(File("/sdcard/gguf_models"), found)
 
-        Log.d(TAG, "Discovered ${found.size} model directories")
+        Log.d(TAG, "Discovered ${found.size} model directories/files")
         return found
     }
 
@@ -590,6 +621,15 @@ class OnDeviceLLMManager(
         baseDir.listFiles()?.forEach { child ->
             if (child.isDirectory && File(child, "llm.mnn").exists()) {
                 results.add(child)
+            } else if (child.isDirectory) {
+                // Check for GGUF files inside directories
+                val ggufFiles = child.listFiles { _, name -> name.lowercase().endsWith(".gguf") }
+                if (ggufFiles != null && ggufFiles.isNotEmpty()) {
+                    results.add(child)
+                }
+            } else if (child.isFile && child.name.lowercase().endsWith(".gguf")) {
+                // Direct GGUF file
+                results.add(child)
             }
         }
     }
@@ -736,7 +776,9 @@ class OnDeviceLLMManager(
     }
 
     private fun updateStats() {
-        statsMap["native_available"] = nativeAvailable.get()
+        statsMap["native_available"] = backendSelector.hasAvailableBackend()
+        statsMap["available_backends"] = backendSelector.getAvailableBackends().joinToString(",") { it.name }
+        statsMap["active_backend"] = activeBackend?.name ?: "none"
         statsMap["model_loaded"] = isModelLoaded
         statsMap["model_state"] = currentModelState.get().name
         statsMap["total_inferences"] = totalInferences
@@ -760,7 +802,7 @@ class OnDeviceLLMManager(
     companion object {
         private const val TAG = "OnDeviceLLMManager"
 
-        // MNN backend constants
+        // MNN backend constants (kept for backward compatibility)
         const val BACKEND_CPU = 0
         const val BACKEND_OPENCL = 3
         const val BACKEND_VULKAN = 7
@@ -778,76 +820,13 @@ class OnDeviceLLMManager(
         private const val NETWORK_TIMEOUT_MS = 30_000
         private const val IO_BUFFER_SIZE = 8 * 1024
 
-        // Native library availability
-        private val nativeAvailable = AtomicBoolean(false)
-        private val nativeLoadAttempted = AtomicBoolean(false)
-
-        init {
-            tryLoadNativeLibraries()
-        }
-
         /**
-         * Check if MNN native libraries are available for LLM inference.
+         * Check if any LLM inference backend is available.
+         * Checks both MNN and GGUF native libraries.
          */
         @JvmStatic
-        fun isNativeAvailable(): Boolean = nativeAvailable.get()
-
-        /**
-         * Attempt to load MNN native libraries.
-         * These must be pre-built from MNN source with -DMNN_BUILD_LLM=true
-         * and placed in app/src/main/jniLibs/arm64-v8a/.
-         */
-        private fun tryLoadNativeLibraries() {
-            if (nativeLoadAttempted.getAndSet(true)) return
-
-            try {
-                System.loadLibrary("MNN")
-                Log.d(TAG, "Loaded libMNN.so")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "libMNN.so not found — MNN core not available: ${e.message}")
-            }
-
-            try {
-                System.loadLibrary("MNN_Express")
-                Log.d(TAG, "Loaded libMNN_Express.so")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.d(TAG, "libMNN_Express.so not available: ${e.message}")
-            }
-
-            try {
-                System.loadLibrary("mnnllm")
-                nativeAvailable.set(true)
-                Log.d(TAG, "Loaded libmnnllm.so — MNN LLM inference available")
-            } catch (e: UnsatisfiedLinkError) {
-                Log.w(TAG, "libmnnllm.so not found — on-device LLM inference unavailable. " +
-                        "Build MNN from source with -DMNN_BUILD_LLM=true to enable. ${e.message}")
-            }
-        }
-
-        // ---- JNI native methods (implemented in llm_jni.cpp) ----
-
-        /** Create an MNN LLM session from a model directory. Returns native handle or 0 on failure. */
-        @JvmStatic
-        private external fun nativeCreateSession(
-            modelDir: String, backend: Int, threads: Int, useMmap: Boolean
-        ): Long
-
-        /** Generate a response from the loaded model. Returns generated text or null on error. */
-        @JvmStatic
-        private external fun nativeGenerate(
-            handle: Long, prompt: String, maxTokens: Int, temp: Float, topP: Float
-        ): String?
-
-        /** Get the number of tokens generated in the last inference call. */
-        @JvmStatic
-        private external fun nativeGetLastTokenCount(handle: Long): Int
-
-        /** Get inference performance stats. Returns JSON with prefill_ms, decode_ms, tokens_per_second. */
-        @JvmStatic
-        private external fun nativeGetStats(handle: Long): String?
-
-        /** Release a native LLM session and free memory. */
-        @JvmStatic
-        private external fun nativeDestroySession(handle: Long)
+        fun isNativeAvailable(): Boolean =
+            com.tronprotocol.app.llm.backend.MnnBackend.isNativeAvailable() ||
+            com.tronprotocol.app.llm.backend.GgufBackend.isNativeAvailable()
     }
 }

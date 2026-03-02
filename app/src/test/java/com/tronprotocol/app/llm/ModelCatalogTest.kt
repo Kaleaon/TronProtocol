@@ -123,7 +123,40 @@ class ModelCatalogTest {
     @Test
     fun byFormatReturnsMnnModels() {
         val mnn = ModelCatalog.byFormat("mnn")
-        assertEquals("All catalog entries should be MNN", ModelCatalog.entries.size, mnn.size)
+        assertTrue("Should have MNN models", mnn.isNotEmpty())
+        assertTrue("All MNN entries should be mnn format", mnn.all { it.format == "mnn" })
+    }
+
+    @Test
+    fun byFormatReturnsGgufModels() {
+        val gguf = ModelCatalog.byFormat("gguf")
+        assertTrue("Should have GGUF models", gguf.isNotEmpty())
+        assertTrue("All GGUF entries should be gguf format", gguf.all { it.format == "gguf" })
+    }
+
+    @Test
+    fun catalogHasBothFormats() {
+        val formats = ModelCatalog.entries.map { it.format }.distinct()
+        assertTrue("Catalog should contain mnn format", "mnn" in formats)
+        assertTrue("Catalog should contain gguf format", "gguf" in formats)
+    }
+
+    @Test
+    fun ggufEntriesHaveEmptyModelFiles() {
+        val gguf = ModelCatalog.byFormat("gguf")
+        for (entry in gguf) {
+            assertTrue("GGUF entry ${entry.id} should have empty modelFiles",
+                entry.modelFiles.isEmpty())
+            assertTrue("GGUF entry ${entry.id} isGguf should be true", entry.isGguf)
+        }
+    }
+
+    @Test
+    fun recommendForDeviceWithFormatPreference() {
+        val mnnRec = ModelCatalog.recommendForDevice(8192, "mnn")
+        val ggufRec = ModelCatalog.recommendForDevice(8192, "gguf")
+        if (mnnRec != null) assertTrue("MNN recommendation should be mnn", mnnRec.isMnn)
+        if (ggufRec != null) assertTrue("GGUF recommendation should be gguf", ggufRec.isGguf)
     }
 
     @Test

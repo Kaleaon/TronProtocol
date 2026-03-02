@@ -31,6 +31,8 @@ object PluginRegistry {
         PluginConfig("mnn_avatar", MnnAvatarPlugin::class.java, true, 17, setOf(Capability.AVATAR_RENDER, Capability.AVATAR_ANIMATE)) { MnnAvatarPlugin() },
         PluginConfig("avatar_perception", AvatarPerceptionPlugin::class.java, true, 18, setOf(Capability.AVATAR_RENDER, Capability.AVATAR_ANIMATE, Capability.MODEL_EXECUTION, Capability.CAMERA_ACCESS, Capability.AUDIO_CAPTURE, Capability.IMAGE_GENERATION)) { AvatarPerceptionPlugin() },
         PluginConfig("heretic_model", HereticModelPlugin::class.java, true, 19, setOf(Capability.MODEL_EXECUTION)) { HereticModelPlugin() },
+        // ── ToolNeuron integration: Persona management ──
+        PluginConfig("persona", PersonaPlugin::class.java, true, 122, setOf(Capability.MEMORY_READ, Capability.MEMORY_WRITE)) { PersonaPlugin() },
         PluginConfig("guidance_router", GuidanceRouterPlugin::class.java, true, 140, setOf(Capability.NETWORK_OUTBOUND, Capability.MODEL_EXECUTION)) { GuidanceRouterPlugin() },
         PluginConfig("frontier_dynamics", FrontierDynamicsPlugin::class.java, true, 25, setOf(Capability.MODEL_EXECUTION)) { FrontierDynamicsPlugin() },
         PluginConfig("takens_training", TakensTrainingPlugin::class.java, true, 145, setOf(Capability.MODEL_EXECUTION)) { TakensTrainingPlugin() },

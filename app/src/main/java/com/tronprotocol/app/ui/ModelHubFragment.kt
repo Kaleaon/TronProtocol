@@ -122,7 +122,7 @@ class ModelHubFragment : Fragment() {
             }
             modelRunCard.visibility = View.VISIBLE
         } else {
-            modelHubStatusText.text = "No model selected"
+            modelHubStatusText.text = getString(R.string.models_no_model_selected)
             modelSelectedDetailsText.visibility = View.GONE
             modelRunCard.visibility = View.GONE
         }
@@ -141,22 +141,22 @@ class ModelHubFragment : Fragment() {
     private fun showModelCatalog() {
         val catalog = modelCatalog.entries
         if (catalog.isEmpty()) {
-            Toast.makeText(requireContext(), "No models available in catalog", Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.models_toast_catalog_empty))
             return
         }
 
         val items = catalog.map { "${it.name} (${it.sizeMb} MB) — ${it.description}" }.toTypedArray()
         AlertDialog.Builder(requireContext())
-            .setTitle("Model Catalog (${catalog.size})")
+            .setTitle(getString(R.string.models_dialog_catalog_title, catalog.size))
             .setItems(items) { _, which -> startModelDownload(catalog[which]) }
-            .setNegativeButton("Close", null)
+            .setNegativeButton(R.string.common_close, null)
             .show()
     }
 
     private fun showLocalModels() {
         val models = modelRepository.getImportedModels()
         if (models.isEmpty()) {
-            Toast.makeText(requireContext(), "No local models found. Download one first.", Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.models_toast_local_empty))
             return
         }
 
@@ -166,55 +166,56 @@ class ModelHubFragment : Fragment() {
         }.toTypedArray()
 
         AlertDialog.Builder(requireContext())
-            .setTitle("My Models (${models.size})")
+            .setTitle(getString(R.string.models_dialog_my_models_title, models.size))
             .setItems(items) { _, which -> selectAndLoadModel(models[which]) }
-            .setNegativeButton("Close", null)
+            .setNegativeButton(R.string.common_close, null)
             .show()
     }
 
     private fun showRecommendation() {
         val capability = llmManager.assessDevice()
-        val message = buildString {
-            append("Recommended model: ${capability.recommendedModel}\n\n")
-            append("Device: ${capability.cpuArch}\n")
-            append("Total RAM: ${capability.totalRamMb} MB\n")
-            append("Available RAM: ${capability.availableRamMb} MB\n")
-            append("Max model size: ${capability.maxModelSizeMb} MB\n")
-            append("ARM64: ${if (capability.supportsArm64) "Yes" else "No"}\n")
-            append("FP16: ${if (capability.supportsFp16) "Yes" else "No"}\n")
-            append("GPU: ${if (capability.hasGpu) "Yes" else "No"}\n")
-            append("Threads: ${capability.recommendedThreads}\n\n")
-            append(capability.reason)
-        }
+        val message = getString(
+            R.string.models_recommendation_message,
+            capability.recommendedModel,
+            capability.cpuArch,
+            capability.totalRamMb,
+            capability.availableRamMb,
+            capability.maxModelSizeMb,
+            if (capability.supportsArm64) getString(R.string.common_yes) else getString(R.string.common_no),
+            if (capability.supportsFp16) getString(R.string.common_yes) else getString(R.string.common_no),
+            if (capability.hasGpu) getString(R.string.common_yes) else getString(R.string.common_no),
+            capability.recommendedThreads,
+            capability.reason
+        )
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Device Recommendation")
+            .setTitle(R.string.models_dialog_device_recommendation_title)
             .setMessage(message)
-            .setPositiveButton("OK", null)
+            .setPositiveButton(R.string.common_ok, null)
             .show()
     }
 
     private fun showModelStatus() {
         val stats = llmManager.getStats()
         val message = if (stats.isEmpty()) {
-            "No model loaded"
+            getString(R.string.models_no_model_loaded)
         } else {
             stats.entries.joinToString("\n") { "${it.key}: ${it.value}" }
         }
 
         AlertDialog.Builder(requireContext())
-            .setTitle("LLM Status")
+            .setTitle(R.string.models_dialog_llm_status_title)
             .setMessage(message)
-            .setPositiveButton("OK", null)
+            .setPositiveButton(R.string.common_ok, null)
             .show()
     }
 
     private fun startModelDownload(entry: ModelCatalog.CatalogEntry) {
         modelDownloadProgressContainer.visibility = View.VISIBLE
-        modelDownloadStatusText.text = "Starting download: ${entry.name}..."
+        modelDownloadStatusText.text = getString(R.string.models_download_starting, entry.name)
         modelDownloadProgressBar.progress = 0
         modelDownloadProgressBar.isIndeterminate = false
-        Toast.makeText(requireContext(), "Downloading ${entry.name} (${entry.sizeMb} MB)...", Toast.LENGTH_SHORT).show()
+        showToast(getString(R.string.models_toast_downloading, entry.name, entry.sizeMb))
 
         val started = downloadManager.downloadModel(entry) { progress ->
             requireActivity().runOnUiThread {
@@ -229,13 +230,13 @@ class ModelHubFragment : Fragment() {
                         )
                     }
                     ModelDownloadManager.DownloadState.EXTRACTING -> {
-                        modelDownloadStatusText.text = "Extracting ${entry.name}..."
+                        modelDownloadStatusText.text = getString(R.string.models_download_extracting, entry.name)
                         modelDownloadProgressBar.isIndeterminate = true
                     }
                     ModelDownloadManager.DownloadState.COMPLETED -> {
                         modelDownloadProgressContainer.visibility = View.GONE
                         modelDownloadProgressBar.isIndeterminate = false
-                        Toast.makeText(requireContext(), "Download complete: ${entry.name}", Toast.LENGTH_SHORT).show()
+                        showToast(getString(R.string.models_toast_download_complete, entry.name))
                         refreshModelHubCard()
                     }
                     ModelDownloadManager.DownloadState.ERROR -> {
@@ -243,7 +244,7 @@ class ModelHubFragment : Fragment() {
                         modelDownloadProgressBar.isIndeterminate = false
                         Toast.makeText(
                             requireContext(),
-                            "Download failed: ${progress.errorMessage ?: "Unknown error"}",
+                            getString(R.string.models_toast_download_failed, progress.errorMessage ?: getString(R.string.common_unknown_error)),
                             Toast.LENGTH_SHORT
                         ).show()
                     }
@@ -258,14 +259,14 @@ class ModelHubFragment : Fragment() {
 
         if (!started) {
             modelDownloadProgressContainer.visibility = View.GONE
-            Toast.makeText(requireContext(), "Download already in progress for ${entry.name}", Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.models_toast_download_already_in_progress, entry.name))
         }
     }
 
     private fun selectAndLoadModel(model: ModelRepository.ImportedModelEntry) {
         modelRepository.setSelectedModelId(model.id)
         refreshModelHubCard()
-        Toast.makeText(requireContext(), "Selected: ${model.name}", Toast.LENGTH_SHORT).show()
+        showToast(getString(R.string.models_toast_selected, model.name))
 
         if (OnDeviceLLMManager.isNativeAvailable()) {
             llmSetupExecutor.execute {
@@ -275,14 +276,14 @@ class ModelHubFragment : Fragment() {
                     val loaded = llmManager.loadModel(config)
                     requireActivity().runOnUiThread {
                         if (loaded) {
-                            Toast.makeText(requireContext(), "Loaded: ${model.name} (${config.backendName})", Toast.LENGTH_SHORT).show()
+                            showToast(getString(R.string.models_toast_loaded, model.name, config.backendName))
                         } else {
-                            Toast.makeText(requireContext(), "Selected ${model.name} but failed to load model", Toast.LENGTH_SHORT).show()
+                            showToast(getString(R.string.models_toast_selected_failed_to_load, model.name))
                         }
                     }
                 } catch (e: Exception) {
                     requireActivity().runOnUiThread {
-                        Toast.makeText(requireContext(), "Selected ${model.name} but error loading: ${e.message}", Toast.LENGTH_SHORT).show()
+                        showToast(getString(R.string.models_toast_selected_error_loading, model.name, e.message ?: getString(R.string.common_unknown_error)))
                     }
                 }
             }
@@ -292,21 +293,21 @@ class ModelHubFragment : Fragment() {
     private fun runModelGeneration() {
         val prompt = modelPromptInput.text?.toString()?.trim().orEmpty()
         if (prompt.isBlank()) {
-            Toast.makeText(requireContext(), "Enter a prompt before generating.", Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.models_toast_prompt_required))
             return
         }
 
         val selectedModel = modelRepository.getSelectedModel()
         if (selectedModel == null) {
-            Toast.makeText(requireContext(), "No model selected. Select a model first.", Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.models_toast_select_model_first))
             return
         }
 
         btnRunModel.isEnabled = false
-        btnRunModel.text = "Generating..."
+        btnRunModel.text = getString(R.string.models_generating)
         btnStopGeneration.visibility = View.VISIBLE
         modelRunStatusText.visibility = View.VISIBLE
-        modelRunStatusText.text = "Running inference on ${selectedModel.name}..."
+        modelRunStatusText.text = getString(R.string.models_running_inference, selectedModel.name)
         modelOutputScrollView.visibility = View.GONE
 
         activeGenerationFuture = llmSetupExecutor.submit {
@@ -317,7 +318,7 @@ class ModelHubFragment : Fragment() {
                         requireActivity().runOnUiThread {
                             resetGenerationUi()
                             modelRunStatusText.visibility = View.VISIBLE
-                            modelRunStatusText.text = "Failed to load model. Try selecting it again."
+                            modelRunStatusText.text = getString(R.string.models_status_failed_to_load)
                         }
                         return@submit
                     }
@@ -325,7 +326,7 @@ class ModelHubFragment : Fragment() {
                     requireActivity().runOnUiThread {
                         resetGenerationUi()
                         modelRunStatusText.visibility = View.VISIBLE
-                        modelRunStatusText.text = "Error loading model: ${e.message}"
+                        modelRunStatusText.text = getString(R.string.models_status_error_loading, e.message ?: getString(R.string.common_unknown_error))
                     }
                     return@submit
                 }
@@ -342,7 +343,7 @@ class ModelHubFragment : Fragment() {
                     modelRunStatusText.text = "${result.tokensGenerated} tokens | ${result.latencyMs} ms | ${"%.1f".format(result.tokensPerSecond)} tok/s"
                 } else {
                     modelRunStatusText.visibility = View.VISIBLE
-                    modelRunStatusText.text = "Generation failed: ${result.error ?: "Unknown error"}"
+                    modelRunStatusText.text = getString(R.string.models_status_generation_failed, result.error ?: getString(R.string.common_unknown_error))
                 }
             }
         }
@@ -353,12 +354,12 @@ class ModelHubFragment : Fragment() {
         activeGenerationFuture = null
         resetGenerationUi()
         modelRunStatusText.visibility = View.VISIBLE
-        modelRunStatusText.text = "Generation cancelled."
+        modelRunStatusText.text = getString(R.string.models_status_generation_cancelled)
     }
 
     private fun resetGenerationUi() {
         btnRunModel.isEnabled = true
-        btnRunModel.text = "Generate"
+        btnRunModel.text = getString(R.string.models_generate)
         btnStopGeneration.visibility = View.GONE
         activeGenerationFuture = null
     }
@@ -369,36 +370,36 @@ class ModelHubFragment : Fragment() {
             setPadding(48, 24, 48, 0)
         }
         val modelNameInput = EditText(requireContext()).apply {
-            hint = "Qwen2.5-1.5B-Instruct"
-            setText("Qwen2.5-1.5B-Instruct")
+            hint = getString(R.string.models_hint_name)
+            setText(R.string.models_default_name)
         }
         val modelUrlInput = EditText(requireContext()).apply {
-            hint = "https://example.com/model.zip"
+            hint = getString(R.string.models_hint_url)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
-        layout.addView(TextView(requireContext()).apply { text = "Model name:" })
+        layout.addView(TextView(requireContext()).apply { text = getString(R.string.models_label_name) })
         layout.addView(modelNameInput)
-        layout.addView(TextView(requireContext()).apply { text = "Download URL:" })
+        layout.addView(TextView(requireContext()).apply { text = getString(R.string.models_label_download_url) })
         layout.addView(modelUrlInput)
 
         AlertDialog.Builder(requireContext())
-            .setTitle("Download & Initialize LLM")
+            .setTitle(R.string.models_dialog_download_initialize_title)
             .setView(layout)
-            .setPositiveButton("Start") { _, _ ->
+            .setPositiveButton(R.string.common_start) { _, _ ->
                 val modelName = modelNameInput.text?.toString()?.trim().orEmpty()
                 val modelUrl = modelUrlInput.text?.toString()?.trim().orEmpty()
                 if (modelName.isBlank() || modelUrl.isBlank()) {
-                    Toast.makeText(requireContext(), "Provide both model name and URL.", Toast.LENGTH_SHORT).show()
+                    showToast(getString(R.string.models_toast_provide_name_and_url))
                     return@setPositiveButton
                 }
                 val uri = android.net.Uri.parse(modelUrl)
                 val scheme = uri.scheme?.lowercase()
                 if (scheme != "http" && scheme != "https") {
-                    Toast.makeText(requireContext(), "Invalid URL scheme: only http and https are allowed.", Toast.LENGTH_SHORT).show()
+                    showToast(getString(R.string.models_toast_invalid_url_scheme))
                     return@setPositiveButton
                 }
 
-                Toast.makeText(requireContext(), "Downloading model package...", Toast.LENGTH_SHORT).show()
+                showToast(getString(R.string.models_toast_downloading_package))
                 llmSetupExecutor.execute {
                     val result = llmManager.downloadAndInitializeModel(modelName, modelUrl)
                     requireActivity().runOnUiThread {
@@ -407,18 +408,22 @@ class ModelHubFragment : Fragment() {
                             val sizeMb = result.downloadedBytes / (1024f * 1024f)
                             Toast.makeText(
                                 requireContext(),
-                                "Model ready: ${result.config?.modelName} (${"%.1f".format(sizeMb)} MB)",
+                                getString(R.string.models_toast_model_ready, result.config?.modelName ?: getString(R.string.models_unknown_model), "%.1f".format(sizeMb)),
                                 Toast.LENGTH_SHORT
                             ).show()
                             refreshModelHubCard()
                         } else {
-                            Toast.makeText(requireContext(), "Model setup failed: ${result.error}", Toast.LENGTH_SHORT).show()
+                            showToast(getString(R.string.models_toast_setup_failed, result.error ?: getString(R.string.common_unknown_error)))
                         }
                     }
                 }
             }
-            .setNegativeButton("Cancel", null)
+            .setNegativeButton(R.string.common_cancel, null)
             .show()
+    }
+
+    private fun showToast(message: String) {
+        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroyView() {

@@ -1,10 +1,15 @@
 package com.tronprotocol.app.llm
 
+import com.tronprotocol.app.llm.backend.BackendType
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Configuration for an on-device LLM model loaded via MNN.
+ * Configuration for an on-device LLM model.
+ *
+ * Supports both MNN and GGUF model formats. The [format] field determines
+ * which backend will be used for inference and which artifact validation
+ * rules apply.
  */
 class LLMModelConfig private constructor(
     val modelId: String,
@@ -20,8 +25,19 @@ class LLMModelConfig private constructor(
     val topP: Float,
     val useMmap: Boolean,
     val artifacts: List<ModelArtifact>,
-    val integrityStatus: IntegrityStatus
+    val integrityStatus: IntegrityStatus,
+    val format: String = "mnn"
 ) {
+
+    /** The backend type determined by model format. */
+    val backendType: BackendType
+        get() = when (format.lowercase()) {
+            "gguf" -> BackendType.GGUF
+            else -> BackendType.MNN
+        }
+
+    /** Whether this config is for a GGUF model. */
+    val isGguf: Boolean get() = format.lowercase() == "gguf"
 
     data class SignatureMetadata(
         val algorithm: String,
@@ -70,6 +86,9 @@ class LLMModelConfig private constructor(
         private var useMmap: Boolean = false
         private val artifacts: MutableList<ModelArtifact> = mutableListOf()
         private var integrityStatus: IntegrityStatus = IntegrityStatus.VERIFIED
+        private var format: String = "mnn"
+
+        fun setFormat(format: String) = apply { this.format = format }
 
         fun setModelId(modelId: String) = apply { this.modelId = modelId }
         fun setParameterCount(parameterCount: String) = apply { this.parameterCount = parameterCount }
@@ -116,10 +135,13 @@ class LLMModelConfig private constructor(
                 require(artifacts.isNotEmpty()) {
                     "At least one model artifact checksum is required"
                 }
-                val required = REQUIRED_MODEL_ARTIFACTS.toSet()
-                val names = artifacts.map { it.fileName }.toSet()
-                require(required.subtract(names).isEmpty()) {
-                    "Missing checksums for required artifacts: ${required.subtract(names)}"
+                // GGUF models have different artifact requirements
+                if (format != "gguf") {
+                    val required = REQUIRED_MODEL_ARTIFACTS.toSet()
+                    val names = artifacts.map { it.fileName }.toSet()
+                    require(required.subtract(names).isEmpty()) {
+                        "Missing checksums for required artifacts: ${required.subtract(names)}"
+                    }
                 }
                 artifacts.forEach { artifact ->
                     require(SHA256_REGEX.matches(artifact.sha256)) {
@@ -131,7 +153,7 @@ class LLMModelConfig private constructor(
             return LLMModelConfig(
                 modelId, modelName, modelPath, parameterCount, quantization,
                 contextWindow, maxTokens, backend, threadCount, temperature, topP, useMmap,
-                artifacts.toList(), integrityStatus
+                artifacts.toList(), integrityStatus, format
             )
         }
     }
@@ -217,6 +239,54 @@ class LLMModelConfig private constructor(
                 .setContextWindow(4096)
                 .setMaxTokens(512)
                 .setThreadCount(4)
+                .setArtifacts(artifacts)
+                .build()
+
+        // ---- GGUF model factory methods ----
+
+        /**
+         * Required artifacts for GGUF models.
+         * GGUF bundles tokenizer inside the model file, so only the .gguf file is required.
+         */
+        val REQUIRED_GGUF_ARTIFACTS = listOf<String>()
+
+        @JvmStatic
+        fun gguf_qwen_0_5b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
+            Builder("Ruvltra-Claude-Code-0.5B", modelPath)
+                .setModelId("gguf_ruvltra_claude_code_0_5b")
+                .setFormat("gguf")
+                .setParameterCount("0.5B")
+                .setQuantization("Q4_K_M")
+                .setContextWindow(4096)
+                .setMaxTokens(512)
+                .setThreadCount(4)
+                .setArtifacts(artifacts)
+                .build()
+
+        @JvmStatic
+        fun gguf_gemma3_1b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
+            Builder("Gemma3-1B-IT", modelPath)
+                .setModelId("gguf_gemma3_1b")
+                .setFormat("gguf")
+                .setParameterCount("1B")
+                .setQuantization("Q4_K_M")
+                .setContextWindow(4096)
+                .setMaxTokens(512)
+                .setThreadCount(4)
+                .setArtifacts(artifacts)
+                .build()
+
+        @JvmStatic
+        fun gguf_qwen3_8b(modelPath: String, artifacts: List<ModelArtifact>): LLMModelConfig =
+            Builder("Qwen3-8B", modelPath)
+                .setModelId("gguf_qwen3_8b")
+                .setFormat("gguf")
+                .setParameterCount("8B")
+                .setQuantization("Q4_K_M")
+                .setContextWindow(8192)
+                .setMaxTokens(1024)
+                .setThreadCount(4)
+                .setUseMmap(true)
                 .setArtifacts(artifacts)
                 .build()
     }

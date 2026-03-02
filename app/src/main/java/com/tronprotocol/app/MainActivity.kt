@@ -61,6 +61,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         private set
     lateinit var responseQualityScorer: ResponseQualityScorer
         private set
+    override lateinit var inferenceTelemetry: InferenceTelemetry
     private lateinit var inferenceTelemetryManager: InferenceTelemetry
         private set
     var affectOrchestrator: AffectOrchestrator? = null
@@ -69,12 +70,6 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
     private val uiHandler = Handler(Looper.getMainLooper())
     private var affectUpdateRunnable: Runnable? = null
 
-    // --- Fragments (cached) ---
-    private val chatFragment by lazy { ChatFragment() }
-    private val avatarFragment by lazy { AvatarFragment() }
-    private val modelHubFragment by lazy { ModelHubFragment() }
-    private val pluginManagementFragment by lazy { PluginManagementFragment() }
-    private val settingsFragment by lazy { SettingsFragment() }
     private var activeFragment: Fragment? = null
 
     // --- Permission handling ---
@@ -84,9 +79,9 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
             val denied = result.filterValues { granted -> !granted }.keys
             if (denied.isEmpty()) {
-                showToast("Permission granted.")
+                showToast(getString(R.string.main_toast_permission_granted))
             } else {
-                showToast("Some permissions were denied.")
+                showToast(getString(R.string.main_toast_permissions_denied))
             }
             activePermissionGroup = null
             refreshStartupStateBadge()
@@ -102,7 +97,8 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         registerForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
             if (uris.isNullOrEmpty()) return@registerForActivityResult
             // Delegate to settings fragment
-            settingsFragment.handleBulkPersonalityImport(uris)
+            getOrCreateFragment(TAG_SETTINGS) { SettingsFragment() }
+                .handleBulkPersonalityImport(uris)
         }
 
     private val shareDocumentLauncher =
@@ -110,7 +106,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             if (uri == null) return@registerForActivityResult
             val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
             val displayName = resolveDisplayName(uri) ?: "File ($mimeType)"
-            showToast("Shared: $displayName")
+            showToast(getString(R.string.main_toast_shared_file, displayName))
         }
 
     // ========================================================================
@@ -194,25 +190,31 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
     private fun setupBottomNavigation() {
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
-                R.id.nav_chat -> showFragment(chatFragment)
-                R.id.nav_avatar -> showFragment(avatarFragment)
-                R.id.nav_models -> showFragment(modelHubFragment)
-                R.id.nav_plugins -> showFragment(pluginManagementFragment)
-                R.id.nav_settings -> showFragment(settingsFragment)
+                R.id.nav_chat -> showFragment(TAG_CHAT) { ChatFragment() }
+                R.id.nav_avatar -> showFragment(TAG_AVATAR) { AvatarFragment() }
+                R.id.nav_models -> showFragment(TAG_MODELS) { ModelHubFragment() }
+                R.id.nav_plugins -> showFragment(TAG_PLUGINS) { PluginManagementFragment() }
+                R.id.nav_settings -> showFragment(TAG_SETTINGS) { SettingsFragment() }
                 else -> return@setOnItemSelectedListener false
             }
             true
         }
         // Default to chat tab
-        showFragment(chatFragment)
+        showFragment(TAG_CHAT) { ChatFragment() }
     }
 
-    private fun showFragment(fragment: Fragment) {
+    private fun showFragment(tag: String, fragmentProvider: () -> Fragment) {
+        val fragment = supportFragmentManager.findFragmentByTag(tag) ?: fragmentProvider()
         if (fragment === activeFragment) return
         supportFragmentManager.beginTransaction()
-            .replace(R.id.fragmentContainer, fragment)
+            .replace(R.id.fragmentContainer, fragment, tag)
             .commit()
         activeFragment = fragment
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun <T : Fragment> getOrCreateFragment(tag: String, provider: () -> T): T {
+        return (supportFragmentManager.findFragmentByTag(tag) as? T) ?: provider()
     }
 
     // ========================================================================
@@ -221,7 +223,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
 
     private fun initializePlugins() {
         val pluginManager = PluginManager.getInstance()
-        pluginManager.initialize(this)
+        pluginManager.initialize(applicationContext)
 
         for (config in PluginRegistry.sortedConfigs) {
             val enabled = prefs.getBoolean("plugin_enabled_${config.id}", config.defaultEnabled)
@@ -235,7 +237,7 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         pluginManager.ensureInitialized("rag_memory")
 
         val count = pluginManager.getRegisteredCount()
-        pluginCountText.text = "$count plugins"
+        pluginCountText.text = getString(R.string.active_plugins_count, count)
         Log.d(TAG, "Registered $count plugins (lazy)")
     }
 
@@ -312,14 +314,14 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             try {
                 startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
             } catch (e: Exception) {
-                showToast("Unable to open All Files settings.")
+                showToast(getString(R.string.main_toast_all_files_settings_unavailable))
             }
         }
     }
 
     override fun exportDebugLog() {
         val file = StartupDiagnostics.exportDebugLog(this)
-        showToast("Debug log exported: ${file.absolutePath}")
+        showToast(getString(R.string.main_toast_debug_log_exported, file.absolutePath))
     }
 
     override fun getInferenceTelemetry(): InferenceTelemetry = inferenceTelemetryManager
@@ -473,5 +475,10 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
         private const val FIRST_LAUNCH_KEY = "is_first_launch"
         private const val TAG = "MainActivity"
         private const val AFFECT_UI_UPDATE_INTERVAL_MS = 2000L
+        private const val TAG_CHAT = "chat"
+        private const val TAG_AVATAR = "avatar"
+        private const val TAG_MODELS = "models"
+        private const val TAG_PLUGINS = "plugins"
+        private const val TAG_SETTINGS = "settings"
     }
 }

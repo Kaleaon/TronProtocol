@@ -21,7 +21,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Tron Protocol"
+            android:text="@string/main_title"
             android:textSize="20sp"
             android:textStyle="bold" />
 
@@ -30,7 +30,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="12sp"
-            android:text="0 plugins"
+            android:text="@string/main_plugins_initial"
             android:layout_marginEnd="12dp" />
 
         <TextView
@@ -40,7 +40,7 @@
             android:background="@color/service_status_deferred_background"
             android:paddingHorizontal="8dp"
             android:paddingVertical="3dp"
-            android:text="DEFERRED"
+            android:text="@string/service_state_deferred_badge"
             android:textColor="@color/service_status_badge_text"
             android:textSize="11sp"
             android:textStyle="bold" />

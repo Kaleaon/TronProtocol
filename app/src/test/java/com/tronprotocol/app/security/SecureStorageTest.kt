@@ -2,6 +2,9 @@ package com.tronprotocol.app.security
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import java.io.File
+import java.io.FileOutputStream
+import java.security.MessageDigest
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -122,5 +125,44 @@ class SecureStorageTest {
         val retrieved = storage.retrieve(specialKey)
         assertEquals("special_value", retrieved)
         assertTrue(storage.exists(specialKey))
+    }
+
+    @Test
+    fun collidingLegacySanitizedKeys_areStoredSeparately() {
+        val keyOne = "a/b"
+        val keyTwo = "a\\b"
+
+        storage.store(keyOne, "value_one")
+        storage.store(keyTwo, "value_two")
+
+        assertEquals("value_one", storage.retrieve(keyOne))
+        assertEquals("value_two", storage.retrieve(keyTwo))
+        assertNotEquals(filenameForKey(keyOne), filenameForKey(keyTwo))
+    }
+
+    @Test
+    fun retrieve_migratesLegacyFilenameToHashedFilename() {
+        val legacyKey = "legacy/key"
+        val legacyFile = File(File(context.filesDir, "secure_data"), legacySanitizedFilename(legacyKey))
+        val encryptedData = EncryptionManager().encryptString("legacy_value")
+        FileOutputStream(legacyFile).use { it.write(encryptedData) }
+
+        val retrieved = storage.retrieve(legacyKey)
+
+        assertEquals("legacy_value", retrieved)
+        val newFile = File(File(context.filesDir, "secure_data"), filenameForKey(legacyKey))
+        assertTrue(newFile.exists())
+        assertFalse(legacyFile.exists())
+    }
+
+    private fun legacySanitizedFilename(key: String): String =
+        key.replace(Regex("[^a-zA-Z0-9._-]"), "_")
+
+    private fun filenameForKey(key: String): String {
+        val prefix = legacySanitizedFilename(key).trim('_').take(32)
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest(key.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return if (prefix.isNotEmpty()) "${prefix}_$hash" else hash
     }
 }
