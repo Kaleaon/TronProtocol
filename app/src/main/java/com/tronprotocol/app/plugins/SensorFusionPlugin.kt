@@ -31,11 +31,11 @@ class SensorFusionPlugin : Plugin, SensorEventListener {
     private var listening = false
 
     // Latest readings
-    @Volatile private var accelerometer = floatArrayOf(0f, 0f, 0f)
-    @Volatile private var gyroscope = floatArrayOf(0f, 0f, 0f)
-    @Volatile private var light = 0f
-    @Volatile private var proximity = 0f
-    @Volatile private var pressure = 0f
+    @Volatile internal var accelerometer = floatArrayOf(0f, 0f, 0f)
+    @Volatile internal var gyroscope = floatArrayOf(0f, 0f, 0f)
+    @Volatile internal var light = 0f
+    @Volatile internal var proximity = 0f
+    @Volatile internal var pressure = 0f
     @Volatile private var lastUpdateMs = 0L
 
     override fun execute(input: String): PluginResult {
@@ -91,7 +91,7 @@ class SensorFusionPlugin : Plugin, SensorEventListener {
         }
     }
 
-    private fun inferActivity(): JSONObject {
+    internal fun inferActivity(): JSONObject {
         val accelMag = Math.sqrt(
             (accelerometer[0] * accelerometer[0] +
                     accelerometer[1] * accelerometer[1] +
