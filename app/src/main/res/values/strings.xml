@@ -59,6 +59,11 @@
     <string name="emotion_coherence_indicator_content_description">Emotion coherence indicator</string>
     <string name="emotion_coherence_indicator_dynamic_description">Emotion coherence: %1$s</string>
     <string name="service_status_badge_content_description">Service startup status: %1$s</string>
+    <string name="service_status_running_label">Running</string>
+    <string name="service_status_degraded_label">Degraded</string>
+    <string name="service_status_blocked_label">Blocked</string>
+    <string name="service_status_deferred_label">Deferred</string>
+    <string name="btn_send_content_description">Send</string>
 
     <!-- Theme -->
     <string name="section_theme">Theme</string>

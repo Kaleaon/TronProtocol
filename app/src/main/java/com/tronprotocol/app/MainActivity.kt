@@ -47,6 +47,12 @@ import com.tronprotocol.app.ui.ThemeApplicator
  */
 class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
 
+    private data class StartupBadgeState(
+        val label: String,
+        val colorRes: Int,
+        val iconRes: Int,
+    )
+
     // --- Shell views ---
     private lateinit var pluginCountText: TextView
     private lateinit var startupStateBadgeText: TextView
@@ -279,18 +285,40 @@ class MainActivity : AppCompatActivity(), SettingsFragment.SettingsHost {
             .apply()
     }
 
+    /**
+     * Refreshes the startup state badge label, icon, color, and accessibility text using the
+     * persisted [TronProtocolService.SERVICE_STARTUP_STATE_KEY] value.
+     *
+     * This mutates [startupStateBadgeText] and should be called from the main/UI thread.
+     */
     fun refreshStartupStateBadge() {
         val state = prefs.getString(TronProtocolService.SERVICE_STARTUP_STATE_KEY, TronProtocolService.STATE_DEFERRED) ?: TronProtocolService.STATE_DEFERRED
-        val (stateLabel, colorRes, iconRes) = when (state) {
-            TronProtocolService.STATE_RUNNING -> Triple("Running", R.color.service_status_running_background, R.drawable.ic_quality_good)
-            TronProtocolService.STATE_DEGRADED -> Triple("Degraded", R.color.service_status_degraded_background, R.drawable.ic_quality_degraded)
-            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> Triple("Blocked", R.color.service_status_blocked_background, R.drawable.ic_quality_degraded)
-            else -> Triple("Deferred", R.color.service_status_deferred_background, R.drawable.ic_status_cloud)
+        val badgeState = when (state) {
+            TronProtocolService.STATE_RUNNING -> StartupBadgeState(
+                getString(R.string.service_status_running_label),
+                R.color.service_status_running_background,
+                R.drawable.ic_quality_good
+            )
+            TronProtocolService.STATE_DEGRADED -> StartupBadgeState(
+                getString(R.string.service_status_degraded_label),
+                R.color.service_status_degraded_background,
+                R.drawable.ic_quality_degraded
+            )
+            TronProtocolService.STATE_BLOCKED_BY_PERMISSION -> StartupBadgeState(
+                getString(R.string.service_status_blocked_label),
+                R.color.service_status_blocked_background,
+                R.drawable.ic_quality_degraded
+            )
+            else -> StartupBadgeState(
+                getString(R.string.service_status_deferred_label),
+                R.color.service_status_deferred_background,
+                R.drawable.ic_status_cloud
+            )
         }
-        startupStateBadgeText.text = stateLabel
-        startupStateBadgeText.contentDescription = getString(R.string.service_status_badge_content_description, stateLabel)
-        startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, colorRes))
-        startupStateBadgeText.setCompoundDrawablesRelativeWithIntrinsicBounds(iconRes, 0, 0, 0)
+        startupStateBadgeText.text = badgeState.label
+        startupStateBadgeText.contentDescription = getString(R.string.service_status_badge_content_description, badgeState.label)
+        startupStateBadgeText.setBackgroundColor(ContextCompat.getColor(this, badgeState.colorRes))
+        startupStateBadgeText.setCompoundDrawablesRelativeWithIntrinsicBounds(badgeState.iconRes, 0, 0, 0)
     }
 
     // ========================================================================

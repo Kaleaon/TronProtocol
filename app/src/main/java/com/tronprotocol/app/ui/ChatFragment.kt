@@ -35,6 +35,12 @@ import java.util.concurrent.Executors
  */
 class ChatFragment : Fragment() {
 
+    private data class IndicatorState(
+        val colorRes: Int,
+        val label: String,
+        val iconRes: Int,
+    )
+
     // --- Views ---
     private lateinit var chatScrollView: ScrollView
     private lateinit var conversationTranscriptText: TextView
@@ -284,18 +290,18 @@ class ChatFragment : Fragment() {
             chatExpressionSummaryText.text = expressionSummary
         }
 
-        val (coherenceColor, coherenceLabel, coherenceIconRes) = when {
-            coherence > 0.8f -> Triple(R.color.affect_coherence, "Coherent", R.drawable.ic_quality_good)
-            coherence > 0.5f -> Triple(R.color.service_status_degraded_background, "Mixed", R.drawable.ic_quality_degraded)
-            else -> Triple(R.color.service_status_blocked_background, "Drift", R.drawable.ic_quality_degraded)
+        val coherenceState = when {
+            coherence > 0.8f -> IndicatorState(R.color.affect_coherence, "Coherent", R.drawable.ic_quality_good)
+            coherence > 0.5f -> IndicatorState(R.color.service_status_degraded_background, "Mixed", R.drawable.ic_quality_degraded)
+            else -> IndicatorState(R.color.service_status_blocked_background, "Drift", R.drawable.ic_quality_degraded)
         }
-        chatCoherenceIndicator.setImageResource(coherenceIconRes)
-        chatCoherenceIndicator.setColorFilter(ContextCompat.getColor(requireContext(), coherenceColor))
+        chatCoherenceIndicator.setImageResource(coherenceState.iconRes)
+        chatCoherenceIndicator.setColorFilter(ContextCompat.getColor(requireContext(), coherenceState.colorRes))
         chatCoherenceIndicator.contentDescription = getString(
             R.string.emotion_coherence_indicator_dynamic_description,
-            coherenceLabel
+            coherenceState.label
         )
-        chatCoherenceText.text = coherenceLabel
+        chatCoherenceText.text = coherenceState.label
     }
 
     /**
@@ -312,36 +318,34 @@ class ChatFragment : Fragment() {
         chatInferenceStrip.visibility = View.VISIBLE
 
         // Tier indicator color, icon, and short label
-        val (tierColorRes, tierLabel, tierIconRes) = when (tier) {
-            InferenceTier.LOCAL_ALWAYS_ON.label,
-            InferenceTier.LOCAL_ON_DEMAND.label -> Triple(R.color.tier_local, "Local", R.drawable.ic_status_local)
-            InferenceTier.CLOUD_FALLBACK.label -> Triple(R.color.tier_cloud, "Cloud", R.drawable.ic_status_cloud)
-            else -> Triple(R.color.tier_local, "Local", R.drawable.ic_status_local)
+        val tierState = when (tier) {
+            InferenceTier.CLOUD_FALLBACK.label -> IndicatorState(R.color.tier_cloud, "Cloud", R.drawable.ic_status_cloud)
+            else -> IndicatorState(R.color.tier_local, "Local", R.drawable.ic_status_local)
         }
-        inferenceTierIndicator.setImageResource(tierIconRes)
-        inferenceTierIndicator.setColorFilter(ContextCompat.getColor(requireContext(), tierColorRes))
+        inferenceTierIndicator.setImageResource(tierState.iconRes)
+        inferenceTierIndicator.setColorFilter(ContextCompat.getColor(requireContext(), tierState.colorRes))
         inferenceTierIndicator.contentDescription = getString(
             R.string.inference_tier_indicator_dynamic_description,
-            tierLabel
+            tierState.label
         )
-        inferenceTierText.text = tierLabel
+        inferenceTierText.text = tierState.label
 
         // Latency
         inferenceLatencyText.text = "${latency}ms"
 
         // Quality indicator icon + short label + score
-        val (qualityColorRes, qualityLabel, qualityIconRes) = when {
-            quality >= 0.7f -> Triple(R.color.quality_good, "Good", R.drawable.ic_quality_good)
-            quality >= 0.4f -> Triple(R.color.quality_acceptable, "Degraded", R.drawable.ic_quality_degraded)
-            else -> Triple(R.color.quality_poor, "Poor", R.drawable.ic_quality_degraded)
+        val qualityState = when {
+            quality >= 0.7f -> IndicatorState(R.color.quality_good, "Good", R.drawable.ic_quality_good)
+            quality >= 0.4f -> IndicatorState(R.color.quality_acceptable, "Degraded", R.drawable.ic_quality_degraded)
+            else -> IndicatorState(R.color.quality_poor, "Poor", R.drawable.ic_quality_degraded)
         }
-        inferenceQualityIndicator.setImageResource(qualityIconRes)
-        inferenceQualityIndicator.setColorFilter(ContextCompat.getColor(requireContext(), qualityColorRes))
+        inferenceQualityIndicator.setImageResource(qualityState.iconRes)
+        inferenceQualityIndicator.setColorFilter(ContextCompat.getColor(requireContext(), qualityState.colorRes))
         inferenceQualityIndicator.contentDescription = getString(
             R.string.inference_quality_indicator_dynamic_description,
-            qualityLabel
+            qualityState.label
         )
-        inferenceQualityText.text = "$qualityLabel ${"%.0f".format(quality * 100)}%"
+        inferenceQualityText.text = "${qualityState.label} ${"%.0f".format(quality * 100)}%"
 
         // Context utilization
         inferenceContextText.text = contextInfo

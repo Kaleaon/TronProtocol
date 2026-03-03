@@ -223,6 +223,6 @@
             app:iconGravity="textStart"
             app:iconPadding="0dp"
             app:cornerRadius="24dp"
-            android:contentDescription="Send" />
+            android:contentDescription="@string/btn_send_content_description" />
     </LinearLayout>
 </LinearLayout>
