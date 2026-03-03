@@ -137,4 +137,17 @@ class ModelDownloadManagerTest {
         )
         assertFalse("PAUSED should not be terminal", progress.isTerminal)
     }
+    @Test
+    fun rollingBackStateIsNotTerminal() {
+        val progress = ModelDownloadManager.DownloadProgress(
+            modelId = "test",
+            state = ModelDownloadManager.DownloadState.ROLLING_BACK,
+            downloadedBytes = 500,
+            totalBytes = 1000,
+            speedBytesPerSec = 0,
+            progressFraction = 0.5f
+        )
+        assertFalse("ROLLING_BACK should not be terminal", progress.isTerminal)
+    }
+
 }
