@@ -387,4 +387,62 @@ class AuditLoggerTest {
         assertEquals(1, entries.size)
         assertEquals("session_abc_123", entries[0].sessionId)
     }
+
+    @Test
+    fun hashLinkedEntries_includePreviousAndCurrentHashes() {
+        logger.logSync(
+            severity = AuditLogger.Severity.INFO,
+            category = AuditLogger.AuditCategory.SYSTEM_LIFECYCLE,
+            actor = "chain_actor",
+            action = "start"
+        )
+        logger.logSync(
+            severity = AuditLogger.Severity.INFO,
+            category = AuditLogger.AuditCategory.SYSTEM_LIFECYCLE,
+            actor = "chain_actor",
+            action = "continue"
+        )
+
+        val entries = logger.query(actor = "chain_actor", limit = 10)
+        assertEquals(2, entries.size)
+        assertTrue(entries[0].previousHash.isNotBlank())
+        assertTrue(entries[0].entryHash.isNotBlank())
+        assertEquals(entries[0].entryHash, entries[1].previousHash)
+        assertTrue(logger.verifyIntegrity())
+    }
+
+    @Test
+    fun verifyIntegrity_detectsTamperedHashChain() {
+        logger.logSync(
+            severity = AuditLogger.Severity.INFO,
+            category = AuditLogger.AuditCategory.SYSTEM_LIFECYCLE,
+            actor = "seed",
+            action = "seed"
+        )
+        logger.shutdown()
+
+        val storage = SecureStorage(context)
+        val tampered = """
+            [
+              {
+                "id": 1,
+                "timestamp": 1,
+                "severity": "INFO",
+                "category": "SYSTEM_LIFECYCLE",
+                "actor": "seed",
+                "action": "seed",
+                "target": "",
+                "outcome": "success",
+                "session_id": "",
+                "previous_hash": "GENESIS",
+                "entry_hash": "bad_hash"
+              }
+            ]
+        """.trimIndent()
+        storage.store("audit_log", tampered)
+
+        logger = AuditLogger(context)
+        assertFalse(logger.verifyIntegrity())
+    }
+
 }

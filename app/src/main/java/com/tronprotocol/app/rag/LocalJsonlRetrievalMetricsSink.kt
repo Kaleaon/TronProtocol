@@ -63,6 +63,9 @@ class LocalJsonlRetrievalMetricsSink(
         put("topK", metric.topK)
         put("topScore", metric.topScore.toDouble())
         put("avgScore", metric.avgScore.toDouble())
+        put("nDcgAtK", metric.nDcgAtK.toDouble())
+        put("hitAtK", metric.hitAtK.toDouble())
+        put("contradictionRate", metric.contradictionRate.toDouble())
     }
 
     private fun fromJsonSafely(line: String): RetrievalTelemetryEvent? {
@@ -76,7 +79,10 @@ class LocalJsonlRetrievalMetricsSink(
                 resultCount = obj.optInt("resultCount", 0),
                 topK = obj.optInt("topK", 0),
                 topScore = obj.optDouble("topScore", 0.0).toFloat(),
-                avgScore = obj.optDouble("avgScore", 0.0).toFloat()
+                avgScore = obj.optDouble("avgScore", 0.0).toFloat(),
+                nDcgAtK = obj.optDouble("nDcgAtK", 0.0).toFloat(),
+                hitAtK = obj.optDouble("hitAtK", 0.0).toFloat(),
+                contradictionRate = obj.optDouble("contradictionRate", 0.0).toFloat()
             )
         } catch (t: Throwable) {
             Log.w(TAG, "Skipping malformed telemetry line", t)
