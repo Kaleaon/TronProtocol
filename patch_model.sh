@@ -1,0 +1,1 @@
+sed -i 's/Log.d(TAG, "HF token ${if (token.isNullOrBlank()) "cleared" else "set (${token.take(8)}...)"}")/Log.d(TAG, "HF token ${if (token.isNullOrBlank()) "cleared" else "set"}")/g' app/src/main/java/com/tronprotocol/app/llm/ModelDownloadManager.kt
