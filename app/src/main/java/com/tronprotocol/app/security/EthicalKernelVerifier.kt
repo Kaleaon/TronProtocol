@@ -166,7 +166,7 @@ class EthicalKernelVerifier(private val context: Context) {
         // In production, partnerAuthToken would be verified against a
         // hardware-backed challenge-response. For now, require non-empty token.
         if (partnerAuthToken.isBlank()) {
-            Log.e(TAG, "Partner update rejected: empty auth token")
+            Log.e(TAG, "Partner update rejected: unauthorized")
             return false
         }
 

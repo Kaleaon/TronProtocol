@@ -1,0 +1,10 @@
+🔒 [security fix description]
+
+🎯 **What:** The vulnerability fixed
+In `ModelDownloadManager.kt`, the application was logging the HuggingFace API token when it was set, exposing sensitive data to the logs. In `EthicalKernelVerifier.kt`, a rejected partner update with an empty authorization token was explicitly logging the error "Partner update rejected: empty auth token", which implies a specific type of verification is taking place.
+
+⚠️ **Risk:** The potential impact if left unfixed
+Any malicious application or user with access to system logs could extract the HuggingFace token and gain unauthorized access to the user's HuggingFace account, leading to data exfiltration or incurring unwanted costs. Additionally, explicit error logging regarding tokens could guide attackers in reverse-engineering the authentication mechanism.
+
+🛡️ **Solution:** How the fix addresses the vulnerability
+Updated `ModelDownloadManager.kt` to securely log only the action "set" or "cleared" without including any part of the token. In `EthicalKernelVerifier.kt`, the error message was generalized to "unauthorized" to obscure the exact authentication criteria. Tests were added to ensure these sensitive values are no longer logged and that the application functions as expected.
