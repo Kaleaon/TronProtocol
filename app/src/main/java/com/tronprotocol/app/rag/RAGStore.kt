@@ -39,6 +39,34 @@ class RAGStore @Throws(Exception::class) constructor(
     val knowledgeGraph: KnowledgeGraph = KnowledgeGraph(context, aiId)
     private val entityExtractor: EntityExtractor = EntityExtractor()
     private val ntsScoringEngine: NeuralTemporalScoringEngine = NeuralTemporalScoringEngine()
+    private val queryPlanner: QueryPlanner = IntentTypeQueryPlanner()
+    private val reranker: ResultReranker = DefaultResultReranker()
+    private val validator: PostRetrievalValidator = DefaultPostRetrievalValidator()
+    private val ingestionIndexer: IngestionIndexer = object : IngestionIndexer {
+        override fun ingest(
+            chunk: TextChunk,
+            allChunks: MutableList<TextChunk>,
+            chunkIndex: MutableMap<String, TextChunk>
+        ) {
+            ingestAndIndex(chunk, allChunks, chunkIndex)
+        }
+    }
+    private val candidateRetriever: CandidateRetriever = object : CandidateRetriever {
+        override fun retrieveCandidates(query: String, strategy: RetrievalStrategy, topK: Int): List<RetrievalResult> =
+            when (strategy) {
+                RetrievalStrategy.SEMANTIC -> retrieveSemantic(query, topK)
+                RetrievalStrategy.KEYWORD -> retrieveKeyword(query, topK)
+                RetrievalStrategy.HYBRID -> retrieveHybrid(query, topK)
+                RetrievalStrategy.RECENCY -> retrieveRecency(query, topK)
+                RetrievalStrategy.MEMRL -> retrieveSemantic(query, topK * 3).map {
+                    it.copy(strategy = RetrievalStrategy.MEMRL, strategyId = RetrievalStrategy.MEMRL.name)
+                }
+                RetrievalStrategy.RELEVANCE_DECAY -> retrieveRelevanceDecay(query, topK)
+                RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
+                RetrievalStrategy.FRONTIER_AWARE -> retrieveFrontierAware(query, topK)
+                RetrievalStrategy.NTS_CASCADE -> retrieveNtsCascade(query, topK)
+            }
+    }
 
     /** Optional Frontier Dynamics STLE manager for accessibility-aware retrieval. */
     var frontierDynamicsManager: FrontierDynamicsManager? = null
@@ -92,31 +120,34 @@ class RAGStore @Throws(Exception::class) constructor(
             chunk.metadata = metadata.toMutableMap()
         }
 
-        // Generate embedding (simplified TF-IDF based)
-        chunk.embedding = generateEmbedding(content)
+        ingestionIndexer.ingest(chunk, chunks, chunkIndex)
 
-        // Neural Temporal Stack (NTS) memory-stage annotation + MISE-inspired signals
+        saveChunks()
+        Log.d(TAG, "Added chunk: $chunkId for AI: $aiId")
+
+        return chunkId
+    }
+
+    private fun ingestAndIndex(chunk: TextChunk, allChunks: MutableList<TextChunk>, chunkIndexMap: MutableMap<String, TextChunk>) {
+        chunk.embedding = generateEmbedding(chunk.content)
+
         val stage = ntsScoringEngine.assignStage(
-            content = content,
-            sourceType = sourceType,
-            baseImportance = metadata?.get("importance")?.toString()?.toFloatOrNull()
+            content = chunk.content,
+            sourceType = chunk.sourceType,
+            baseImportance = chunk.metadata["importance"]?.toString()?.toFloatOrNull()
         )
         MemoryStage.assign(chunk, stage)
-        chunk.addMetadata("novelty", ntsScoringEngine.estimateNovelty(content))
-        chunk.addMetadata("emotional_salience", ntsScoringEngine.estimateEmotionalSalience(content))
+        chunk.addMetadata("novelty", ntsScoringEngine.estimateNovelty(chunk.content))
+        chunk.addMetadata("emotional_salience", ntsScoringEngine.estimateEmotionalSalience(chunk.content))
 
-        chunks.add(chunk)
-        chunkIndex[chunkId] = chunk
-
-        // Evict lowest-Q-value chunks if store exceeds maximum capacity
+        allChunks.add(chunk)
+        chunkIndexMap[chunk.chunkId] = chunk
         evictIfNeeded()
 
-        // Extract entities and populate knowledge graph (MiniRAG-inspired)
         var graphModified = false
         try {
-            val extraction = entityExtractor.extract(content)
+            val extraction = entityExtractor.extract(chunk.content)
             val entityIds = mutableListOf<String>()
-
             for (entity in extraction.entities) {
                 val entityId = knowledgeGraph.addEntity(entity.name, entity.entityType, entity.context)
                 entityIds.add(entityId)
@@ -124,8 +155,8 @@ class RAGStore @Throws(Exception::class) constructor(
             }
 
             if (entityIds.isNotEmpty()) {
-                val summary = content.substring(0, min(100, content.length))
-                knowledgeGraph.addChunkNode(chunkId, summary, entityIds)
+                val summary = chunk.content.substring(0, min(100, chunk.content.length))
+                knowledgeGraph.addChunkNode(chunk.chunkId, summary, entityIds)
                 chunk.addMetadata("entity_count", entityIds.size)
             }
 
@@ -136,9 +167,8 @@ class RAGStore @Throws(Exception::class) constructor(
                 graphModified = true
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Entity extraction failed for chunk $chunkId", e)
+            Log.w(TAG, "Entity extraction failed for chunk ${chunk.chunkId}", e)
         } finally {
-            // Guarantee graph is saved even if extraction partially fails
             if (graphModified) {
                 try {
                     knowledgeGraph.save()
@@ -147,11 +177,6 @@ class RAGStore @Throws(Exception::class) constructor(
                 }
             }
         }
-
-        saveChunks()
-        Log.d(TAG, "Added chunk: $chunkId for AI: $aiId")
-
-        return chunkId
     }
 
     /**
@@ -160,24 +185,23 @@ class RAGStore @Throws(Exception::class) constructor(
     fun retrieve(query: String, strategy: RetrievalStrategy, topK: Int): List<RetrievalResult> =
         run {
             val start = System.currentTimeMillis()
-            val rawResults = when (strategy) {
-            RetrievalStrategy.SEMANTIC -> retrieveSemantic(query, topK)
-            RetrievalStrategy.KEYWORD -> retrieveKeyword(query, topK)
-            RetrievalStrategy.HYBRID -> retrieveHybrid(query, topK)
-            RetrievalStrategy.RECENCY -> retrieveRecency(query, topK)
-            RetrievalStrategy.MEMRL -> retrieveMemRL(query, topK)
-            RetrievalStrategy.RELEVANCE_DECAY -> retrieveRelevanceDecay(query, topK)
-            RetrievalStrategy.GRAPH -> retrieveGraph(query, topK)
-            RetrievalStrategy.FRONTIER_AWARE -> retrieveFrontierAware(query, topK)
-            RetrievalStrategy.NTS_CASCADE -> retrieveNtsCascade(query, topK)
-            }
-
+            val candidates = candidateRetriever.retrieveCandidates(query, strategy, topK)
+            val reranked = reranker.rerank(query, strategy, candidates, topK)
+            val validated = validator.validate(reranked, topK)
             val elapsed = System.currentTimeMillis() - start
-            val enriched = enrichResultsWithDiagnostics(rawResults, strategy)
+            val enriched = enrichResultsWithDiagnostics(validated, strategy)
 
             recordTelemetry(strategy, elapsed, topK, enriched)
             enriched
         }
+
+    fun retrieve(query: String, intentType: RetrievalIntentType, topK: Int): List<RetrievalResult> {
+        val plan = queryPlanner.plan(query, intentType)
+        val mixed = plan.strategies.flatMap { strategy ->
+            retrieve(query, strategy, topK).map { it.copy(strategyId = "${intentType.name}:${strategy.name}") }
+        }
+        return validator.validate(mixed, topK)
+    }
 
     private fun recordTelemetry(
         strategy: RetrievalStrategy,
@@ -195,7 +219,10 @@ class RAGStore @Throws(Exception::class) constructor(
                     resultCount = results.size,
                     topK = topK,
                     topScore = results.maxOfOrNull { it.score } ?: 0.0f,
-                    avgScore = if (results.isNotEmpty()) results.map { it.score }.average().toFloat() else 0.0f
+                    avgScore = if (results.isNotEmpty()) results.map { it.score }.average().toFloat() else 0.0f,
+                    nDcgAtK = RetrievalQualityMetrics.nDcgAtK(results, topK),
+                    hitAtK = RetrievalQualityMetrics.hitAtK(results, topK),
+                    contradictionRate = RetrievalQualityMetrics.contradictionRate(results, topK)
                 )
             )
         } catch (t: Throwable) {
