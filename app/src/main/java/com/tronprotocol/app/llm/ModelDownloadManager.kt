@@ -11,6 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import java.util.zip.ZipInputStream
 
 /**
@@ -49,7 +50,7 @@ class ModelDownloadManager(context: Context) {
 
     /** Current state of a download. */
     enum class DownloadState {
-        IDLE, QUEUED, DOWNLOADING, EXTRACTING, COMPLETED, PAUSED, CANCELLED, ERROR
+        IDLE, QUEUED, DOWNLOADING, EXTRACTING, INSTALLING, ROLLING_BACK, COMPLETED, PAUSED, CANCELLED, ERROR
     }
 
     /** Progress snapshot for a download. */
@@ -69,6 +70,55 @@ class ModelDownloadManager(context: Context) {
     /** Callback interface for download progress updates. */
     fun interface DownloadListener {
         fun onProgress(progress: DownloadProgress)
+    }
+
+    enum class InstallState {
+        NONE, DOWNLOAD_QUEUED, DOWNLOADING, DOWNLOAD_COMPLETE, INSTALLING, INSTALLED, ROLLING_BACK, ROLLED_BACK, FAILED
+    }
+
+    data class ModelLifecycleEvent(
+        val modelId: String,
+        val stage: String,
+        val state: InstallState,
+        val success: Boolean,
+        val message: String? = null
+    )
+
+    fun interface ModelLifecycleListener {
+        fun onEvent(event: ModelLifecycleEvent)
+    }
+
+    private val installStates = ConcurrentHashMap<String, AtomicReference<InstallState>>()
+    private val lifecycleListeners = mutableSetOf<ModelLifecycleListener>()
+
+    fun addLifecycleListener(listener: ModelLifecycleListener) {
+        lifecycleListeners += listener
+    }
+
+    fun removeLifecycleListener(listener: ModelLifecycleListener) {
+        lifecycleListeners -= listener
+    }
+
+    fun getInstallState(modelId: String): InstallState =
+        installStates[modelId]?.get() ?: InstallState.NONE
+
+    private fun transitionInstallState(modelId: String, expected: InstallState, next: InstallState): Boolean {
+        val ref = installStates.getOrPut(modelId) { AtomicReference(expected) }
+        return ref.compareAndSet(expected, next)
+    }
+
+    private fun setInstallState(modelId: String, next: InstallState) {
+        installStates.getOrPut(modelId) { AtomicReference(next) }.set(next)
+    }
+
+    private fun emitLifecycleEvent(event: ModelLifecycleEvent) {
+        lifecycleListeners.forEach {
+            try {
+                it.onEvent(event)
+            } catch (_: Exception) {
+                // No-op
+            }
+        }
     }
 
     private class DownloadTask(
@@ -329,11 +379,15 @@ class ModelDownloadManager(context: Context) {
         val modelDir = getModelDir(entry.id)
 
         try {
+            setInstallState(entry.id, InstallState.DOWNLOAD_QUEUED)
             emitProgress(task, DownloadState.QUEUED, 0, entry.sizeBytes, 0)
+            transitionInstallState(entry.id, InstallState.DOWNLOAD_QUEUED, InstallState.DOWNLOADING)
 
             // If model is already fully downloaded, skip
             if (isModelDownloaded(entry.id)) {
                 Log.d(TAG, "Model already downloaded: ${entry.id}")
+                setInstallState(entry.id, InstallState.INSTALLED)
+                emitLifecycleEvent(ModelLifecycleEvent(entry.id, "install", InstallState.INSTALLED, true, "already_present"))
                 emitProgress(task, DownloadState.COMPLETED, entry.sizeBytes, entry.sizeBytes, 0)
                 activeDownloads.remove(entry.id)
                 return
@@ -349,11 +403,23 @@ class ModelDownloadManager(context: Context) {
                 // Legacy single-file download (ZIP or raw model file)
                 executeSingleFileDownload(task, modelDir)
             }
+
+            transitionInstallState(entry.id, InstallState.DOWNLOADING, InstallState.DOWNLOAD_COMPLETE)
+            setInstallState(entry.id, InstallState.INSTALLING)
+            emitProgress(task, DownloadState.INSTALLING, entry.sizeBytes, entry.sizeBytes, 0)
+            setInstallState(entry.id, InstallState.INSTALLED)
+            emitLifecycleEvent(ModelLifecycleEvent(entry.id, "install", InstallState.INSTALLED, true))
         } catch (e: InterruptedException) {
+            setInstallState(entry.id, InstallState.FAILED)
             emitProgress(task, DownloadState.CANCELLED, 0, entry.sizeBytes, 0)
             Log.d(TAG, "Download interrupted: ${entry.id}")
         } catch (e: Exception) {
             Log.e(TAG, "Download failed for ${entry.id}: ${e.message}", e)
+            setInstallState(entry.id, InstallState.ROLLING_BACK)
+            emitProgress(task, DownloadState.ROLLING_BACK, 0, entry.sizeBytes, 0, e.message)
+            setInstallState(entry.id, InstallState.ROLLED_BACK)
+            emitLifecycleEvent(ModelLifecycleEvent(entry.id, "rollback", InstallState.ROLLED_BACK, false, e.message))
+            setInstallState(entry.id, InstallState.FAILED)
             emitProgress(task, DownloadState.ERROR, 0, entry.sizeBytes, 0, e.message)
         } finally {
             activeDownloads.remove(entry.id)

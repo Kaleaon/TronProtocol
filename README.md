@@ -4,6 +4,8 @@ A.I. heartbeat, and cellular device access.
 ## Overview
 TronProtocol is an Android application designed for continuous AI monitoring and cellular device access with advanced background service capabilities.
 
+Architecture blueprint: `docs/architecture/ARCHITECTURE.md`.
+
 
 ## Dependency Governance
 - Dependency management policy and acceptance criteria are documented in `docs/dependencies.md`.

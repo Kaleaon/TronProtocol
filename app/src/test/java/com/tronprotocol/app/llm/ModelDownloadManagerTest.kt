@@ -55,4 +55,17 @@ class ModelDownloadManagerTest {
         verify { editor.remove("huggingface_token") }
         verify { Log.d("ModelDownloadManager", "HF token cleared") }
     }
+    @Test
+    fun rollingBackStateIsNotTerminal() {
+        val progress = ModelDownloadManager.DownloadProgress(
+            modelId = "test",
+            state = ModelDownloadManager.DownloadState.ROLLING_BACK,
+            downloadedBytes = 500,
+            totalBytes = 1000,
+            speedBytesPerSec = 0,
+            progressFraction = 0.5f
+        )
+        assertFalse("ROLLING_BACK should not be terminal", progress.isTerminal)
+    }
+
 }
