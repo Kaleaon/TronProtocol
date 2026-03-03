@@ -263,7 +263,7 @@ class TronProtocolService : Service() {
                     scheduleInitializationRetry(e)
                 } else {
                     // Core succeeded but a later tier failed — log but don't block heartbeat
-                    SharedTelemetry.record(TelemetryEvent("tron_protocol_service.initialize", SharedTelemetry.newRequestId("tron_protocol_service"), "tron_protocol_service", 0, SharedTelemetry.STATUS_FAILURE, e.javaClass.simpleName))
+                    SharedTelemetry.record(TelemetryEvent("tron_protocol_service.initialize", requestId, "tron_protocol_service", 0, SharedTelemetry.STATUS_FAILURE, e.javaClass.simpleName))
                     Log.e(TAG, "Non-core tier initialization failed; heartbeat continues", e)
                 }
             } finally {
