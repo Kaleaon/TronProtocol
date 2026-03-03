@@ -63,6 +63,14 @@
     <string name="service_status_degraded_label">Degraded</string>
     <string name="service_status_blocked_label">Blocked</string>
     <string name="service_status_deferred_label">Deferred</string>
+    <string name="emotion_coherence_coherent_label">Coherent</string>
+    <string name="emotion_coherence_mixed_label">Mixed</string>
+    <string name="emotion_coherence_drift_label">Drift</string>
+    <string name="inference_tier_cloud_label">Cloud</string>
+    <string name="inference_tier_local_label">Local</string>
+    <string name="inference_quality_good_label">Good</string>
+    <string name="inference_quality_degraded_label">Degraded</string>
+    <string name="inference_quality_poor_label">Poor</string>
     <string name="btn_send_content_description">Send</string>
 
     <!-- Theme -->

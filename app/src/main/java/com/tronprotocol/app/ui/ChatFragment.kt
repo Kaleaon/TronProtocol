@@ -291,9 +291,21 @@ class ChatFragment : Fragment() {
         }
 
         val coherenceState = when {
-            coherence > 0.8f -> IndicatorState(R.color.affect_coherence, "Coherent", R.drawable.ic_quality_good)
-            coherence > 0.5f -> IndicatorState(R.color.service_status_degraded_background, "Mixed", R.drawable.ic_quality_degraded)
-            else -> IndicatorState(R.color.service_status_blocked_background, "Drift", R.drawable.ic_quality_degraded)
+            coherence > 0.8f -> IndicatorState(
+                R.color.affect_coherence,
+                getString(R.string.emotion_coherence_coherent_label),
+                R.drawable.ic_quality_good
+            )
+            coherence > 0.5f -> IndicatorState(
+                R.color.service_status_degraded_background,
+                getString(R.string.emotion_coherence_mixed_label),
+                R.drawable.ic_quality_degraded
+            )
+            else -> IndicatorState(
+                R.color.service_status_blocked_background,
+                getString(R.string.emotion_coherence_drift_label),
+                R.drawable.ic_quality_degraded
+            )
         }
         chatCoherenceIndicator.setImageResource(coherenceState.iconRes)
         chatCoherenceIndicator.setColorFilter(ContextCompat.getColor(requireContext(), coherenceState.colorRes))
@@ -319,8 +331,16 @@ class ChatFragment : Fragment() {
 
         // Tier indicator color, icon, and short label
         val tierState = when (tier) {
-            InferenceTier.CLOUD_FALLBACK.label -> IndicatorState(R.color.tier_cloud, "Cloud", R.drawable.ic_status_cloud)
-            else -> IndicatorState(R.color.tier_local, "Local", R.drawable.ic_status_local)
+            InferenceTier.CLOUD_FALLBACK.label -> IndicatorState(
+                R.color.tier_cloud,
+                getString(R.string.inference_tier_cloud_label),
+                R.drawable.ic_status_cloud
+            )
+            else -> IndicatorState(
+                R.color.tier_local,
+                getString(R.string.inference_tier_local_label),
+                R.drawable.ic_status_local
+            )
         }
         inferenceTierIndicator.setImageResource(tierState.iconRes)
         inferenceTierIndicator.setColorFilter(ContextCompat.getColor(requireContext(), tierState.colorRes))
@@ -335,9 +355,21 @@ class ChatFragment : Fragment() {
 
         // Quality indicator icon + short label + score
         val qualityState = when {
-            quality >= 0.7f -> IndicatorState(R.color.quality_good, "Good", R.drawable.ic_quality_good)
-            quality >= 0.4f -> IndicatorState(R.color.quality_acceptable, "Degraded", R.drawable.ic_quality_degraded)
-            else -> IndicatorState(R.color.quality_poor, "Poor", R.drawable.ic_quality_degraded)
+            quality >= 0.7f -> IndicatorState(
+                R.color.quality_good,
+                getString(R.string.inference_quality_good_label),
+                R.drawable.ic_quality_good
+            )
+            quality >= 0.4f -> IndicatorState(
+                R.color.quality_acceptable,
+                getString(R.string.inference_quality_degraded_label),
+                R.drawable.ic_quality_degraded
+            )
+            else -> IndicatorState(
+                R.color.quality_poor,
+                getString(R.string.inference_quality_poor_label),
+                R.drawable.ic_quality_degraded
+            )
         }
         inferenceQualityIndicator.setImageResource(qualityState.iconRes)
         inferenceQualityIndicator.setColorFilter(ContextCompat.getColor(requireContext(), qualityState.colorRes))
