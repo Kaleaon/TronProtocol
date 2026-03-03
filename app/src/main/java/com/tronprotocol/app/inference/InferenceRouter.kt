@@ -6,6 +6,7 @@ import android.net.NetworkCapabilities
 import android.util.Log
 import com.tronprotocol.app.guidance.AnthropicApiClient
 import com.tronprotocol.app.security.SecureStorage
+import com.tronprotocol.app.telemetry.SharedTelemetry
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -83,6 +84,8 @@ class InferenceRouter(private val context: Context) {
         complexityHint: Float = -1.0f,
         requireLocal: Boolean = false
     ): InferenceResult {
+        val requestId = SharedTelemetry.newRequestId("inference_router")
+        val operationId = "inference_router.infer"
         val startTime = System.currentTimeMillis()
         val complexity = if (complexityHint < 0) estimateComplexity(prompt) else complexityHint
         val tier = selectTier(complexity, requireLocal)
@@ -99,12 +102,33 @@ class InferenceRouter(private val context: Context) {
         if (result.text.isEmpty() && !requireLocal && tier != InferenceTier.CLOUD_FALLBACK) {
             if (cloudAvailable.get() && isNetworkAvailable()) {
                 Log.d(TAG, "Local inference failed, falling back to cloud")
-                return executeCloud(prompt, maxTokens, startTime)
+                val fallback = executeCloud(prompt, maxTokens, startTime)
+                SharedTelemetry.record(
+                    com.tronprotocol.app.telemetry.TelemetryEvent(
+                        operationId = operationId,
+                        requestId = requestId,
+                        subsystem = "inference_router",
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        status = if (fallback.text.isNotEmpty()) SharedTelemetry.STATUS_SUCCESS else SharedTelemetry.STATUS_FAILURE,
+                        errorClass = fallback.errorMessage?.ifBlank { null }
+                    )
+                )
+                return fallback
             }
         }
 
         inferenceCount.incrementAndGet()
         trackTierResult(result.tier, result.text.isNotEmpty())
+        SharedTelemetry.record(
+            com.tronprotocol.app.telemetry.TelemetryEvent(
+                operationId = operationId,
+                requestId = requestId,
+                subsystem = "inference_router",
+                latencyMs = System.currentTimeMillis() - startTime,
+                status = if (result.text.isNotEmpty()) SharedTelemetry.STATUS_SUCCESS else SharedTelemetry.STATUS_FAILURE,
+                errorClass = result.errorMessage?.ifBlank { null }
+            )
+        )
         return result
     }
 

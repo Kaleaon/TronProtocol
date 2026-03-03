@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import com.tronprotocol.app.security.AuditLogger
 import com.tronprotocol.app.security.ExternalContentSanitizer
+import com.tronprotocol.app.telemetry.SharedTelemetry
+import com.tronprotocol.app.telemetry.TelemetryEvent
+import com.tronprotocol.app.telemetry.FatalPathSnapshot
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
@@ -262,16 +265,22 @@ class PluginManager private constructor() {
         confirmed: Boolean = false,
         dryRun: Boolean = false
     ): PluginResult {
+        val requestId = SharedTelemetry.newRequestId("plugin_execution_manager")
+
         // Lazily materialize if needed
         if (!plugins.containsKey(pluginId) && lazyConfigs.containsKey(pluginId)) {
             materializeLazy(pluginId)
         }
 
         val plugin = plugins[pluginId]
-            ?: return PluginResult.error("Plugin not found: $pluginId", 0)
+            ?: return PluginResult.error("Plugin not found: $pluginId", 0).also {
+                SharedTelemetry.record(TelemetryEvent("plugin_execution.execute", requestId, "plugin_execution_manager", 0, SharedTelemetry.STATUS_FAILURE, "PluginNotFound"))
+            }
 
         if (!plugin.isEnabled) {
-            return PluginResult.error("Plugin is disabled: $pluginId", 0)
+            return PluginResult.error("Plugin is disabled: $pluginId", 0).also {
+                SharedTelemetry.record(TelemetryEvent("plugin_execution.execute", requestId, "plugin_execution_manager", 0, SharedTelemetry.STATUS_FAILURE, "PluginDisabled"))
+            }
         }
 
         val startTime = System.currentTimeMillis()
@@ -448,6 +457,42 @@ class PluginManager private constructor() {
             )
 
             Log.d(TAG, "Executed plugin ${plugin.name}: $result")
+            SharedTelemetry.record(
+                TelemetryEvent(
+                    operationId = "plugin_execution.execute",
+                    requestId = requestId,
+                    subsystem = "plugin_execution_manager",
+                    latencyMs = duration,
+                    status = if (result.isSuccess) SharedTelemetry.STATUS_SUCCESS else SharedTelemetry.STATUS_FAILURE,
+                    errorClass = if (result.isSuccess) null else result.errorMessage
+                )
+            )
+            result
+        } catch (e: Exception) {
+            val duration = System.currentTimeMillis() - startTime
+            Log.e(TAG, "Plugin execution failed: ${plugin.name}", e)
+
+            auditLogger?.logPluginExecution(pluginId, input, false, duration)
+            SharedTelemetry.record(
+                TelemetryEvent(
+                    operationId = "plugin_execution.execute",
+                    requestId = requestId,
+                    subsystem = "plugin_execution_manager",
+                    latencyMs = duration,
+                    status = SharedTelemetry.STATUS_FATAL,
+                    errorClass = e.javaClass.simpleName
+                )
+            )
+            SharedTelemetry.recordFailureSnapshot(
+                FatalPathSnapshot(
+                    operationId = "plugin_execution.execute",
+                    requestId = requestId,
+                    subsystem = "plugin_execution_manager",
+                    errorClass = e.javaClass.simpleName,
+                    latencyMs = duration,
+                    message = e.message
+                )
+            )
         }
     }
 
