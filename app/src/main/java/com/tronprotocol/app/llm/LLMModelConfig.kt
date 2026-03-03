@@ -26,8 +26,22 @@ class LLMModelConfig private constructor(
     val useMmap: Boolean,
     val artifacts: List<ModelArtifact>,
     val integrityStatus: IntegrityStatus,
-    val format: String = "mnn"
+    val format: String = "mnn",
+    val manifest: ModelManifest
 ) {
+
+    data class ModelManifest(
+        val version: Int,
+        val compatibility: Compatibility,
+        val signedMetadata: SignatureMetadata
+    )
+
+    data class Compatibility(
+        val backend: BackendType,
+        val quantization: String,
+        val minRamMb: Long,
+        val requiresGpu: Boolean = false
+    )
 
     /** The backend type determined by model format. */
     val backendType: BackendType
@@ -87,8 +101,37 @@ class LLMModelConfig private constructor(
         private val artifacts: MutableList<ModelArtifact> = mutableListOf()
         private var integrityStatus: IntegrityStatus = IntegrityStatus.VERIFIED
         private var format: String = "mnn"
+        private var manifestVersion: Int = 1
+        private var compatibility: Compatibility = Compatibility(
+            backend = BackendType.MNN,
+            quantization = quantization,
+            minRamMb = 1024L,
+            requiresGpu = false
+        )
+        private var manifestSignature: SignatureMetadata = SignatureMetadata(
+            algorithm = "ed25519",
+            signer = "unknown",
+            signature = "self-signed-manifest"
+        )
 
         fun setFormat(format: String) = apply { this.format = format }
+
+        fun setManifestVersion(version: Int) = apply {
+            this.manifestVersion = max(1, version)
+        }
+
+        fun setCompatibility(
+            backend: BackendType,
+            quantization: String,
+            minRamMb: Long,
+            requiresGpu: Boolean = false
+        ) = apply {
+            this.compatibility = Compatibility(backend, quantization, minRamMb, requiresGpu)
+        }
+
+        fun setManifestSignature(signature: SignatureMetadata) = apply {
+            this.manifestSignature = signature
+        }
 
         fun setModelId(modelId: String) = apply { this.modelId = modelId }
         fun setParameterCount(parameterCount: String) = apply { this.parameterCount = parameterCount }
@@ -153,7 +196,15 @@ class LLMModelConfig private constructor(
             return LLMModelConfig(
                 modelId, modelName, modelPath, parameterCount, quantization,
                 contextWindow, maxTokens, backend, threadCount, temperature, topP, useMmap,
-                artifacts.toList(), integrityStatus, format
+                artifacts.toList(), integrityStatus, format,
+                ModelManifest(
+                    version = manifestVersion,
+                    compatibility = compatibility.copy(
+                        backend = if (format.lowercase() == "gguf") BackendType.GGUF else BackendType.MNN,
+                        quantization = quantization
+                    ),
+                    signedMetadata = manifestSignature
+                )
             )
         }
     }

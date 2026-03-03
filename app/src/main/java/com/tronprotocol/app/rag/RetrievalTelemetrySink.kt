@@ -13,5 +13,8 @@ data class RetrievalTelemetryEvent(
     val resultCount: Int,
     val topK: Int,
     val topScore: Float,
-    val avgScore: Float
+    val avgScore: Float,
+    val nDcgAtK: Float = 0.0f,
+    val hitAtK: Float = 0.0f,
+    val contradictionRate: Float = 0.0f
 )

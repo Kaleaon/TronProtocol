@@ -1,6 +1,7 @@
 package com.tronprotocol.app.plugins
 
 import android.util.Log
+import com.tronprotocol.app.security.NetworkSecurityValidator
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.net.HttpURLConnection
@@ -22,6 +23,7 @@ class BriefContentExtractor {
     companion object {
         private const val TAG = "BriefContentExtractor"
         private const val TIMEOUT_MS = 15000
+        private const val MAX_REDIRECTS = 5
         private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024 // 2 MB
         private const val MIN_CHUNK_LENGTH = 20
         private const val USER_AGENT =
@@ -114,28 +116,73 @@ class BriefContentExtractor {
      */
     private fun extractWebpage(uri: String): ExtractionResult {
         var connection: HttpURLConnection? = null
-        try {
-            val url = URL(uri)
-            connection = url.openConnection() as HttpURLConnection
-            connection.requestMethod = "GET"
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("User-Agent", USER_AGENT)
-            connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-            connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
-            connection.setRequestProperty("Accept-Encoding", "identity") // no compression on Android
+        var currentUri = uri
+        var redirects = 0
 
-            val responseCode = connection.responseCode
-            if (responseCode != 200) {
-                val errorMsg = when (responseCode) {
-                    404 -> "URL not found (404) — '$uri' does not exist"
-                    in 401..403 -> "URL blocked ($responseCode) — requires authentication or is paywalled"
-                    429 -> "URL rate limited (429) — too many requests"
-                    else -> "HTTP error $responseCode fetching $uri"
+        try {
+            while (redirects < MAX_REDIRECTS) {
+                val url = URL(currentUri)
+
+                if (!NetworkSecurityValidator.isSafeUrl(url)) {
+                    Log.w(TAG, "Blocked unsafe URL: $currentUri")
+                    return ExtractionResult(ContentType.WEBPAGE, uri,
+                        listOf(ContentChunk("URL blocked for security reasons", 0)), "")
                 }
+
+                connection?.disconnect()
+                connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.connectTimeout = TIMEOUT_MS
+                connection.readTimeout = TIMEOUT_MS
+                connection.instanceFollowRedirects = false // Manual redirect handling for SSRF protection
+                connection.setRequestProperty("User-Agent", USER_AGENT)
+                connection.setRequestProperty("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                connection.setRequestProperty("Accept-Language", "en-US,en;q=0.9")
+                connection.setRequestProperty("Accept-Encoding", "identity")
+
+                val responseCode = connection.responseCode
+                if (responseCode == HttpURLConnection.HTTP_MOVED_PERM ||
+                    responseCode == HttpURLConnection.HTTP_MOVED_TEMP ||
+                    responseCode == HttpURLConnection.HTTP_SEE_OTHER ||
+                    responseCode == 307 || responseCode == 308) {
+
+                    val location = connection.getHeaderField("Location")
+                    if (location == null) {
+                        break
+                    }
+
+                    // Handle relative redirects
+                    currentUri = if (location.startsWith("http")) {
+                        location
+                    } else {
+                        val base = URL(currentUri)
+                        URL(base, location).toString()
+                    }
+                    redirects++
+                    continue
+                }
+
+                if (responseCode != 200) {
+                    val errorMsg = when (responseCode) {
+                        404 -> "URL not found (404) — '$currentUri' does not exist"
+                        in 401..403 -> "URL blocked ($responseCode) — requires authentication or is paywalled"
+                        429 -> "URL rate limited (429) — too many requests"
+                        else -> "HTTP error $responseCode fetching $currentUri"
+                    }
+                    return ExtractionResult(ContentType.WEBPAGE, uri,
+                        listOf(ContentChunk(errorMsg, 0)), "")
+                }
+                break // Success
+            }
+
+            if (redirects >= MAX_REDIRECTS) {
                 return ExtractionResult(ContentType.WEBPAGE, uri,
-                    listOf(ContentChunk(errorMsg, 0)), "")
+                    listOf(ContentChunk("Too many redirects", 0)), "")
+            }
+
+            // After the loop, connection is the final successful one
+            if (connection == null) {
+                 return ExtractionResult(ContentType.WEBPAGE, uri, emptyList(), "")
             }
 
             val reader = BufferedReader(

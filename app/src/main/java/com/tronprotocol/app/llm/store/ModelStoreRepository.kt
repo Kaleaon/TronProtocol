@@ -2,6 +2,9 @@ package com.tronprotocol.app.llm.store
 
 import android.util.Log
 import com.tronprotocol.app.llm.ModelCatalog
+import com.tronprotocol.app.llm.backend.BackendType
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Repository for browsing and discovering models from HuggingFace repos.
@@ -28,7 +31,15 @@ class ModelStoreRepository(
         val sizeBytes: Long,
         val downloadUrl: String,
         val supportsToolCalling: Boolean = false,
-        val category: ModelCategory = ModelCategory.GENERAL
+        val category: ModelCategory = ModelCategory.GENERAL,
+        val manifest: ModelManifest = ModelManifest(
+            version = 1,
+            compatibility = Compatibility(
+                backend = BackendType.GGUF,
+                quantization = quantization ?: "unknown",
+                minRamMb = 1024L
+            )
+        )
     ) {
         val sizeMb: Long get() = sizeBytes / (1024 * 1024)
     }
@@ -37,8 +48,62 @@ class ModelStoreRepository(
         GENERAL, UNCENSORED, IMAGE_NPU, IMAGE_CPU, TTS, EMBEDDING
     }
 
+    data class ModelManifest(
+        val version: Int,
+        val compatibility: Compatibility
+    )
+
+    data class Compatibility(
+        val backend: BackendType,
+        val quantization: String,
+        val minRamMb: Long,
+        val requiresGpu: Boolean = false
+    )
+
+    enum class InstallState {
+        NONE, DOWNLOADING, INSTALLING, INSTALLED, ACTIVE, ROLLING_BACK, ROLLED_BACK, FAILED
+    }
+
+    data class LifecycleEvent(
+        val modelId: String,
+        val stage: String,
+        val state: InstallState,
+        val success: Boolean,
+        val message: String? = null
+    )
+
+    fun interface LifecycleListener {
+        fun onEvent(event: LifecycleEvent)
+    }
+
     // In-memory cache: repo ID → list of discovered models
     private val cache = mutableMapOf<String, CacheEntry>()
+    private val installStates = ConcurrentHashMap<String, AtomicReference<InstallState>>()
+    private val lifecycleListeners = mutableSetOf<LifecycleListener>()
+
+    fun addLifecycleListener(listener: LifecycleListener) {
+        lifecycleListeners += listener
+    }
+
+    fun removeLifecycleListener(listener: LifecycleListener) {
+        lifecycleListeners -= listener
+    }
+
+    fun getInstallState(modelId: String): InstallState = installStates[modelId]?.get() ?: InstallState.NONE
+
+    fun transitionInstallState(modelId: String, expected: InstallState, next: InstallState): Boolean {
+        val ref = installStates.getOrPut(modelId) { AtomicReference(expected) }
+        val changed = ref.compareAndSet(expected, next)
+        if (changed) {
+            lifecycleListeners.forEach { it.onEvent(LifecycleEvent(modelId, "state_transition", next, true)) }
+        }
+        return changed
+    }
+
+    fun markRollback(modelId: String, reason: String) {
+        installStates.getOrPut(modelId) { AtomicReference(InstallState.NONE) }.set(InstallState.ROLLED_BACK)
+        lifecycleListeners.forEach { it.onEvent(LifecycleEvent(modelId, "rollback", InstallState.ROLLED_BACK, false, reason)) }
+    }
 
     private data class CacheEntry(
         val models: List<StoreModel>,
@@ -140,7 +205,7 @@ class ModelStoreRepository(
             sizeBytes = model.sizeBytes,
             contextWindow = 4096,
             ramRequirement = ModelCatalog.RamRequirement(minRamMb = ramMin, recommendedRamMb = ramMin * 2),
-            supportsGpu = false,
+            supportsGpu = model.manifest.compatibility.requiresGpu,
             source = "HuggingFace: ${model.repoId}"
         )
     }
@@ -154,13 +219,14 @@ class ModelStoreRepository(
     fun filterForDevice(models: List<StoreModel>, availableRamMb: Long): List<StoreModel> {
         return models.filter { model ->
             val sizeCategory = ModelMetadataExtractor.extractSizeCategory(model.parameterCount)
-            val ramMin = when (sizeCategory) {
+            val ramMinBySize = when (sizeCategory) {
                 ModelMetadataExtractor.SizeCategory.TINY -> 1024L
                 ModelMetadataExtractor.SizeCategory.SMALL -> 2048L
                 ModelMetadataExtractor.SizeCategory.MEDIUM -> 4096L
                 ModelMetadataExtractor.SizeCategory.LARGE -> 6144L
                 ModelMetadataExtractor.SizeCategory.XLARGE -> 12288L
             }
+            val ramMin = maxOf(ramMinBySize, model.manifest.compatibility.minRamMb)
             ramMin <= availableRamMb
         }
     }
