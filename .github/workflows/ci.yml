@@ -37,6 +37,25 @@ jobs:
       - name: Run direct dependency vulnerability check
         run: python3 scripts/check_direct_vulns.py
 
+
+  detect-eval-impact:
+    name: Detect Eval Impact
+    runs-on: ubuntu-latest
+    outputs:
+      eval_required: ${{ steps.filter.outputs.eval_related }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            eval_related:
+              - 'app/src/main/java/com/tronprotocol/app/llm/**'
+              - 'app/src/main/java/com/tronprotocol/app/rag/**'
+              - 'app/src/main/java/com/tronprotocol/app/inference/**'
+              - 'app/src/main/java/com/tronprotocol/app/plugins/**'
+              - 'app/src/main/java/com/tronprotocol/app/selfmod/**'
+
   compile:
     name: Compile
     needs:
@@ -54,6 +73,18 @@ jobs:
     secrets: inherit
     with:
       gradle-task: testDebugUnitTest
+
+
+  eval-gate:
+    name: Eval Gate
+    needs:
+      - compile
+      - detect-eval-impact
+    if: needs.detect-eval-impact.outputs.eval_required == 'true'
+    uses: ./.github/workflows/android-common.yml
+    secrets: inherit
+    with:
+      gradle-task: :app:evalSuitesTest
 
   lint:
     name: Lint
