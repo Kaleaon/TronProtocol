@@ -8,6 +8,8 @@ import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import com.tronprotocol.app.frontier.FrontierDynamicsManager
+import com.tronprotocol.app.telemetry.SharedTelemetry
+import com.tronprotocol.app.telemetry.TelemetryEvent
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -83,6 +85,8 @@ class RAGStore @Throws(Exception::class) constructor(
         sourceType: String,
         metadata: Map<String, Any>?
     ): String {
+        val requestId = SharedTelemetry.newRequestId("rag_store")
+        val startTime = System.currentTimeMillis()
         val chunkId = generateChunkId(content, source)
         val timestamp = System.currentTimeMillis().toString()
         val tokenCount = estimateTokens(content)
@@ -150,6 +154,15 @@ class RAGStore @Throws(Exception::class) constructor(
 
         saveChunks()
         Log.d(TAG, "Added chunk: $chunkId for AI: $aiId")
+        SharedTelemetry.record(
+            TelemetryEvent(
+                operationId = "rag_store.add_chunk",
+                requestId = requestId,
+                subsystem = "rag_store",
+                latencyMs = System.currentTimeMillis() - startTime,
+                status = SharedTelemetry.STATUS_SUCCESS
+            )
+        )
 
         return chunkId
     }
@@ -159,6 +172,7 @@ class RAGStore @Throws(Exception::class) constructor(
      */
     fun retrieve(query: String, strategy: RetrievalStrategy, topK: Int): List<RetrievalResult> =
         run {
+            val requestId = SharedTelemetry.newRequestId("rag_store")
             val start = System.currentTimeMillis()
             val rawResults = when (strategy) {
             RetrievalStrategy.SEMANTIC -> retrieveSemantic(query, topK)
@@ -176,6 +190,16 @@ class RAGStore @Throws(Exception::class) constructor(
             val enriched = enrichResultsWithDiagnostics(rawResults, strategy)
 
             recordTelemetry(strategy, elapsed, topK, enriched)
+            SharedTelemetry.record(
+                TelemetryEvent(
+                    operationId = "rag_store.retrieve",
+                    requestId = requestId,
+                    subsystem = "rag_store",
+                    latencyMs = elapsed,
+                    status = SharedTelemetry.STATUS_SUCCESS,
+                    errorClass = if (enriched.isEmpty()) "NoResults" else null
+                )
+            )
             enriched
         }
 
