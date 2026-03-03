@@ -58,7 +58,7 @@ object SharedTelemetry {
                         subsystem = event.subsystem,
                         errorClass = event.errorClass,
                         latencyMs = event.latencyMs,
-                        message = null,
+                        message = event.errorClass,
                         timestampMs = event.timestampMs
                     )
                 )
