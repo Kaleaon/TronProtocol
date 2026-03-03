@@ -3,6 +3,9 @@ package com.tronprotocol.app.security
 import java.net.InetAddress
 import java.net.URL
 import java.net.UnknownHostException
+import java.security.MessageDigest
+import java.security.cert.CertificateFactory
+import java.security.cert.X509Certificate
 
 /**
  * Network Security Validator for preventing SSRF (Server-Side Request Forgery).
@@ -13,6 +16,7 @@ import java.net.UnknownHostException
 object NetworkSecurityValidator {
 
     private val ALLOWED_PROTOCOLS = setOf("http", "https")
+    private val MIN_TLS_PROTOCOLS = setOf("TLSV1.2", "TLSV1.3")
 
     /**
      * Checks if a URL is safe to connect to.
@@ -57,6 +61,42 @@ object NetworkSecurityValidator {
     }
 
     /**
+     * Validates that a negotiated transport protocol is not downgraded below TLS 1.2.
+     */
+    fun isAcceptedTlsProtocol(protocol: String?): Boolean {
+        val normalized = protocol?.uppercase() ?: return false
+        return normalized in MIN_TLS_PROTOCOLS
+    }
+
+    /**
+     * Validates certificate pinning via SHA-256 fingerprint matching.
+     */
+    fun isPinnedCertificate(host: String, certificateDer: ByteArray, pinsByHost: Map<String, Set<String>>): Boolean {
+        val pins = pinsByHost[host.lowercase()] ?: return false
+        val fingerprint = sha256Hex(certificateDer)
+        return pins.contains(fingerprint)
+    }
+
+    /**
+     * Performs basic parsing and validity checks for received X.509 certificates.
+     */
+    fun hasWellFormedCertificates(certificatesDer: List<ByteArray>): Boolean {
+        if (certificatesDer.isEmpty()) return false
+
+        return try {
+            val certificateFactory = CertificateFactory.getInstance("X.509")
+            certificatesDer.all { der ->
+                val cert = certificateFactory.generateCertificate(der.inputStream()) as? X509Certificate
+                    ?: return false
+                cert.checkValidity()
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Manual check for private IP ranges (RFC 1918 and others).
      */
     private fun isPrivateIp(address: InetAddress): Boolean {
@@ -86,5 +126,11 @@ object NetworkSecurityValidator {
             return false
         }
         return false
+    }
+
+    private fun sha256Hex(input: ByteArray): String {
+        return MessageDigest.getInstance("SHA-256")
+            .digest(input)
+            .joinToString("") { "%02x".format(it) }
     }
 }

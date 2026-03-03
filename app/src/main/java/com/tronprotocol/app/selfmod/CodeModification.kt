@@ -10,7 +10,8 @@ class CodeModification(
     val originalCode: String,
     val modifiedCode: String,
     val timestamp: Long,
-    var status: ModificationStatus
+    var status: ModificationStatus,
+    val operatorApproved: Boolean = false
 ) {
     var appliedTimestamp: Long = 0L
     var backupId: String? = null

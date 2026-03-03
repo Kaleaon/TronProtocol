@@ -9,22 +9,22 @@ class ModificationStatusTest {
 
     @Test
     fun proposed_exists() {
-        assertNotNull(ModificationStatus.PROPOSED)
+        assertNotNull(ModificationStatus.PROPOSAL)
     }
 
     @Test
     fun preflighted_exists() {
-        assertNotNull(ModificationStatus.PREFLIGHTED)
+        assertNotNull(ModificationStatus.STATIC_CHECKS)
     }
 
     @Test
     fun canary_exists() {
-        assertNotNull(ModificationStatus.CANARY)
+        assertNotNull(ModificationStatus.CANARY_ROLLOUT)
     }
 
     @Test
     fun promoted_exists() {
-        assertNotNull(ModificationStatus.PROMOTED)
+        assertNotNull(ModificationStatus.FULL_ROLLOUT)
     }
 
     @Test
@@ -62,22 +62,22 @@ class ModificationStatusTest {
 
     @Test
     fun valueOf_proposed() {
-        assertEquals(ModificationStatus.PROPOSED, ModificationStatus.valueOf("PROPOSED"))
+        assertEquals(ModificationStatus.PROPOSAL, ModificationStatus.valueOf("PROPOSAL"))
     }
 
     @Test
     fun valueOf_preflighted() {
-        assertEquals(ModificationStatus.PREFLIGHTED, ModificationStatus.valueOf("PREFLIGHTED"))
+        assertEquals(ModificationStatus.STATIC_CHECKS, ModificationStatus.valueOf("STATIC_CHECKS"))
     }
 
     @Test
     fun valueOf_canary() {
-        assertEquals(ModificationStatus.CANARY, ModificationStatus.valueOf("CANARY"))
+        assertEquals(ModificationStatus.CANARY_ROLLOUT, ModificationStatus.valueOf("CANARY_ROLLOUT"))
     }
 
     @Test
     fun valueOf_promoted() {
-        assertEquals(ModificationStatus.PROMOTED, ModificationStatus.valueOf("PROMOTED"))
+        assertEquals(ModificationStatus.FULL_ROLLOUT, ModificationStatus.valueOf("FULL_ROLLOUT"))
     }
 
     @Test
@@ -99,7 +99,7 @@ class ModificationStatusTest {
 
     @Test
     fun ordinal_proposedIsFirst() {
-        assertEquals(0, ModificationStatus.PROPOSED.ordinal)
+        assertEquals(0, ModificationStatus.PROPOSAL.ordinal)
     }
 
     @Test

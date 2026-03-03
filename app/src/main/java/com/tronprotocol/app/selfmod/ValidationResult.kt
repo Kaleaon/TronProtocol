@@ -6,13 +6,11 @@ package com.tronprotocol.app.selfmod
 class ValidationResult {
 
     enum class Stage {
-        PROPOSED,
-        SYNTAX_STATIC_CHECK,
-        POLICY_CHECK,
-        SANDBOX_TEST,
-        PREFLIGHTED,
-        CANARY,
-        PROMOTED,
+        PROPOSAL,
+        STATIC_CHECKS,
+        SANDBOX_RUN,
+        CANARY_ROLLOUT,
+        FULL_ROLLOUT,
         ROLLED_BACK
     }
 
@@ -24,43 +22,25 @@ class ValidationResult {
     )
 
     private var valid: Boolean = false
-    private var stage: Stage = Stage.PROPOSED
+    private var stage: Stage = Stage.PROPOSAL
     private val errors = mutableListOf<String>()
     private val warnings = mutableListOf<String>()
     private val gates = mutableListOf<GateResult>()
 
-    fun addError(error: String) {
-        errors.add(error)
-        valid = false
-    }
-
-    fun addWarning(warning: String) {
-        warnings.add(warning)
-    }
-
-    fun setValid(valid: Boolean) {
-        this.valid = valid
-    }
-
-    fun setStage(stage: Stage) {
-        this.stage = stage
-    }
+    fun addError(error: String) { errors.add(error); valid = false }
+    fun addWarning(warning: String) { warnings.add(warning) }
+    fun setValid(valid: Boolean) { this.valid = valid }
+    fun setStage(stage: Stage) { this.stage = stage }
 
     fun addGateResult(gateName: String, passed: Boolean, details: String) {
         gates.add(GateResult(gateName = gateName, passed = passed, details = details))
-        if (!passed) {
-            valid = false
-        }
+        if (!passed) valid = false
     }
 
     fun isValid(): Boolean = valid && errors.isEmpty()
-
     fun getStage(): Stage = stage
-
     fun getErrors(): List<String> = ArrayList(errors)
-
     fun getWarnings(): List<String> = ArrayList(warnings)
-
     fun getGateResults(): List<GateResult> = ArrayList(gates)
 
     override fun toString(): String {
