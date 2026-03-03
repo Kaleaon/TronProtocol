@@ -63,6 +63,37 @@ class OnDeviceLLMManager(
 
     private var nativeSessionHandle: Long = 0
 
+    data class ModelLifecycleEvent(
+        val modelId: String,
+        val stage: String,
+        val success: Boolean,
+        val details: Map<String, Any?> = emptyMap()
+    )
+
+    fun interface ModelLifecycleListener {
+        fun onEvent(event: ModelLifecycleEvent)
+    }
+
+    private val lifecycleListeners = mutableSetOf<ModelLifecycleListener>()
+
+    fun addLifecycleListener(listener: ModelLifecycleListener) {
+        lifecycleListeners += listener
+    }
+
+    fun removeLifecycleListener(listener: ModelLifecycleListener) {
+        lifecycleListeners -= listener
+    }
+
+    private fun emitLifecycleEvent(event: ModelLifecycleEvent) {
+        lifecycleListeners.forEach { listener ->
+            try {
+                listener.onEvent(event)
+            } catch (_: Exception) {
+                // No-op: lifecycle telemetry must not break inference path.
+            }
+        }
+    }
+
     /** Get the name of the currently active backend, or "none" if no model loaded. */
     fun getActiveBackendName(): String = activeBackend?.name ?: "none"
 
@@ -269,7 +300,30 @@ class OnDeviceLLMManager(
 
             activeBackend = backend
             activeConfig = config
+
+            if (!verifyModelIntegrity(config, "activate_model")) {
+                unloadModel()
+                currentModelState.set(ModelState.ERROR)
+                emitLifecycleEvent(
+                    ModelLifecycleEvent(
+                        modelId = config.modelId,
+                        stage = "activate",
+                        success = false,
+                        details = mapOf("reason" to "post_load_verification_failed")
+                    )
+                )
+                return false
+            }
+
             currentModelState.set(ModelState.READY)
+            emitLifecycleEvent(
+                ModelLifecycleEvent(
+                    modelId = config.modelId,
+                    stage = "activate",
+                    success = true,
+                    details = mapOf("backend" to backend.name)
+                )
+            )
 
             Log.d(TAG, "Model loaded successfully via ${backend.name}: ${config.modelName} " +
                     "(${config.parameterCount} params, ${config.quantization} quantization)")
@@ -607,6 +661,19 @@ class OnDeviceLLMManager(
                 "verified_artifacts" to result.verifiedArtifacts,
                 "failure_reason" to (result.failureReason?.name ?: "NONE"),
                 "failed_artifact" to (result.failedArtifact ?: "")
+            )
+        )
+
+        emitLifecycleEvent(
+            ModelLifecycleEvent(
+                modelId = config.modelId,
+                stage = "verify",
+                success = result.success,
+                details = mapOf(
+                    "action" to action,
+                    "reason" to (result.failureReason?.name ?: "NONE"),
+                    "message" to result.message
+                )
             )
         )
 

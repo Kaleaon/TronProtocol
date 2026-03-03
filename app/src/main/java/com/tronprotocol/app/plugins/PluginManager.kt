@@ -7,6 +7,11 @@ import com.tronprotocol.app.security.ExternalContentSanitizer
 import com.tronprotocol.app.telemetry.SharedTelemetry
 import com.tronprotocol.app.telemetry.TelemetryEvent
 import com.tronprotocol.app.telemetry.FatalPathSnapshot
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 /**
  * Manages all plugins in the TronProtocol system.
@@ -28,6 +33,15 @@ class PluginManager private constructor() {
     private var toolPolicyEngine: ToolPolicyEngine? = null
     private var auditLogger: AuditLogger? = null
     private val runtimeAutonomyPolicy = RuntimeAutonomyPolicy()
+    private val executionExecutor = Executors.newCachedThreadPool()
+    private val circuitBreakerState = ConcurrentHashMap<String, CircuitBreakerState>()
+
+    private data class CircuitBreakerState(
+        var failures: Int = 0,
+        var openUntilMs: Long = 0
+    )
+
+    private enum class PolicyAction { ALLOW, DENY, CONFIRM, DRY_RUN }
 
     // OpenClaw v2026.2.24 compatibility subsystems
     private var contentSanitizer: ExternalContentSanitizer? = null
@@ -246,7 +260,10 @@ class PluginManager private constructor() {
         input: String,
         isSubAgent: Boolean = false,
         isSandboxed: Boolean = false,
-        sessionId: String? = null
+        sessionId: String? = null,
+        requestId: String = UUID.randomUUID().toString(),
+        confirmed: Boolean = false,
+        dryRun: Boolean = false
     ): PluginResult {
         val requestId = SharedTelemetry.newRequestId("plugin_execution_manager")
 
@@ -267,6 +284,40 @@ class PluginManager private constructor() {
         }
 
         val startTime = System.currentTimeMillis()
+        val manifest = PluginCapabilityManifests.get(pluginId)
+        val argsHash = hashArgs(input)
+
+        val policyAction = evaluateExecutionPolicy(
+            plugin = plugin,
+            pluginId = pluginId,
+            input = input,
+            isSubAgent = isSubAgent,
+            isSandboxed = isSandboxed,
+            sessionId = sessionId,
+            manifest = manifest,
+            confirmed = confirmed,
+            dryRun = dryRun,
+            requestId = requestId,
+            argsHash = argsHash,
+            startTime = startTime
+        )
+        when (policyAction) {
+            PolicyAction.DENY -> return PluginResult.error("Denied by execution policy", System.currentTimeMillis() - startTime)
+            PolicyAction.CONFIRM -> return PluginResult.error("Confirmation required for high-impact plugin: $pluginId", System.currentTimeMillis() - startTime)
+            PolicyAction.DRY_RUN -> {
+                val duration = System.currentTimeMillis() - startTime
+                auditHighImpactProvenance(
+                    manifest, requestId, pluginId, argsHash,
+                    decision = "dry-run", result = "simulated-success", duration = duration
+                )
+                return PluginResult.success("Dry-run policy accepted for $pluginId; no side effects were executed", duration)
+            }
+            PolicyAction.ALLOW -> Unit
+        }
+
+        if (!canExecuteByCircuitBreaker(pluginId, manifest, requestId, argsHash)) {
+            return PluginResult.error("Circuit breaker is open for $pluginId", System.currentTimeMillis() - startTime)
+        }
 
         // Layer 0.5: Dangerous tool classification (OpenClaw dangerous-tools.ts)
         dangerousToolClassifier?.let { classifier ->
@@ -275,7 +326,7 @@ class PluginManager private constructor() {
                 DangerousToolClassifier.DangerTier.BLOCKED -> {
                     auditLogger?.logSecurityEvent(
                         pluginId, "dangerous_tool_blocked", "blocked",
-                        mapOf("tier" to "BLOCKED", "reason" to classification.reason)
+                        mapOf("tier" to "BLOCKED", "reason" to classification.reason, "request_id" to requestId)
                     )
                     return PluginResult.error(
                         "Plugin $pluginId is BLOCKED: ${classification.reason}",
@@ -286,7 +337,7 @@ class PluginManager private constructor() {
                     if (isSubAgent) {
                         auditLogger?.logSecurityEvent(
                             pluginId, "dangerous_tool_denied_subagent", "blocked",
-                            mapOf("tier" to "OWNER_ONLY", "reason" to "Sub-agents cannot use OWNER_ONLY tools")
+                            mapOf("tier" to "OWNER_ONLY", "reason" to "Sub-agents cannot use OWNER_ONLY tools", "request_id" to requestId)
                         )
                         return PluginResult.error(
                             "Sub-agent denied: $pluginId is OWNER_ONLY",
@@ -298,7 +349,7 @@ class PluginManager private constructor() {
                     if (isSubAgent) {
                         auditLogger?.logSecurityEvent(
                             pluginId, "dangerous_tool_denied_subagent", "blocked",
-                            mapOf("tier" to "APPROVAL_REQUIRED", "reason" to "Sub-agents cannot use APPROVAL_REQUIRED tools")
+                            mapOf("tier" to "APPROVAL_REQUIRED", "reason" to "Sub-agents cannot use APPROVAL_REQUIRED tools", "request_id" to requestId)
                         )
                         return PluginResult.error(
                             "Sub-agent denied: $pluginId requires approval",
@@ -317,7 +368,7 @@ class PluginManager private constructor() {
                 auditLogger?.logSecurityEvent(
                     pluginId, "policy_denied",
                     "blocked",
-                    mapOf("layer" to decision.decidingLayer.name, "reason" to decision.reason)
+                    mapOf("layer" to decision.decidingLayer.name, "reason" to decision.reason, "request_id" to requestId)
                 )
                 return PluginResult.error(
                     "Denied by ${decision.decidingLayer.name} policy: ${decision.reason}",
@@ -325,9 +376,7 @@ class PluginManager private constructor() {
                 )
             }
 
-            val declaredCapabilities = plugin.requiredCapabilities().ifEmpty {
-                PluginRegistry.defaultCapabilitiesByPluginId[pluginId] ?: emptySet()
-            }
+            val declaredCapabilities = plugin.requiredCapabilities().ifEmpty { manifest.permissions }
             val capabilityDecision = engine.evaluateCapabilities(pluginId, declaredCapabilities)
             if (!capabilityDecision.allowed) {
                 val missing = capabilityDecision.missingCapabilities.joinToString(",") { it.name }
@@ -387,12 +436,25 @@ class PluginManager private constructor() {
         }
 
         // Layer 4: Execute plugin
-        return try {
-            val result = plugin.execute(input)
+        return executeWithBudget(plugin, pluginId, input, manifest, startTime).also { result ->
             val duration = System.currentTimeMillis() - startTime
+            if (result.isSuccess) {
+                resetCircuitBreaker(pluginId)
+            } else {
+                recordCircuitFailure(pluginId)
+            }
 
             // Layer 5: Audit logging
             auditLogger?.logPluginExecution(pluginId, input, result.isSuccess, duration)
+            auditHighImpactProvenance(
+                manifest = manifest,
+                requestId = requestId,
+                pluginId = pluginId,
+                argsHash = argsHash,
+                decision = "allow",
+                result = if (result.isSuccess) "success" else "failure",
+                duration = duration
+            )
 
             Log.d(TAG, "Executed plugin ${plugin.name}: $result")
             SharedTelemetry.record(
@@ -431,9 +493,120 @@ class PluginManager private constructor() {
                     message = e.message
                 )
             )
-
-            PluginResult.error("Execution failed: ${e.message}", duration)
         }
+    }
+
+    private fun evaluateExecutionPolicy(
+        plugin: Plugin,
+        pluginId: String,
+        input: String,
+        isSubAgent: Boolean,
+        isSandboxed: Boolean,
+        sessionId: String?,
+        manifest: PluginCapabilityManifest,
+        confirmed: Boolean,
+        dryRun: Boolean,
+        requestId: String,
+        argsHash: String,
+        startTime: Long
+    ): PolicyAction {
+        if (dryRun) return PolicyAction.DRY_RUN
+        if (manifest.riskClass >= PluginRiskClass.HIGH && !confirmed) {
+            auditHighImpactProvenance(
+                manifest, requestId, pluginId, argsHash,
+                decision = "confirm", result = "confirmation-required", duration = System.currentTimeMillis() - startTime
+            )
+            return PolicyAction.CONFIRM
+        }
+        return PolicyAction.ALLOW
+    }
+
+    private fun executeWithBudget(
+        plugin: Plugin,
+        pluginId: String,
+        input: String,
+        manifest: PluginCapabilityManifest,
+        startTime: Long
+    ): PluginResult {
+        val budget = manifest.executionBudget
+        var lastError: String? = null
+        for (attempt in 0..budget.maxRetries) {
+            try {
+                val future = executionExecutor.submit<PluginResult> { plugin.execute(input) }
+                return future.get(budget.timeoutMs, TimeUnit.MILLISECONDS)
+            } catch (e: TimeoutException) {
+                lastError = "Execution timed out (${budget.timeoutMs}ms)"
+                Log.w(TAG, "Plugin timeout plugin=$pluginId attempt=${attempt + 1}")
+            } catch (e: Exception) {
+                lastError = e.message ?: "unknown error"
+                Log.e(TAG, "Plugin execution failed plugin=$pluginId attempt=${attempt + 1}", e)
+            }
+        }
+        return PluginResult.error(lastError ?: "execution failed", System.currentTimeMillis() - startTime)
+    }
+
+    private fun canExecuteByCircuitBreaker(
+        pluginId: String,
+        manifest: PluginCapabilityManifest,
+        requestId: String,
+        argsHash: String
+    ): Boolean {
+        val now = System.currentTimeMillis()
+        val state = circuitBreakerState.getOrPut(pluginId) { CircuitBreakerState() }
+        if (state.openUntilMs > now) {
+            auditHighImpactProvenance(
+                manifest, requestId, pluginId, argsHash,
+                decision = "deny", result = "circuit-open", duration = 0
+            )
+            return false
+        }
+        return true
+    }
+
+    private fun recordCircuitFailure(pluginId: String) {
+        val manifest = PluginCapabilityManifests.get(pluginId)
+        val state = circuitBreakerState.getOrPut(pluginId) { CircuitBreakerState() }
+        state.failures += 1
+        if (state.failures >= manifest.executionBudget.circuitBreakerThreshold) {
+            state.openUntilMs = System.currentTimeMillis() + manifest.executionBudget.circuitBreakerCooldownMs
+            state.failures = 0
+        }
+    }
+
+    private fun resetCircuitBreaker(pluginId: String) {
+        circuitBreakerState[pluginId]?.let {
+            it.failures = 0
+            it.openUntilMs = 0
+        }
+    }
+
+    private fun auditHighImpactProvenance(
+        manifest: PluginCapabilityManifest,
+        requestId: String,
+        pluginId: String,
+        argsHash: String,
+        decision: String,
+        result: String,
+        duration: Long
+    ) {
+        if (manifest.riskClass < PluginRiskClass.HIGH) return
+        auditLogger?.logSync(
+            severity = if (result == "success") AuditLogger.Severity.INFO else AuditLogger.Severity.WARNING,
+            category = AuditLogger.AuditCategory.POLICY_DECISION,
+            actor = "plugin_manager",
+            action = "high_impact_provenance",
+            target = pluginId,
+            outcome = result,
+            details = mapOf(
+                "request_id" to requestId,
+                "plugin_id" to pluginId,
+                "args_hash" to argsHash,
+                "decision" to decision,
+                "result" to result,
+                "risk_class" to manifest.riskClass.name,
+                "duration_ms" to duration
+            )
+        )
     }
 
     private fun getGuardrailPlugin(): PolicyGuardrailPlugin? {
@@ -467,6 +640,7 @@ class PluginManager private constructor() {
         contentSanitizer = null
         dangerousToolClassifier = null
         sendPolicy = null
+        executionExecutor.shutdownNow()
         Log.d(TAG, "PluginManager destroyed")
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,7 +66,9 @@ class AuditLogger(private val context: Context) {
         val target: String?,
         val outcome: String,
         val details: Map<String, Any>?,
-        val sessionId: String?
+        val sessionId: String?,
+        val previousHash: String,
+        val entryHash: String
     ) {
         fun toJson(): JSONObject = JSONObject().apply {
             put("id", id)
@@ -85,6 +88,8 @@ class AuditLogger(private val context: Context) {
                 put("details", detailsObj)
             }
             put("session_id", sessionId ?: "")
+            put("previous_hash", previousHash)
+            put("entry_hash", entryHash)
         }
     }
 
@@ -92,6 +97,7 @@ class AuditLogger(private val context: Context) {
     private val entries = ConcurrentLinkedQueue<AuditEntry>()
     private val entryCounter = AtomicLong(0)
     private var currentSessionId: String? = null
+    private var lastEntryHash: String = GENESIS_HASH
 
     // Async writer
     private val asyncQueue = ConcurrentLinkedQueue<AuditEntry>()
@@ -415,6 +421,20 @@ class AuditLogger(private val context: Context) {
     }
 
     /**
+     * Verifies whether the audit trail hash chain remains intact.
+     */
+    fun verifyIntegrity(): Boolean {
+        var expectedPrevious = GENESIS_HASH
+        for (entry in entries) {
+            if (entry.previousHash != expectedPrevious) return false
+            val expectedHash = computeEntryHash(entry.copy(entryHash = ""), expectedPrevious)
+            if (entry.entryHash != expectedHash) return false
+            expectedPrevious = entry.entryHash
+        }
+        return true
+    }
+
+    /**
      * Shut down the audit logger, flushing remaining entries.
      */
     fun shutdown() {
@@ -448,7 +468,8 @@ class AuditLogger(private val context: Context) {
         outcome: String,
         details: Map<String, Any>?
     ): AuditEntry {
-        return AuditEntry(
+        val previousHash = lastEntryHash
+        val unsignedEntry = AuditEntry(
             id = entryCounter.incrementAndGet(),
             timestamp = System.currentTimeMillis(),
             severity = severity,
@@ -458,8 +479,14 @@ class AuditLogger(private val context: Context) {
             target = target,
             outcome = outcome,
             details = details,
-            sessionId = currentSessionId
+            sessionId = currentSessionId,
+            previousHash = previousHash,
+            entryHash = ""
         )
+        val entryHash = computeEntryHash(unsignedEntry, previousHash)
+        return unsignedEntry.copy(entryHash = entryHash).also {
+            lastEntryHash = it.entryHash
+        }
     }
 
     private fun trimIfNeeded() {
@@ -550,7 +577,7 @@ class AuditLogger(private val context: Context) {
             val arr = loadPersistedJson()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val entry = AuditEntry(
+                val parsedEntry = AuditEntry(
                     id = obj.getLong("id"),
                     timestamp = obj.getLong("timestamp"),
                     severity = Severity.valueOf(obj.getString("severity")),
@@ -560,15 +587,48 @@ class AuditLogger(private val context: Context) {
                     target = obj.optString("target", null),
                     outcome = obj.getString("outcome"),
                     details = null,
-                    sessionId = obj.optString("session_id", null)
+                    sessionId = obj.optString("session_id", null),
+                    previousHash = obj.optString("previous_hash", ""),
+                    entryHash = obj.optString("entry_hash", "")
                 )
-                entries.add(entry)
-                entryCounter.set(maxOf(entryCounter.get(), entry.id))
+                val hasLegacyChain = parsedEntry.previousHash.isNotBlank() && parsedEntry.entryHash.isNotBlank()
+                val rebuiltPrevious = lastEntryHash
+                val rebuiltEntry = if (hasLegacyChain) parsedEntry else {
+                    val recoveredHash = computeEntryHash(parsedEntry.copy(previousHash = rebuiltPrevious, entryHash = ""), rebuiltPrevious)
+                    parsedEntry.copy(previousHash = rebuiltPrevious, entryHash = recoveredHash)
+                }
+                entries.add(rebuiltEntry)
+                entryCounter.set(maxOf(entryCounter.get(), rebuiltEntry.id))
+                lastEntryHash = rebuiltEntry.entryHash
             }
             Log.d(TAG, "Loaded ${arr.length()} persisted audit entries")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load persisted audit entries", e)
         }
+    }
+
+    private fun computeEntryHash(entry: AuditEntry, previousHash: String): String {
+        val detailsCanonical = entry.details
+            ?.toSortedMap()
+            ?.entries
+            ?.joinToString("|") { "${it.key}=${it.value}" }
+            ?: ""
+        val payload = listOf(
+            entry.id.toString(),
+            entry.timestamp.toString(),
+            entry.severity.name,
+            entry.category.name,
+            entry.actor,
+            entry.action,
+            entry.target ?: "",
+            entry.outcome,
+            detailsCanonical,
+            entry.sessionId ?: "",
+            previousHash
+        ).joinToString("||")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(payload.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
     }
 
     companion object {
@@ -578,6 +638,7 @@ class AuditLogger(private val context: Context) {
         private const val MAX_PERSISTED = 2000
         private const val FLUSH_INTERVAL_MS = 10_000L
         private const val PERSIST_MAX_RETRIES = 2
+        private const val GENESIS_HASH = "GENESIS"
 
         val ISO_FORMAT: ThreadLocal<SimpleDateFormat> = ThreadLocal.withInitial {
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US).apply {

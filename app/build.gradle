@@ -121,6 +121,15 @@ dependencies {
     testImplementation 'androidx.test:core:1.5.0'
 }
 
+
+
+tasks.register("evalSuitesTest", Test) {
+    description = "Runs evaluation suites and writes a machine-readable JSON report"
+    group = "verification"
+    useJUnit()
+    include "**/evals/**"
+    systemProperty "eval.report.path", "$buildDir/reports/evals/eval-report.json"
+}
 // Security regression suite (path traversal, outbound guardrails, policy-denial observability)
 tasks.register("securityRegressionTest", Test) {
     description = "Runs security regression tests for plugin guardrails"
@@ -131,4 +140,5 @@ tasks.register("securityRegressionTest", Test) {
 
 tasks.named("check") {
     dependsOn("securityRegressionTest")
+    dependsOn("evalSuitesTest")
 }

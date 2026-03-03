@@ -17,37 +17,37 @@ class ValidationResultTest {
 
     @Test
     fun stage_proposed_exists() {
-        assertNotNull(ValidationResult.Stage.PROPOSED)
+        assertNotNull(ValidationResult.Stage.PROPOSAL)
     }
 
     @Test
     fun stage_syntaxStaticCheck_exists() {
-        assertNotNull(ValidationResult.Stage.SYNTAX_STATIC_CHECK)
+        assertNotNull(ValidationResult.Stage.STATIC_CHECKS)
     }
 
     @Test
     fun stage_policyCheck_exists() {
-        assertNotNull(ValidationResult.Stage.POLICY_CHECK)
+        assertNotNull(ValidationResult.Stage.STATIC_CHECKS)
     }
 
     @Test
     fun stage_sandboxTest_exists() {
-        assertNotNull(ValidationResult.Stage.SANDBOX_TEST)
+        assertNotNull(ValidationResult.Stage.SANDBOX_RUN)
     }
 
     @Test
     fun stage_preflighted_exists() {
-        assertNotNull(ValidationResult.Stage.PREFLIGHTED)
+        assertNotNull(ValidationResult.Stage.STATIC_CHECKS)
     }
 
     @Test
     fun stage_canary_exists() {
-        assertNotNull(ValidationResult.Stage.CANARY)
+        assertNotNull(ValidationResult.Stage.CANARY_ROLLOUT)
     }
 
     @Test
     fun stage_promoted_exists() {
-        assertNotNull(ValidationResult.Stage.PROMOTED)
+        assertNotNull(ValidationResult.Stage.FULL_ROLLOUT)
     }
 
     @Test
@@ -71,7 +71,7 @@ class ValidationResultTest {
 
     @Test
     fun initialState_stageIsProposed() {
-        assertEquals(ValidationResult.Stage.PROPOSED, result.getStage())
+        assertEquals(ValidationResult.Stage.PROPOSAL, result.getStage())
     }
 
     @Test
@@ -225,23 +225,23 @@ class ValidationResultTest {
 
     @Test
     fun setStage_updatesStage() {
-        result.setStage(ValidationResult.Stage.CANARY)
-        assertEquals(ValidationResult.Stage.CANARY, result.getStage())
+        result.setStage(ValidationResult.Stage.CANARY_ROLLOUT)
+        assertEquals(ValidationResult.Stage.CANARY_ROLLOUT, result.getStage())
     }
 
     @Test
     fun setStage_canTransitionThroughStages() {
-        result.setStage(ValidationResult.Stage.SYNTAX_STATIC_CHECK)
-        assertEquals(ValidationResult.Stage.SYNTAX_STATIC_CHECK, result.getStage())
+        result.setStage(ValidationResult.Stage.STATIC_CHECKS)
+        assertEquals(ValidationResult.Stage.STATIC_CHECKS, result.getStage())
 
-        result.setStage(ValidationResult.Stage.POLICY_CHECK)
-        assertEquals(ValidationResult.Stage.POLICY_CHECK, result.getStage())
+        result.setStage(ValidationResult.Stage.STATIC_CHECKS)
+        assertEquals(ValidationResult.Stage.STATIC_CHECKS, result.getStage())
 
-        result.setStage(ValidationResult.Stage.SANDBOX_TEST)
-        assertEquals(ValidationResult.Stage.SANDBOX_TEST, result.getStage())
+        result.setStage(ValidationResult.Stage.SANDBOX_RUN)
+        assertEquals(ValidationResult.Stage.SANDBOX_RUN, result.getStage())
 
-        result.setStage(ValidationResult.Stage.PREFLIGHTED)
-        assertEquals(ValidationResult.Stage.PREFLIGHTED, result.getStage())
+        result.setStage(ValidationResult.Stage.STATIC_CHECKS)
+        assertEquals(ValidationResult.Stage.STATIC_CHECKS, result.getStage())
     }
 
     // ---- getGateResults returns copy ----

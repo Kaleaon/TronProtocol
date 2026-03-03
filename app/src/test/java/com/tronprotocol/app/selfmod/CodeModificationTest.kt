@@ -7,7 +7,7 @@ class CodeModificationTest {
 
     private fun createModification(
         id: String = "mod-001",
-        status: ModificationStatus = ModificationStatus.PROPOSED
+        status: ModificationStatus = ModificationStatus.PROPOSAL
     ): CodeModification {
         return CodeModification(
             id = id,
@@ -32,7 +32,7 @@ class CodeModificationTest {
             originalCode = "val x = parse(input)",
             modifiedCode = "val x = betterParse(input)",
             timestamp = timestamp,
-            status = ModificationStatus.PROPOSED
+            status = ModificationStatus.PROPOSAL
         )
 
         assertEquals("mod-100", mod.id)
@@ -41,15 +41,15 @@ class CodeModificationTest {
         assertEquals("val x = parse(input)", mod.originalCode)
         assertEquals("val x = betterParse(input)", mod.modifiedCode)
         assertEquals(timestamp, mod.timestamp)
-        assertEquals(ModificationStatus.PROPOSED, mod.status)
+        assertEquals(ModificationStatus.PROPOSAL, mod.status)
     }
 
-    // ---- default status is PROPOSED ----
+    // ---- default status is PROPOSAL ----
 
     @Test
     fun defaultStatus_isProposed() {
         val mod = createModification()
-        assertEquals(ModificationStatus.PROPOSED, mod.status)
+        assertEquals(ModificationStatus.PROPOSAL, mod.status)
     }
 
     // ---- status can be changed ----
@@ -57,22 +57,22 @@ class CodeModificationTest {
     @Test
     fun status_canBeChangedToPreflighted() {
         val mod = createModification()
-        mod.status = ModificationStatus.PREFLIGHTED
-        assertEquals(ModificationStatus.PREFLIGHTED, mod.status)
+        mod.status = ModificationStatus.STATIC_CHECKS
+        assertEquals(ModificationStatus.STATIC_CHECKS, mod.status)
     }
 
     @Test
     fun status_canBeChangedToCanary() {
         val mod = createModification()
-        mod.status = ModificationStatus.CANARY
-        assertEquals(ModificationStatus.CANARY, mod.status)
+        mod.status = ModificationStatus.CANARY_ROLLOUT
+        assertEquals(ModificationStatus.CANARY_ROLLOUT, mod.status)
     }
 
     @Test
     fun status_canBeChangedToPromoted() {
         val mod = createModification()
-        mod.status = ModificationStatus.PROMOTED
-        assertEquals(ModificationStatus.PROMOTED, mod.status)
+        mod.status = ModificationStatus.FULL_ROLLOUT
+        assertEquals(ModificationStatus.FULL_ROLLOUT, mod.status)
     }
 
     @Test
@@ -92,16 +92,16 @@ class CodeModificationTest {
     @Test
     fun status_canTransitionThroughLifecycle() {
         val mod = createModification()
-        assertEquals(ModificationStatus.PROPOSED, mod.status)
+        assertEquals(ModificationStatus.PROPOSAL, mod.status)
 
-        mod.status = ModificationStatus.PREFLIGHTED
-        assertEquals(ModificationStatus.PREFLIGHTED, mod.status)
+        mod.status = ModificationStatus.STATIC_CHECKS
+        assertEquals(ModificationStatus.STATIC_CHECKS, mod.status)
 
-        mod.status = ModificationStatus.CANARY
-        assertEquals(ModificationStatus.CANARY, mod.status)
+        mod.status = ModificationStatus.CANARY_ROLLOUT
+        assertEquals(ModificationStatus.CANARY_ROLLOUT, mod.status)
 
-        mod.status = ModificationStatus.PROMOTED
-        assertEquals(ModificationStatus.PROMOTED, mod.status)
+        mod.status = ModificationStatus.FULL_ROLLOUT
+        assertEquals(ModificationStatus.FULL_ROLLOUT, mod.status)
     }
 
     // ---- id is unique (create two, compare) ----
@@ -132,7 +132,7 @@ class CodeModificationTest {
             originalCode = originalCode,
             modifiedCode = "fun newMethod() { /* new implementation */ }",
             timestamp = System.currentTimeMillis(),
-            status = ModificationStatus.PROPOSED
+            status = ModificationStatus.PROPOSAL
         )
         assertEquals(originalCode, mod.originalCode)
     }
@@ -202,6 +202,6 @@ class CodeModificationTest {
     @Test
     fun toString_containsStatus() {
         val mod = createModification()
-        assertTrue(mod.toString().contains("PROPOSED"))
+        assertTrue(mod.toString().contains("PROPOSAL"))
     }
 }

@@ -3,6 +3,7 @@ package com.tronprotocol.app.llm
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import com.tronprotocol.app.llm.backend.BackendType
 import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
@@ -62,8 +63,43 @@ class ModelIntegrityVerifierTest {
         assertEquals(ModelIntegrityVerifier.FailureReason.UNTRUSTED_MODEL, result.failureReason)
     }
 
+
+    @Test
+    fun verifyModelFailsWhenManifestSignatureMissing() {
+        val modelDir = createModelDirectory()
+        val builder = LLMModelConfig.Builder("test-model", modelDir.absolutePath)
+            .setManifestSignature(
+                LLMModelConfig.SignatureMetadata(
+                    algorithm = "",
+                    signer = "unit-test",
+                    signature = "unsigned"
+                )
+            )
+        LLMModelConfig.REQUIRED_MODEL_ARTIFACTS.forEach { artifact ->
+            val file = File(modelDir, artifact)
+            builder.addArtifact(file.name, sha256(file))
+        }
+
+        val result = verifier.verifyModel(builder.build())
+
+        assertFalse(result.success)
+        assertEquals(ModelIntegrityVerifier.FailureReason.INVALID_SIGNED_METADATA, result.failureReason)
+    }
+
     private fun trustedConfig(modelDir: File): LLMModelConfig {
         val builder = LLMModelConfig.Builder("test-model", modelDir.absolutePath)
+            .setManifestSignature(
+                LLMModelConfig.SignatureMetadata(
+                    algorithm = "ed25519",
+                    signer = "unit-test",
+                    signature = "signed-metadata"
+                )
+            )
+            .setCompatibility(
+                backend = BackendType.MNN,
+                quantization = "Q4",
+                minRamMb = 1024L
+            )
         LLMModelConfig.REQUIRED_MODEL_ARTIFACTS.forEach { artifact ->
             val file = File(modelDir, artifact)
             builder.addArtifact(file.name, sha256(file))
