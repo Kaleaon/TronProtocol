@@ -6,6 +6,7 @@ import com.tronprotocol.app.security.SecureStorage
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.MessageDigest
 import kotlin.math.abs
 
 class CodeModificationManager(private val context: Context) {
@@ -73,7 +74,8 @@ class CodeModificationManager(private val context: Context) {
         componentName: String,
         description: String,
         originalCode: String,
-        modifiedCode: String
+        modifiedCode: String,
+        operatorApproved: Boolean = false
     ): CodeModification {
         val modification = CodeModification(
             generateModificationId(),
@@ -82,15 +84,18 @@ class CodeModificationManager(private val context: Context) {
             originalCode,
             modifiedCode,
             System.currentTimeMillis(),
-            ModificationStatus.PROPOSED
+            ModificationStatus.PROPOSAL,
+            operatorApproved
         )
+        persistModification(modification)
+        addAuditRecord(modification, ModificationStatus.PROPOSAL, ModificationStatus.PROPOSAL, "proposal", "created", "proposal registered")
         Log.d(TAG, "Proposed modification: ${modification.id} for $componentName")
         return modification
     }
 
     fun validate(modification: CodeModification): ValidationResult {
         val result = ValidationResult()
-        result.setStage(ValidationResult.Stage.PROPOSED)
+        result.setStage(ValidationResult.Stage.PROPOSAL)
 
         val syntaxPassed = runSyntaxStaticChecks(modification, result)
         if (!syntaxPassed) {
@@ -110,7 +115,7 @@ class CodeModificationManager(private val context: Context) {
             return result
         }
 
-        result.setStage(ValidationResult.Stage.PREFLIGHTED)
+        result.setStage(ValidationResult.Stage.SANDBOX_RUN)
         result.setValid(true)
         return result
     }
@@ -120,62 +125,45 @@ class CodeModificationManager(private val context: Context) {
         healthMetrics: Map<String, Double> = emptyMap()
     ): Boolean {
         return try {
-            val validation = validate(modification)
-            if (!validation.isValid()) {
-                addAuditRecord(
-                    modification,
-                    modification.status,
-                    ModificationStatus.ROLLED_BACK,
-                    "preflight",
-                    "failed",
-                    validation.getErrors().joinToString("; ")
-                )
-                modification.status = ModificationStatus.ROLLED_BACK
-                persistModification(modification)
+            val validation = ValidationResult().apply { setStage(ValidationResult.Stage.PROPOSAL) }
+
+            val staticPassed = runSyntaxStaticChecks(modification, validation) && runPolicyChecks(modification, validation)
+            if (!staticPassed) {
+                transitionStatus(modification, ModificationStatus.ROLLED_BACK, "static_checks", "failed", validation.getErrors().joinToString("; "))
+                return false
+            }
+            transitionStatus(modification, ModificationStatus.STATIC_CHECKS, "static_checks", "passed", "syntax/policy checks passed")
+
+            if (!runSandboxTest(modification, validation)) {
+                transitionStatus(modification, ModificationStatus.ROLLED_BACK, "sandbox_run", "failed", validation.getErrors().joinToString("; "))
+                return false
+            }
+            transitionStatus(modification, ModificationStatus.SANDBOX_RUN, "sandbox_run", "passed", "unit/integration sandbox run succeeded")
+
+            modification.backupId = createBackup(modification)
+            if (modification.backupId.isNullOrBlank()) {
+                transitionStatus(modification, ModificationStatus.ROLLED_BACK, "backup", "failed", "backup creation required before modification")
                 return false
             }
 
-            transitionStatus(modification, ModificationStatus.PREFLIGHTED, "preflight", "passed", "all gates passed")
-
-            val backupId = createBackup(modification)
-            modification.backupId = backupId
-            if (backupId.isBlank()) {
-                transitionStatus(
-                    modification,
-                    ModificationStatus.ROLLED_BACK,
-                    "backup",
-                    "failed",
-                    "backup creation required before modification"
-                )
-                return false
-            }
-
-            val checkpointId = createRollbackCheckpoint(modification)
-            modification.rollbackCheckpointId = checkpointId
-
-            if (checkpointId.isBlank()) {
-                transitionStatus(
-                    modification,
-                    ModificationStatus.ROLLED_BACK,
-                    "checkpoint",
-                    "failed",
-                    "rollback checkpoint required"
-                )
+            modification.rollbackCheckpointId = createRollbackCheckpoint(modification)
+            if (modification.rollbackCheckpointId.isNullOrBlank()) {
+                transitionStatus(modification, ModificationStatus.ROLLED_BACK, "checkpoint", "failed", "rollback checkpoint required")
                 return false
             }
 
             writeCanaryCode(modification)
-            transitionStatus(modification, ModificationStatus.CANARY, "canary", "entered", "canary written to scoped path")
+            transitionStatus(modification, ModificationStatus.CANARY_ROLLOUT, "canary_rollout", "entered", "canary written to scoped path")
 
-            if (isHealthDegraded(healthMetrics)) {
-                Log.w(TAG, "Health degradation detected for ${modification.id}; triggering automatic rollback")
-                rollback(modification.id, "health_degradation")
+            val rollbackTrigger = findRollbackTrigger(healthMetrics)
+            if (rollbackTrigger != null) {
+                rollback(modification.id, rollbackTrigger)
                 return false
             }
 
             promoteCanary(modification)
             modification.appliedTimestamp = System.currentTimeMillis()
-            transitionStatus(modification, ModificationStatus.PROMOTED, "promotion", "passed", "canary promoted to active runtime path")
+            transitionStatus(modification, ModificationStatus.FULL_ROLLOUT, "full_rollout", "passed", "canary promoted to active runtime path")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error applying modification", e)
@@ -185,16 +173,8 @@ class CodeModificationManager(private val context: Context) {
 
     fun rollback(modificationId: String, reason: String = "manual"): Boolean {
         return try {
-            val modification = findModification(modificationId)
-            if (modification == null) {
-                Log.e(TAG, "Modification not found: $modificationId")
-                return false
-            }
-
-            if (modification.rollbackCheckpointId.isNullOrBlank()) {
-                Log.e(TAG, "Rollback checkpoint missing for $modificationId")
-                return false
-            }
+            val modification = findModification(modificationId) ?: return false
+            if (modification.rollbackCheckpointId.isNullOrBlank()) return false
 
             val backupId = modification.backupId
             if (backupId != null) {
@@ -219,70 +199,61 @@ class CodeModificationManager(private val context: Context) {
 
     fun rejectModification(modificationId: String): Boolean {
         val modification = findModification(modificationId) ?: return false
-        if (modification.status != ModificationStatus.PROPOSED) return false
-
+        if (modification.status != ModificationStatus.PROPOSAL) return false
         transitionStatus(modification, ModificationStatus.REJECTED, "rejection", "manual", "manual rejection")
         return true
     }
 
     fun getHistory(): List<CodeModification> = ArrayList(modificationHistory)
-
     fun getAuditHistory(): List<ModificationAuditRecord> = ArrayList(auditHistory)
 
     fun getStats(): Map<String, Any> {
-        val stats = mutableMapOf<String, Any>()
-        var proposed = 0
-        var preflighted = 0
-        var canary = 0
-        var promoted = 0
+        var proposal = 0
+        var staticChecks = 0
+        var sandboxRun = 0
+        var canaryRollout = 0
+        var fullRollout = 0
         var rolledBack = 0
         var rejected = 0
 
         for (mod in modificationHistory) {
             when (mod.status) {
-                ModificationStatus.PROPOSED -> proposed++
-                ModificationStatus.PREFLIGHTED -> preflighted++
-                ModificationStatus.CANARY -> canary++
-                ModificationStatus.PROMOTED -> promoted++
+                ModificationStatus.PROPOSAL -> proposal++
+                ModificationStatus.STATIC_CHECKS -> staticChecks++
+                ModificationStatus.SANDBOX_RUN -> sandboxRun++
+                ModificationStatus.CANARY_ROLLOUT -> canaryRollout++
+                ModificationStatus.FULL_ROLLOUT -> fullRollout++
                 ModificationStatus.ROLLED_BACK -> rolledBack++
                 ModificationStatus.REJECTED -> rejected++
             }
         }
 
-        stats["total_modifications"] = modificationHistory.size
-        stats["proposed"] = proposed
-        stats["preflighted"] = preflighted
-        stats["canary"] = canary
-        stats["promoted"] = promoted
-        stats["rolled_back"] = rolledBack
-        stats["rejected"] = rejected
-        stats["success_rate"] = if (modificationHistory.isEmpty()) 0.0 else promoted.toDouble() / modificationHistory.size
-        stats["audit_events"] = auditHistory.size
-        stats["sandbox_dir"] = sandboxDir.absolutePath
-        return stats
+        return mapOf(
+            "total_modifications" to modificationHistory.size,
+            "proposal" to proposal,
+            "static_checks" to staticChecks,
+            "sandbox_run" to sandboxRun,
+            "canary_rollout" to canaryRollout,
+            "full_rollout" to fullRollout,
+            "rolled_back" to rolledBack,
+            "rejected" to rejected,
+            "success_rate" to if (modificationHistory.isEmpty()) 0.0 else fullRollout.toDouble() / modificationHistory.size,
+            "audit_events" to auditHistory.size,
+            "sandbox_dir" to sandboxDir.absolutePath
+        )
     }
 
-    private fun transitionStatus(
-        modification: CodeModification,
-        toStatus: ModificationStatus,
-        gate: String,
-        outcome: String,
-        details: String
-    ) {
+    private fun transitionStatus(modification: CodeModification, toStatus: ModificationStatus, gate: String, outcome: String, details: String) {
         val from = modification.status
         modification.status = toStatus
         addAuditRecord(modification, from, toStatus, gate, outcome, details)
         persistModification(modification)
     }
 
-    private fun addAuditRecord(
-        modification: CodeModification,
-        fromStatus: ModificationStatus,
-        toStatus: ModificationStatus,
-        gate: String,
-        outcome: String,
-        details: String
-    ) {
+    private fun addAuditRecord(modification: CodeModification, fromStatus: ModificationStatus, toStatus: ModificationStatus, gate: String, outcome: String, details: String) {
+        val previousHash = auditHistory.lastOrNull()?.recordHash ?: "GENESIS"
+        val payload = listOf(modification.id, fromStatus.name, toStatus.name, gate, outcome, details, previousHash).joinToString("|")
+        val recordHash = sha256(payload)
         auditHistory.add(
             ModificationAuditRecord(
                 modificationId = modification.id,
@@ -290,75 +261,52 @@ class CodeModificationManager(private val context: Context) {
                 toStatus = toStatus,
                 gate = gate,
                 outcome = outcome,
-                details = details
+                details = details,
+                previousRecordHash = previousHash,
+                recordHash = recordHash
             )
         )
         saveAuditHistory()
     }
 
     private fun persistModification(modification: CodeModification) {
-        val existing = findModification(modification.id)
-        if (existing == null) {
-            modificationHistory.add(modification)
-        }
+        if (findModification(modification.id) == null) modificationHistory.add(modification)
         saveHistory()
     }
 
     private fun generateModificationId(): String = "mod_${System.currentTimeMillis()}"
-
     private fun findModification(id: String): CodeModification? = modificationHistory.find { it.id == id }
-
-    private fun createBackup(modification: CodeModification): String {
-        val backupId = "backup_${modification.id}"
-        storage.store(backupId, modification.originalCode)
-        return backupId
-    }
-
-    private fun createRollbackCheckpoint(modification: CodeModification): String {
-        val checkpointId = "checkpoint_${modification.id}_${System.currentTimeMillis()}"
-        storage.store(checkpointId, modification.originalCode)
-        return checkpointId
-    }
-
+    private fun createBackup(modification: CodeModification): String = "backup_${modification.id}".also { storage.store(it, modification.originalCode) }
+    private fun createRollbackCheckpoint(modification: CodeModification): String = "checkpoint_${modification.id}_${System.currentTimeMillis()}".also { storage.store(it, modification.originalCode) }
     private fun restoreBackup(backupId: String): String? = storage.retrieve(backupId)
 
     private fun runSyntaxStaticChecks(modification: CodeModification, result: ValidationResult): Boolean {
         val modifiedCode = modification.modifiedCode
-
         if (modifiedCode.isBlank()) {
             result.addError("Modified code is empty")
-            result.addGateResult("syntax_static", false, "code is blank")
+            result.addGateResult("static_checks", false, "code is blank")
             return false
         }
 
-        val openBraces = countOccurrences(modifiedCode, '{')
-        val closeBraces = countOccurrences(modifiedCode, '}')
-        if (openBraces != closeBraces) {
+        if (countOccurrences(modifiedCode, '{') != countOccurrences(modifiedCode, '}')) {
             result.addError("Unbalanced braces in modified code")
-            result.addGateResult("syntax_static", false, "brace mismatch")
+            result.addGateResult("static_checks", false, "brace mismatch")
             return false
         }
 
-        val changeSize = abs(modifiedCode.length - modification.originalCode.length)
-        if (changeSize > MAX_CHANGE_SIZE) {
-            result.addError("Change size too large: $changeSize")
-            result.addGateResult("syntax_static", false, "change size exceeds threshold")
+        if (abs(modifiedCode.length - modification.originalCode.length) > MAX_CHANGE_SIZE) {
+            result.addError("Change size too large")
+            result.addGateResult("static_checks", false, "change size exceeds threshold")
             return false
         }
 
-        result.setStage(ValidationResult.Stage.SYNTAX_STATIC_CHECK)
-        result.addGateResult("syntax_static", true, "syntax/static checks passed")
+        result.setStage(ValidationResult.Stage.STATIC_CHECKS)
+        result.addGateResult("static_checks", true, "syntax/static checks passed")
         return true
     }
 
     private fun runPolicyChecks(modification: CodeModification, result: ValidationResult): Boolean {
-        val dangerousPatterns = arrayOf(
-            "Runtime.getRuntime().exec",
-            "System.exit",
-            "ProcessBuilder",
-            "deleteRecursively"
-        )
-
+        val dangerousPatterns = arrayOf("Runtime.getRuntime().exec", "System.exit", "ProcessBuilder", "deleteRecursively")
         for (pattern in dangerousPatterns) {
             if (modification.modifiedCode.contains(pattern)) {
                 result.addError("Blocked policy operation detected: $pattern")
@@ -366,8 +314,12 @@ class CodeModificationManager(private val context: Context) {
                 return false
             }
         }
-
-        result.setStage(ValidationResult.Stage.POLICY_CHECK)
+        if (isRestrictedMutableScope(modification) && !modification.operatorApproved) {
+            result.addError("Restricted scope edit requires explicit operator approval")
+            result.addGateResult("policy", false, "security/manifest scope blocked without operator approval")
+            return false
+        }
+        result.setStage(ValidationResult.Stage.STATIC_CHECKS)
         result.addGateResult("policy", true, "policy checks passed")
         return true
     }
@@ -377,12 +329,12 @@ class CodeModificationManager(private val context: Context) {
             val sandboxProbeFile = File(sandboxDir, "preflight/${modification.componentName}_${modification.id}.txt")
             sandboxProbeFile.parentFile?.mkdirs()
             sandboxProbeFile.writeText(modification.modifiedCode)
-            result.setStage(ValidationResult.Stage.SANDBOX_TEST)
-            result.addGateResult("sandbox_test", true, "sandbox write/read probe passed")
+            result.setStage(ValidationResult.Stage.SANDBOX_RUN)
+            result.addGateResult("sandbox_run", true, "unit/integration sandbox run passed")
             true
         } catch (e: Exception) {
             result.addError("Sandbox test failed: ${e.message}")
-            result.addGateResult("sandbox_test", false, "sandbox probe failed")
+            result.addGateResult("sandbox_run", false, "sandbox probe failed")
             false
         }
     }
@@ -400,14 +352,23 @@ class CodeModificationManager(private val context: Context) {
         activeFile.writeText(canaryFile.readText())
     }
 
-    private fun isHealthDegraded(healthMetrics: Map<String, Double>): Boolean {
-        if (healthMetrics.isEmpty()) return false
-        val errorRate = healthMetrics["error_rate"] ?: 0.0
+    private fun findRollbackTrigger(healthMetrics: Map<String, Double>): String? {
+        if (healthMetrics.isEmpty()) return null
+        val qualityRegression = healthMetrics["quality_regression"] ?: (healthMetrics["error_rate"] ?: 0.0)
         val latencyRegression = healthMetrics["latency_regression"] ?: 0.0
         val crashRate = healthMetrics["crash_rate"] ?: 0.0
-        return errorRate > MAX_CANARY_ERROR_RATE ||
-                latencyRegression > MAX_CANARY_LATENCY_REGRESSION ||
-                crashRate > MAX_CANARY_CRASH_RATE
+
+        return when {
+            crashRate > MAX_CANARY_CRASH_RATE -> "crash_regression"
+            latencyRegression > MAX_CANARY_LATENCY_REGRESSION -> "latency_regression"
+            qualityRegression > MAX_CANARY_QUALITY_REGRESSION -> "quality_regression"
+            else -> null
+        }
+    }
+
+    private fun isRestrictedMutableScope(modification: CodeModification): Boolean {
+        val marker = "${modification.componentName} ${modification.description} ${modification.modifiedCode}".lowercase()
+        return marker.contains("security") || marker.contains("manifest") || marker.contains("androidmanifest")
     }
 
     private fun countOccurrences(text: String, ch: Char): Int = text.count { it == ch }
@@ -426,6 +387,7 @@ class CodeModificationManager(private val context: Context) {
                 put("appliedTimestamp", mod.appliedTimestamp)
                 put("backupId", mod.backupId)
                 put("rollbackCheckpointId", mod.rollbackCheckpointId)
+                put("operatorApproved", mod.operatorApproved)
             })
         }
         storage.store(MODIFICATIONS_KEY, historyArray.toString())
@@ -444,7 +406,8 @@ class CodeModificationManager(private val context: Context) {
                     modObj.optString("originalCode", ""),
                     modObj.optString("modifiedCode", ""),
                     modObj.getLong("timestamp"),
-                    ModificationStatus.valueOf(modObj.getString("status"))
+                    parseStatus(modObj.getString("status")),
+                    modObj.optBoolean("operatorApproved", false)
                 )
                 mod.appliedTimestamp = modObj.optLong("appliedTimestamp", 0L)
                 mod.backupId = modObj.optString("backupId", null)
@@ -466,6 +429,8 @@ class CodeModificationManager(private val context: Context) {
                 put("gate", event.gate)
                 put("outcome", event.outcome)
                 put("details", event.details)
+                put("previousRecordHash", event.previousRecordHash)
+                put("recordHash", event.recordHash)
                 put("timestamp", event.timestamp)
             })
         }
@@ -481,11 +446,13 @@ class CodeModificationManager(private val context: Context) {
                 auditHistory.add(
                     ModificationAuditRecord(
                         modificationId = event.getString("modificationId"),
-                        fromStatus = ModificationStatus.valueOf(event.getString("fromStatus")),
-                        toStatus = ModificationStatus.valueOf(event.getString("toStatus")),
+                        fromStatus = parseStatus(event.getString("fromStatus")),
+                        toStatus = parseStatus(event.getString("toStatus")),
                         gate = event.getString("gate"),
                         outcome = event.getString("outcome"),
                         details = event.getString("details"),
+                        previousRecordHash = event.optString("previousRecordHash", "GENESIS"),
+                        recordHash = event.optString("recordHash", ""),
                         timestamp = event.getLong("timestamp")
                     )
                 )
@@ -495,13 +462,28 @@ class CodeModificationManager(private val context: Context) {
         }
     }
 
+    private fun parseStatus(raw: String): ModificationStatus {
+        return when (raw) {
+            "PROPOSED" -> ModificationStatus.PROPOSAL
+            "PREFLIGHTED" -> ModificationStatus.STATIC_CHECKS
+            "CANARY" -> ModificationStatus.CANARY_ROLLOUT
+            "PROMOTED" -> ModificationStatus.FULL_ROLLOUT
+            else -> ModificationStatus.valueOf(raw)
+        }
+    }
+
+    private fun sha256(payload: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        return digest.digest(payload.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
     companion object {
         private const val TAG = "CodeModificationManager"
         private const val MODIFICATIONS_KEY = "code_modifications_history"
         private const val AUDIT_LOG_KEY = "code_modifications_audit_history"
         private const val SANDBOX_DIR_NAME = "selfmod_sandbox"
         private const val MAX_CHANGE_SIZE = 10000
-        private const val MAX_CANARY_ERROR_RATE = 0.15
+        private const val MAX_CANARY_QUALITY_REGRESSION = 0.15
         private const val MAX_CANARY_LATENCY_REGRESSION = 0.25
         private const val MAX_CANARY_CRASH_RATE = 0.01
     }
