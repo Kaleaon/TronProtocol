@@ -1,30 +1,42 @@
 package com.tronprotocol.app.plugins
 
 import android.content.Context
+import com.tronprotocol.app.plugins.scripting.Interpreter
+import com.tronprotocol.app.plugins.scripting.ScriptError
 import org.json.JSONObject
 
 /**
- * Enhanced expression evaluator for user-defined automations.
- * Extends sandboxed execution with variables, conditionals, and loops.
+ * Enhanced scripting runtime for user-defined automations.
+ *
+ * Supports two modes:
+ * 1. **Legacy pipe commands** (backward compatible): eval|expr, set_var|name|value, etc.
+ * 2. **TronScript** (new): Full scripts via "run|<script>" with variables, functions,
+ *    loops, conditionals, and built-in functions (print, len, str, num, type, etc.)
+ *
+ * TronScript is powered by a tree-walking interpreter inspired by
+ * "Crafting Interpreters" (Build Your Own X).
  *
  * Commands:
- *   eval|expression          – Evaluate expression with variables
- *   set_var|name|value       – Set a variable
- *   get_var|name             – Get a variable
- *   list_vars                – List all variables
- *   if|condition|then|else   – Conditional execution
- *   template|text            – String template with variable substitution ({var_name})
- *   clear_vars               – Clear all variables
+ *   run|<script>              – Execute a TronScript program
+ *   eval|expression           – Evaluate expression with variables (legacy)
+ *   set_var|name|value        – Set a variable (legacy)
+ *   get_var|name              – Get a variable (legacy)
+ *   list_vars                 – List all variables (legacy)
+ *   if|condition|then|else    – Conditional execution (legacy)
+ *   template|text             – String template with variable substitution (legacy)
+ *   clear_vars                – Clear all variables (legacy)
  */
 class ScriptingRuntimePlugin : Plugin {
 
     override val id: String = ID
     override val name: String = "Scripting Runtime"
     override val description: String =
-        "Expression evaluator with variables. Commands: eval|expr, set_var|name|value, get_var|name, list_vars, if|cond|then|else, template|text, clear_vars"
+        "Script interpreter with variables, functions, and loops. " +
+        "Use 'run|<script>' for TronScript or legacy commands: eval|expr, set_var|name|value, etc."
     override var isEnabled: Boolean = true
 
     private val variables = mutableMapOf<String, String>()
+    private val interpreter = Interpreter()
 
     override fun execute(input: String): PluginResult {
         val start = System.currentTimeMillis()
@@ -33,11 +45,23 @@ class ScriptingRuntimePlugin : Plugin {
             val command = parts[0].trim().lowercase()
 
             when (command) {
+                "run" -> {
+                    val script = parts.getOrNull(1)?.trim()
+                        ?: return PluginResult.error("Usage: run|<script>", elapsed(start))
+                    val result = interpreter.execute(script)
+                    val output = buildString {
+                        if (result.output.isNotBlank()) {
+                            append(result.output.trimEnd())
+                            append("\n")
+                        }
+                        append("=> ${result.value}")
+                    }
+                    PluginResult.success(output, elapsed(start))
+                }
                 "eval" -> {
                     val expr = parts.getOrNull(1)?.trim()
                         ?: return PluginResult.error("Usage: eval|expression", elapsed(start))
                     val resolved = resolveVars(expr)
-                    // Try numeric evaluation
                     if (resolved.matches(Regex("[0-9+\\-*/(). ]+"))) {
                         val result = evalMath(resolved)
                         PluginResult.success(result.toString(), elapsed(start))
@@ -85,8 +109,10 @@ class ScriptingRuntimePlugin : Plugin {
                     variables.clear()
                     PluginResult.success("All variables cleared", elapsed(start))
                 }
-                else -> PluginResult.error("Unknown command: $command", elapsed(start))
+                else -> PluginResult.error("Unknown command: $command. Use 'run|<script>' for TronScript.", elapsed(start))
             }
+        } catch (e: ScriptError) {
+            PluginResult.error("Script error: ${e.message}", elapsed(start))
         } catch (e: Exception) {
             PluginResult.error("Scripting error: ${e.message}", elapsed(start))
         }
@@ -101,7 +127,6 @@ class ScriptingRuntimePlugin : Plugin {
     }
 
     private fun evaluateCondition(condition: String): Boolean {
-        // Simple condition evaluation
         return when {
             condition.contains("==") -> {
                 val sides = condition.split("==")
@@ -127,7 +152,6 @@ class ScriptingRuntimePlugin : Plugin {
     }
 
     private fun evalMath(expression: String): Double {
-        // Delegate to simple parser (similar to SandboxedCodeExecutionPlugin)
         return MathExpressionParser(expression).parse()
     }
 

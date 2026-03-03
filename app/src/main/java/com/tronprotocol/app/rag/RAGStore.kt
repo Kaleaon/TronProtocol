@@ -40,6 +40,15 @@ class RAGStore @Throws(Exception::class) constructor(
     private val entityExtractor: EntityExtractor = EntityExtractor()
     private val ntsScoringEngine: NeuralTemporalScoringEngine = NeuralTemporalScoringEngine()
 
+    // TF-IDF inverted index for fast keyword retrieval (Build Your Own Search Engine)
+    val invertedIndex: InvertedIndex = InvertedIndex()
+
+    // Embedding cache to avoid recomputing embeddings for repeated queries
+    val embeddingCache: EmbeddingCache = EmbeddingCache()
+
+    // LSH-based ANN index for sub-linear semantic search
+    val annIndex: ANNIndex = ANNIndex(dimension = EMBEDDING_SIZE)
+
     /** Optional Frontier Dynamics STLE manager for accessibility-aware retrieval. */
     var frontierDynamicsManager: FrontierDynamicsManager? = null
 
@@ -107,6 +116,10 @@ class RAGStore @Throws(Exception::class) constructor(
 
         chunks.add(chunk)
         chunkIndex[chunkId] = chunk
+
+        // Update inverted index and ANN index for fast retrieval
+        invertedIndex.add(chunkId, content)
+        chunk.embedding?.let { annIndex.add(chunkId, it) }
 
         // Evict lowest-Q-value chunks if store exceeds maximum capacity
         evictIfNeeded()
@@ -279,11 +292,27 @@ class RAGStore @Throws(Exception::class) constructor(
     }
 
     /**
-     * Semantic retrieval using embeddings
+     * Semantic retrieval using embeddings.
+     * Uses ANN index for sub-linear search when available, with embedding cache.
      */
     private fun retrieveSemantic(query: String, topK: Int): List<RetrievalResult> {
-        val queryEmbedding = generateEmbedding(query)
+        val queryEmbedding = embeddingCache.getTracked(query) ?: generateEmbedding(query).also {
+            embeddingCache.put(query, it)
+        }
 
+        // Use ANN index for large stores
+        if (annIndex.size() > 0) {
+            val neighbors = annIndex.search(queryEmbedding, topK)
+            if (neighbors.isNotEmpty()) {
+                return neighbors.mapNotNull { neighbor ->
+                    chunkIndex[neighbor.id]?.let { chunk ->
+                        RetrievalResult(chunk, neighbor.similarity, RetrievalStrategy.SEMANTIC)
+                    }
+                }
+            }
+        }
+
+        // Fallback: brute-force cosine similarity
         val results = chunks
             .filter { it.embedding != null }
             .map { chunk ->
@@ -297,9 +326,23 @@ class RAGStore @Throws(Exception::class) constructor(
     }
 
     /**
-     * Keyword-based retrieval
+     * Keyword-based retrieval using TF-IDF inverted index.
+     * Falls back to linear scan if the index is empty.
      */
     private fun retrieveKeyword(query: String, topK: Int): List<RetrievalResult> {
+        // Use inverted index for O(1) token lookup when available
+        if (invertedIndex.size() > 0) {
+            val hits = invertedIndex.search(query, topK)
+            if (hits.isNotEmpty()) {
+                return hits.mapNotNull { hit ->
+                    chunkIndex[hit.chunkId]?.let { chunk ->
+                        RetrievalResult(chunk, hit.tfidfScore, RetrievalStrategy.KEYWORD)
+                    }
+                }
+            }
+        }
+
+        // Fallback: linear scan (for backward compatibility during index rebuild)
         val queryTokens = query.lowercase().split("\\s+".toRegex())
 
         val results = chunks.mapNotNull { chunk ->
@@ -574,6 +617,8 @@ class RAGStore @Throws(Exception::class) constructor(
     fun removeChunk(chunkId: String): Boolean {
         val chunk = chunkIndex.remove(chunkId) ?: return false
         chunks.remove(chunk)
+        invertedIndex.remove(chunkId)
+        annIndex.remove(chunkId)
 
         // Also clean up the knowledge graph
         try {
@@ -595,6 +640,9 @@ class RAGStore @Throws(Exception::class) constructor(
     fun clear() {
         chunks.clear()
         chunkIndex.clear()
+        invertedIndex.clear()
+        annIndex.clear()
+        embeddingCache.clear()
         storage.delete("rag_chunks_$aiId")
         Log.d(TAG, "Cleared RAG store for AI: $aiId")
     }
@@ -614,6 +662,8 @@ class RAGStore @Throws(Exception::class) constructor(
         for (chunk in toEvict) {
             chunks.remove(chunk)
             chunkIndex.remove(chunk.chunkId)
+            invertedIndex.remove(chunk.chunkId)
+            annIndex.remove(chunk.chunkId)
             try {
                 knowledgeGraph.removeChunkNode(chunk.chunkId)
             } catch (e: Exception) {
@@ -801,7 +851,13 @@ class RAGStore @Throws(Exception::class) constructor(
                 chunkIndex[chunk.chunkId] = chunk
             }
 
-            Log.d(TAG, "Loaded ${chunks.size} chunks for AI: $aiId")
+            // Rebuild inverted index and ANN index from loaded chunks
+            for (chunk in chunks) {
+                invertedIndex.add(chunk.chunkId, chunk.content)
+                chunk.embedding?.let { annIndex.add(chunk.chunkId, it) }
+            }
+
+            Log.d(TAG, "Loaded ${chunks.size} chunks for AI: $aiId (index: ${invertedIndex.size()} docs, ANN: ${annIndex.size()} vectors)")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading chunks", e)
         }
@@ -816,5 +872,7 @@ class RAGStore @Throws(Exception::class) constructor(
         private const val RELEVANCE_DECAY_HALF_LIFE_DAYS = 30.0
         /** Maximum chunks stored before LRU eviction kicks in. Prevents OOM. */
         private const val MAX_CHUNKS = 10_000
+        /** Embedding vector dimension (must match generateEmbedding output). */
+        private const val EMBEDDING_SIZE = 128
     }
 }
