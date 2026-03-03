@@ -1,5 +1,7 @@
 # Implementation Plan: All 48 AI Freedom Features
 
+Reference architecture blueprint: `docs/architecture/ARCHITECTURE.md`.
+
 ## Phase 1: Infrastructure Extensions
 1. Add new Capability enum values (NOTIFICATION_READ, SCREEN_READ, SENSOR_READ, CALENDAR_READ, APP_USAGE_READ, CLIPBOARD_READ, BATTERY_READ, CONTENT_PROVIDER_READ, SMS_READ, EMAIL_SEND, VOICE_OUTPUT, HTTP_REQUEST, INTENT_FIRE, ALARM_MANAGE, CONTACT_WRITE, SCRIPT_EXECUTE, SCHEDULED_ACTION, GOAL_MANAGE, PROACTIVE_MESSAGE)
 2. Add new AndroidManifest permissions and services (NotificationListenerService, AccessibilityService, BIND_NOTIFICATION_LISTENER_SERVICE, BODY_SENSORS, READ_CALENDAR, PACKAGE_USAGE_STATS, SET_ALARM, RECORD_AUDIO)
