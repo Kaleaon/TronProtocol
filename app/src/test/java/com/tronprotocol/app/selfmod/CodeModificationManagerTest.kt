@@ -25,7 +25,7 @@ class CodeModificationManagerTest {
 
         assertFalse(applied)
         assertEquals(ModificationStatus.ROLLED_BACK, modification.status)
-        assertTrue(manager.getAuditHistory().any { it.gate == "preflight" && it.outcome == "failed" })
+        assertTrue(manager.getAuditHistory().any { it.gate == "static_checks" && it.outcome == "failed" })
     }
 
     @Test
@@ -45,7 +45,7 @@ class CodeModificationManagerTest {
 
         assertFalse(applied)
         assertEquals(ModificationStatus.ROLLED_BACK, modification.status)
-        assertTrue(manager.getAuditHistory().any { it.gate == "rollback" && it.details == "health_degradation" })
+        assertTrue(manager.getAuditHistory().any { it.gate == "rollback" && it.details == "quality_regression" })
     }
 
     @Test
@@ -64,7 +64,27 @@ class CodeModificationManagerTest {
         )
 
         assertTrue(applied)
-        assertEquals(ModificationStatus.PROMOTED, modification.status)
-        assertTrue(manager.getAuditHistory().any { it.gate == "promotion" && it.toStatus == ModificationStatus.PROMOTED })
+        assertEquals(ModificationStatus.FULL_ROLLOUT, modification.status)
+        assertTrue(manager.getAuditHistory().any { it.gate == "full_rollout" && it.toStatus == ModificationStatus.FULL_ROLLOUT })
     }
+
+
+    @Test
+    fun applyModification_blocksRestrictedScopeWithoutOperatorApproval() {
+        val manager = CodeModificationManager(RuntimeEnvironment.getApplication())
+        val modification = manager.proposeModification(
+            componentName = "SecurityManager",
+            description = "edit AndroidManifest permission policy",
+            originalCode = "<manifest></manifest>",
+            modifiedCode = "<manifest><uses-permission android:name=\"android.permission.INTERNET\"/></manifest>",
+            operatorApproved = false
+        )
+
+        val applied = manager.applyModification(modification)
+
+        assertFalse(applied)
+        assertEquals(ModificationStatus.ROLLED_BACK, modification.status)
+        assertTrue(manager.getAuditHistory().any { it.gate == "static_checks" && it.outcome == "failed" })
+    }
+
 }

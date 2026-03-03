@@ -47,6 +47,9 @@ import kotlinx.coroutines.launch
 import com.tronprotocol.app.plugins.DangerousToolClassifier
 import com.tronprotocol.app.plugins.SendPolicy
 import com.tronprotocol.app.selfmod.CodeModificationManager
+import com.tronprotocol.app.telemetry.SharedTelemetry
+import com.tronprotocol.app.telemetry.TelemetryEvent
+import com.tronprotocol.app.telemetry.FatalPathSnapshot
 import java.util.Date
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -130,11 +133,15 @@ class TronProtocolService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val requestId = SharedTelemetry.newRequestId("tron_protocol_service")
+        val startTime = System.currentTimeMillis()
         val preflight = runStartupPreflight()
 
         // If we cannot even post the foreground notification, bail out.
         if (!preflight.canStartForeground) {
             publishStartupDiagnostic(preflight.state, preflight.reason, warn = true)
+            SharedTelemetry.record(TelemetryEvent("tron_protocol_service.startup", requestId, "tron_protocol_service", System.currentTimeMillis() - startTime, SharedTelemetry.STATUS_FATAL, "ForegroundUnavailable"))
+            SharedTelemetry.recordFailureSnapshot(FatalPathSnapshot("tron_protocol_service.startup", requestId, "tron_protocol_service", "ForegroundUnavailable", System.currentTimeMillis() - startTime, preflight.reason))
             stopSelf()
             return START_NOT_STICKY
         }
@@ -152,6 +159,8 @@ class TronProtocolService : Service() {
                 "Foreground notification failed: ${t.javaClass.simpleName}",
                 warn = true
             )
+            SharedTelemetry.record(TelemetryEvent("tron_protocol_service.startup", requestId, "tron_protocol_service", System.currentTimeMillis() - startTime, SharedTelemetry.STATUS_FATAL, t.javaClass.simpleName))
+            SharedTelemetry.recordFailureSnapshot(FatalPathSnapshot("tron_protocol_service.startup", requestId, "tron_protocol_service", t.javaClass.simpleName, System.currentTimeMillis() - startTime, t.message))
             stopSelf()
             return START_NOT_STICKY
         }
@@ -159,6 +168,7 @@ class TronProtocolService : Service() {
         // Foreground is live but loops may be gated (e.g. degraded mode).
         if (!preflight.canStartLoops) {
             publishStartupDiagnostic(preflight.state, preflight.reason, warn = true)
+            SharedTelemetry.record(TelemetryEvent("tron_protocol_service.startup", requestId, "tron_protocol_service", System.currentTimeMillis() - startTime, SharedTelemetry.STATUS_FAILURE, "LoopsDisabled"))
             return START_STICKY
         }
 
@@ -174,6 +184,7 @@ class TronProtocolService : Service() {
         initializeDependenciesAsync()
         startHeartbeat()
         startConsolidationLoop()
+        SharedTelemetry.record(TelemetryEvent("tron_protocol_service.startup", requestId, "tron_protocol_service", System.currentTimeMillis() - startTime, SharedTelemetry.STATUS_SUCCESS, null))
         return START_STICKY
     }
 
@@ -195,6 +206,8 @@ class TronProtocolService : Service() {
         subAgentManager?.shutdown()
         // Flush audit logger last so subsystem shutdown events are captured
         auditLogger?.shutdown()
+
+        SharedTelemetry.exportDashboardToFile(this)
 
         if (wakeLock?.isHeld == true) {
             try {
@@ -245,9 +258,12 @@ class TronProtocolService : Service() {
             } catch (e: Exception) {
                 if (!coreReady.get()) {
                     // Core tier failed — retry the whole chain
+                    SharedTelemetry.record(TelemetryEvent("tron_protocol_service.initialize", SharedTelemetry.newRequestId("tron_protocol_service"), "tron_protocol_service", 0, SharedTelemetry.STATUS_FATAL, e.javaClass.simpleName))
+                    SharedTelemetry.recordFailureSnapshot(FatalPathSnapshot("tron_protocol_service.initialize", SharedTelemetry.newRequestId("tron_protocol_service"), "tron_protocol_service", e.javaClass.simpleName, 0, e.message))
                     scheduleInitializationRetry(e)
                 } else {
                     // Core succeeded but a later tier failed — log but don't block heartbeat
+                    SharedTelemetry.record(TelemetryEvent("tron_protocol_service.initialize", requestId, "tron_protocol_service", 0, SharedTelemetry.STATUS_FAILURE, e.javaClass.simpleName))
                     Log.e(TAG, "Non-core tier initialization failed; heartbeat continues", e)
                 }
             } finally {

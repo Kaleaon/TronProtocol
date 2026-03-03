@@ -67,3 +67,10 @@ fastlane/readme.md
 
 # Local SDK archives
 android-commandlinetools.zip
+kotlinc/
+kotlin-compiler-1.9.22.zip
+kotlin-compiler-1.9.22.jar
+out_classes/
+run_test.sh
+app/libs/*.jar
+app/libs/*.aar

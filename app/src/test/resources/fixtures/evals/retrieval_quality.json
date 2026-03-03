@@ -1,0 +1,24 @@
+{
+  "suite": "retrieval_quality",
+  "metadata": {
+    "description": "Evaluates precision and recall of retrieved chunks.",
+    "min_pass_rate": 1.0
+  },
+  "scenarios": [
+    {
+      "id": "rq_001",
+      "query": "Summarize Android lifecycle callbacks.",
+      "expected_output": {
+        "retrieved_ids": ["doc-android-lifecycle", "doc-activity-onresume", "doc-activity-onpause"]
+      },
+      "actual_output": {
+        "retrieved_ids": ["doc-activity-onpause", "doc-android-lifecycle", "doc-activity-onresume"]
+      },
+      "scoring": {
+        "min_precision": 1.0,
+        "min_recall": 1.0,
+        "weight": 1.0
+      }
+    }
+  ]
+}

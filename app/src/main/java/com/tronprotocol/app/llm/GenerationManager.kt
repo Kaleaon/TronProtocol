@@ -11,6 +11,8 @@ import com.tronprotocol.app.persona.EmotionalStateTracker
 import com.tronprotocol.app.persona.Persona
 import com.tronprotocol.app.plugins.ToolCallResult
 import com.tronprotocol.app.plugins.ToolDefinition
+import com.tronprotocol.app.telemetry.SharedTelemetry
+import com.tronprotocol.app.telemetry.TelemetryEvent
 
 /**
  * Unified generation facade across all backends.
@@ -91,8 +93,21 @@ class GenerationManager(
      * Generate text with the current persona and backend.
      */
     fun generate(prompt: String, maxTokens: Int = 512): BackendGenerationResult {
+        val requestId = SharedTelemetry.newRequestId("generation_manager")
+        val startTime = System.currentTimeMillis()
         val backend = llmManager.activeBackend
-            ?: return BackendGenerationResult.error("No backend loaded")
+            ?: return BackendGenerationResult.error("No backend loaded").also {
+                SharedTelemetry.record(
+                    TelemetryEvent(
+                        operationId = "generation_manager.generate",
+                        requestId = requestId,
+                        subsystem = "generation_manager",
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        status = SharedTelemetry.STATUS_FAILURE,
+                        errorClass = "BackendUnavailable"
+                    )
+                )
+            }
 
         val persona = activePersona
         val effectivePrompt = if (persona != null) {
@@ -114,6 +129,16 @@ class GenerationManager(
             controlVectorManager.updateEmotionState(emotionalStateTracker.currentRegime)
         }
 
+        SharedTelemetry.record(
+            TelemetryEvent(
+                operationId = "generation_manager.generate",
+                requestId = requestId,
+                subsystem = "generation_manager",
+                latencyMs = System.currentTimeMillis() - startTime,
+                status = if (result.success) SharedTelemetry.STATUS_SUCCESS else SharedTelemetry.STATUS_FAILURE,
+                errorClass = if (result.success) null else (result.error ?: "GenerationError")
+            )
+        )
         return result
     }
 
@@ -125,8 +150,20 @@ class GenerationManager(
         maxTokens: Int = 512,
         callback: StreamCallback
     ) {
+        val requestId = SharedTelemetry.newRequestId("generation_manager")
+        val startTime = System.currentTimeMillis()
         val backend = llmManager.activeBackend
         if (backend == null) {
+            SharedTelemetry.record(
+                TelemetryEvent(
+                    operationId = "generation_manager.generate_streaming",
+                    requestId = requestId,
+                    subsystem = "generation_manager",
+                    latencyMs = 0,
+                    status = SharedTelemetry.STATUS_FAILURE,
+                    errorClass = "BackendUnavailable"
+                )
+            )
             callback.onError("No backend loaded")
             return
         }
@@ -154,9 +191,28 @@ class GenerationManager(
                 controlVectorManager.updateEmotionState(emotionalStateTracker.currentRegime)
                 controlVectorManager.onGenerationTurnComplete(0.5f) // neutral quality signal
                 callback.onComplete(tokensGenerated, latencyMs)
+                SharedTelemetry.record(
+                    TelemetryEvent(
+                        operationId = "generation_manager.generate_streaming",
+                        requestId = requestId,
+                        subsystem = "generation_manager",
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        status = SharedTelemetry.STATUS_SUCCESS
+                    )
+                )
             }
 
             override fun onError(error: String) {
+                SharedTelemetry.record(
+                    TelemetryEvent(
+                        operationId = "generation_manager.generate_streaming",
+                        requestId = requestId,
+                        subsystem = "generation_manager",
+                        latencyMs = System.currentTimeMillis() - startTime,
+                        status = SharedTelemetry.STATUS_FAILURE,
+                        errorClass = error
+                    )
+                )
                 callback.onError(error)
             }
 
