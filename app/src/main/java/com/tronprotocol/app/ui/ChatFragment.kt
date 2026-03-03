@@ -246,7 +246,7 @@ class ChatFragment : Fragment() {
                     tier.label,
                     latencyMs,
                     qualityScore.overall,
-                    "${contextWindow.turnCount}T ${"%.0f".format(contextWindow.utilizationPercent)}%%ctx"
+                    "${contextWindow.turnCount}T ${"%.0f".format(contextWindow.utilizationPercent)}%ctx"
                 )
 
                 // Auto-scroll to bottom
