@@ -12,8 +12,8 @@ class ModificationAuditRecordTest {
         val timestamp = System.currentTimeMillis()
         val record = ModificationAuditRecord(
             modificationId = "mod-001",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "preflight",
             outcome = "passed",
             details = "All checks green",
@@ -21,8 +21,8 @@ class ModificationAuditRecordTest {
         )
 
         assertEquals("mod-001", record.modificationId)
-        assertEquals(ModificationStatus.PROPOSED, record.fromStatus)
-        assertEquals(ModificationStatus.PREFLIGHTED, record.toStatus)
+        assertEquals(ModificationStatus.PROPOSAL, record.fromStatus)
+        assertEquals(ModificationStatus.STATIC_CHECKS, record.toStatus)
         assertEquals("preflight", record.gate)
         assertEquals("passed", record.outcome)
         assertEquals("All checks green", record.details)
@@ -34,8 +34,8 @@ class ModificationAuditRecordTest {
         val before = System.currentTimeMillis()
         val record = ModificationAuditRecord(
             modificationId = "mod-002",
-            fromStatus = ModificationStatus.CANARY,
-            toStatus = ModificationStatus.PROMOTED,
+            fromStatus = ModificationStatus.CANARY_ROLLOUT,
+            toStatus = ModificationStatus.FULL_ROLLOUT,
             gate = "promotion",
             outcome = "passed",
             details = "Canary healthy"
@@ -53,8 +53,8 @@ class ModificationAuditRecordTest {
         val timestamp = 1000L
         val record1 = ModificationAuditRecord(
             modificationId = "mod-eq",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "syntax",
             outcome = "passed",
             details = "OK",
@@ -62,8 +62,8 @@ class ModificationAuditRecordTest {
         )
         val record2 = ModificationAuditRecord(
             modificationId = "mod-eq",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "syntax",
             outcome = "passed",
             details = "OK",
@@ -78,8 +78,8 @@ class ModificationAuditRecordTest {
     fun equality_differentModificationId() {
         val record1 = ModificationAuditRecord(
             modificationId = "mod-a",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "syntax",
             outcome = "passed",
             details = "OK",
@@ -87,8 +87,8 @@ class ModificationAuditRecordTest {
         )
         val record2 = ModificationAuditRecord(
             modificationId = "mod-b",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "syntax",
             outcome = "passed",
             details = "OK",
@@ -102,7 +102,7 @@ class ModificationAuditRecordTest {
     fun equality_differentOutcome() {
         val record1 = ModificationAuditRecord(
             modificationId = "mod-x",
-            fromStatus = ModificationStatus.PROPOSED,
+            fromStatus = ModificationStatus.PROPOSAL,
             toStatus = ModificationStatus.REJECTED,
             gate = "safety",
             outcome = "failed",
@@ -111,8 +111,8 @@ class ModificationAuditRecordTest {
         )
         val record2 = ModificationAuditRecord(
             modificationId = "mod-x",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "safety",
             outcome = "passed",
             details = "OK",
@@ -128,8 +128,8 @@ class ModificationAuditRecordTest {
     fun copy_producesEqualRecord() {
         val original = ModificationAuditRecord(
             modificationId = "mod-copy",
-            fromStatus = ModificationStatus.PREFLIGHTED,
-            toStatus = ModificationStatus.CANARY,
+            fromStatus = ModificationStatus.STATIC_CHECKS,
+            toStatus = ModificationStatus.CANARY_ROLLOUT,
             gate = "canary_deploy",
             outcome = "passed",
             details = "Deployed to canary",
@@ -151,8 +151,8 @@ class ModificationAuditRecordTest {
     fun copy_withModifiedField() {
         val original = ModificationAuditRecord(
             modificationId = "mod-copy2",
-            fromStatus = ModificationStatus.CANARY,
-            toStatus = ModificationStatus.PROMOTED,
+            fromStatus = ModificationStatus.CANARY_ROLLOUT,
+            toStatus = ModificationStatus.FULL_ROLLOUT,
             gate = "promotion",
             outcome = "passed",
             details = "All good",
@@ -161,8 +161,8 @@ class ModificationAuditRecordTest {
         val modified = original.copy(outcome = "failed", details = "Health degraded")
 
         assertEquals("mod-copy2", modified.modificationId)
-        assertEquals(ModificationStatus.CANARY, modified.fromStatus)
-        assertEquals(ModificationStatus.PROMOTED, modified.toStatus)
+        assertEquals(ModificationStatus.CANARY_ROLLOUT, modified.fromStatus)
+        assertEquals(ModificationStatus.FULL_ROLLOUT, modified.toStatus)
         assertEquals("promotion", modified.gate)
         assertEquals("failed", modified.outcome)
         assertEquals("Health degraded", modified.details)
@@ -175,8 +175,8 @@ class ModificationAuditRecordTest {
     fun copy_originalUnchanged() {
         val original = ModificationAuditRecord(
             modificationId = "mod-immutable",
-            fromStatus = ModificationStatus.PROPOSED,
-            toStatus = ModificationStatus.PREFLIGHTED,
+            fromStatus = ModificationStatus.PROPOSAL,
+            toStatus = ModificationStatus.STATIC_CHECKS,
             gate = "test",
             outcome = "passed",
             details = "Original details",
@@ -193,7 +193,7 @@ class ModificationAuditRecordTest {
     fun record_capturesRollbackTransition() {
         val record = ModificationAuditRecord(
             modificationId = "mod-rb",
-            fromStatus = ModificationStatus.CANARY,
+            fromStatus = ModificationStatus.CANARY_ROLLOUT,
             toStatus = ModificationStatus.ROLLED_BACK,
             gate = "rollback",
             outcome = "failed",
@@ -201,7 +201,7 @@ class ModificationAuditRecordTest {
             timestamp = 6000L
         )
 
-        assertEquals(ModificationStatus.CANARY, record.fromStatus)
+        assertEquals(ModificationStatus.CANARY_ROLLOUT, record.fromStatus)
         assertEquals(ModificationStatus.ROLLED_BACK, record.toStatus)
         assertEquals("health_degradation", record.details)
     }
@@ -210,7 +210,7 @@ class ModificationAuditRecordTest {
     fun record_capturesRejectionTransition() {
         val record = ModificationAuditRecord(
             modificationId = "mod-rej",
-            fromStatus = ModificationStatus.PROPOSED,
+            fromStatus = ModificationStatus.PROPOSAL,
             toStatus = ModificationStatus.REJECTED,
             gate = "policy",
             outcome = "rejected",
@@ -218,7 +218,7 @@ class ModificationAuditRecordTest {
             timestamp = 7000L
         )
 
-        assertEquals(ModificationStatus.PROPOSED, record.fromStatus)
+        assertEquals(ModificationStatus.PROPOSAL, record.fromStatus)
         assertEquals(ModificationStatus.REJECTED, record.toStatus)
     }
 }

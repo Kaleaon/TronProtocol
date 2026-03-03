@@ -10,5 +10,7 @@ data class ModificationAuditRecord(
     val gate: String,
     val outcome: String,
     val details: String,
+    val previousRecordHash: String = "GENESIS",
+    val recordHash: String = "",
     val timestamp: Long = System.currentTimeMillis()
 )
