@@ -1,0 +1,28 @@
+{
+  "suite": "tool_execution_correctness",
+  "metadata": {
+    "description": "Ensures tool calls match expected tool name and arguments.",
+    "min_pass_rate": 1.0
+  },
+  "scenarios": [
+    {
+      "id": "te_001",
+      "prompt": "Set a timer for 5 minutes.",
+      "expected_output": {
+        "tool": "set_timer",
+        "args": {
+          "duration_minutes": 5
+        }
+      },
+      "actual_output": {
+        "tool": "set_timer",
+        "args": {
+          "duration_minutes": 5
+        }
+      },
+      "scoring": {
+        "weight": 1.0
+      }
+    }
+  ]
+}
