@@ -9,6 +9,8 @@ class ModelIntegrityVerifier {
     enum class FailureReason {
         UNTRUSTED_MODEL,
         MISSING_METADATA,
+        INVALID_SIGNED_METADATA,
+        MANIFEST_INCOMPATIBLE,
         MISSING_FILE,
         CHECKSUM_MISMATCH,
         IO_ERROR
@@ -36,6 +38,27 @@ class ModelIntegrityVerifier {
                 success = false,
                 failureReason = FailureReason.MISSING_METADATA,
                 message = "No model artifact checksum metadata provided"
+            )
+        }
+
+        val signedMetadata = config.manifest.signedMetadata
+        if (signedMetadata.algorithm.isBlank() || signedMetadata.signature.isBlank() ||
+            signedMetadata.signature == "unsigned"
+        ) {
+            return VerificationResult(
+                success = false,
+                failureReason = FailureReason.INVALID_SIGNED_METADATA,
+                message = "Manifest does not contain valid signed metadata"
+            )
+        }
+
+        if (config.manifest.compatibility.quantization != config.quantization ||
+            config.manifest.compatibility.backend != config.backendType
+        ) {
+            return VerificationResult(
+                success = false,
+                failureReason = FailureReason.MANIFEST_INCOMPATIBLE,
+                message = "Manifest compatibility does not match model runtime settings"
             )
         }
 
@@ -69,6 +92,16 @@ class ModelIntegrityVerifier {
                     success = false,
                     failureReason = FailureReason.CHECKSUM_MISMATCH,
                     message = "Checksum mismatch for ${artifact.fileName}",
+                    verifiedArtifacts = verified,
+                    failedArtifact = artifact.fileName
+                )
+            }
+
+            if (file.length() <= 0L) {
+                return VerificationResult(
+                    success = false,
+                    failureReason = FailureReason.CHECKSUM_MISMATCH,
+                    message = "Artifact ${artifact.fileName} is empty",
                     verifiedArtifacts = verified,
                     failedArtifact = artifact.fileName
                 )
