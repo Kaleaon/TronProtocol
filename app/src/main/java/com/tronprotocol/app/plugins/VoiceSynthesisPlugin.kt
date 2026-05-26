@@ -58,7 +58,14 @@ class VoiceSynthesisPlugin : Plugin {
                         override fun onStart(utteranceId: String?) {}
                         override fun onDone(utteranceId: String?) { if (utteranceId == uttId) latch.countDown() }
                         @Deprecated("Deprecated in Java")
-                        override fun onError(utteranceId: String?) { if (utteranceId == uttId) latch.countDown() }
+                        override fun onError(utteranceId: String?) {
+                            if (utteranceId == uttId) latch.countDown()
+                        }
+
+                        override fun onError(utteranceId: String?, errorCode: Int) {
+                            Log.e(TAG, "TTS Error (code $errorCode) for utterance: $utteranceId")
+                            if (utteranceId == uttId) latch.countDown()
+                        }
                     })
                     tts?.speak(text, TextToSpeech.QUEUE_ADD, null, uttId)
                     latch.await(30, TimeUnit.SECONDS)
